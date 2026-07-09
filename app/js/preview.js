@@ -63,64 +63,37 @@ const preview = {
   _buildSegmentsAsync(commands, onDone, onProgress) {
     if (this._segBuilding) return;
     const total = commands.length;
-    // For small files, build synchronously
-    if (total <= CFG.SEGMENT_CHUNK) {
-      const result = segmentBuilder.build(commands);
+    if (total === 0) { if (onDone) onDone({ points: [], segments: [], bounds: null, truncated: false }); return; }
+
+    this._segBuilding = true;
+    this._segVersion++;
+
+    // Helper to finalise after build
+    const finish = (result) => {
+      this._segBuilding = false;
       const bounds = segmentBuilder.computeBounds(result.points);
       this._segments = result.segments;
       this._points = result.points;
       this._segBounds = bounds;
       this._segTruncated = result.truncated;
       if (onDone) onDone(result);
+    };
+
+    // For small files, build synchronously (fast path)
+    if (total <= 20000) {
+      const result = segmentBuilder.build(commands);
+      finish(result);
       return;
     }
-    // For large files, build in chunks via rAF, passing state between chunks
-    this._segBuilding = true;
-    this._segVersion++;
-    const version = this._segVersion;
-    const CHUNK = CFG.SEGMENT_CHUNK;
-    let allSegments = [];
-    let allPoints = [];
-    let i = 0;
-    let state = null; // passes to next chunk's initialState
-    let truncated = false;
 
-    const processChunk = () => {
-      if (version !== this._segVersion) { this._segBuilding = false; return; }
-      const end = Math.min(i + CHUNK, total);
-      const chunkCmds = commands.slice(i, end);
-      const result = segmentBuilder.build(chunkCmds, CFG.MAX_SEGMENTS - allPoints.length, state);
-      // Adjust cmdIdx to original command index
-      for (let j = 0; j < result.segments.length; j++) {
-        result.segments[j].cmdIdx += i;
-      }
-      allSegments.push(...result.segments);
-      const ptStart = allPoints.length > 0 ? 1 : 0;
-      for (let j = ptStart; j < result.points.length; j++) allPoints.push(result.points[j]);
-      if (result.truncated) truncated = true;
-      // Prepare state for next chunk: extract last position + modal state
-      const lastCmd = chunkCmds[chunkCmds.length - 1];
-      const lastPt = result.points[result.points.length - 1];
-      state = {
-        x: lastPt?.x ?? 0, y: lastPt?.y ?? 0, z: lastPt?.z ?? 0,
-        isRel: result.isRel ?? false,
-        unitToMm: result.unitToMm ?? 1,
-        planeMode: result.planeMode ?? 17,
-      };
-      if (onProgress) onProgress(Math.round(end / total * 100));
-      if (end < total && !truncated) {
-        requestAnimationFrame(processChunk);
-      } else {
-        this._segBuilding = false;
-        const bounds = segmentBuilder.computeBounds(allPoints);
-        this._segments = allSegments;
-        this._points = allPoints;
-        this._segBounds = bounds;
-        this._segTruncated = truncated;
-        if (onDone) onDone({ points: allPoints, segments: allSegments, bounds, truncated });
-      }
+    // For large files, defer via setTimeout to keep UI responsive
+    const doBuild = () => {
+      const result = segmentBuilder.build(commands);
+      finish(result);
     };
-    requestAnimationFrame(processChunk);
+    // Use setTimeout with progress update before starting
+    if (onProgress) onProgress(0);
+    setTimeout(doBuild, 50);
   },
 
   fitView() {
@@ -223,6 +196,8 @@ const preview = {
       this._segments = null;
       this._points = null;
       this._segCommands = cmds;
+      this._segBuilding = false; // abort any stale build
+      this._segVersion++;
     }
     if (state.mode === 'gcode' && !this._segments && !this._segBuilding && n > 0) {
       ui.setProgress(0, 'Building preview…');
@@ -233,7 +208,6 @@ const preview = {
       }, (pct) => {
         ui.setProgress(pct, 'Building preview…');
       });
-      // Draw a placeholder frame immediately
       this._drawCore(cmds, 0);
       return;
     }

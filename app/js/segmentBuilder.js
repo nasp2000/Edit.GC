@@ -13,7 +13,7 @@ const segmentBuilder = {
     const segments = [];
     let truncated = false;
 
-    const appendLinear = (prev, next, rapid, cmdIdx) => {
+    const pushPt = (prev, next, rapid, cmdIdx) => {
       if (points.length >= maxSegs) { truncated = true; return; }
       points.push(next);
       segments.push({ a: prev, b: next, rapid, arc: false, cmdIdx });
@@ -21,40 +21,21 @@ const segmentBuilder = {
 
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-    const arcSegs = (prev, next, cw, cmdIdx) => {
-      let ax, ay, az, cx, cy;
-      if (planeMode === 18) {
-        ax = 'x'; ay = 'z'; az = 'y';
-        cx = prev.x + (c.params.I || 0) * unitToMm;
-        cy = prev.z + (c.params.K || 0) * unitToMm;
-      } else if (planeMode === 19) {
-        ax = 'y'; ay = 'z'; az = 'x';
-        cx = prev.y + (c.params.J || 0) * unitToMm;
-        cy = prev.z + (c.params.K || 0) * unitToMm;
-      } else {
-        ax = 'x'; ay = 'y'; az = 'z';
-        if (c.params.R !== undefined) {
-          const cc = segmentBuilder._chooseCenterFromR(prev, next, c.params.R * unitToMm, cw);
-          if (!cc) { appendLinear(prev, next, false, cmdIdx); return; }
-          cx = cc.cx; cy = cc.cy;
-        } else {
-          cx = prev.x + (c.params.I || 0) * unitToMm;
-          cy = prev.y + (c.params.J || 0) * unitToMm;
-        }
-      }
-      const p0a = prev[ax], p0b = prev[ay];
+    // Subdivide an arc — all params passed explicitly (no closure over c)
+    const subdivideArc = (prev, next, cw, cx, cy, planeAx, planeAy, perpAz, cmdIdx) => {
+      const p0a = prev[planeAx], p0b = prev[planeAy];
       const da0 = p0a - cx, db0 = p0b - cy;
       const r = Math.sqrt(da0 * da0 + db0 * db0);
-      if (!isFinite(r) || r < 0.000001) { appendLinear(prev, next, false, cmdIdx); return; }
+      if (!isFinite(r) || r < 0.000001) { pushPt(prev, next, false, cmdIdx); return; }
       let a0 = Math.atan2(p0b - cy, p0a - cx);
-      let a1 = Math.atan2(next[ay] - cy, next[ax] - cx);
-      const isFullCircle = (Math.abs(next[ax] - prev[ax]) < 0.000001 && Math.abs(next[ay] - prev[ay]) < 0.000001);
+      let a1 = Math.atan2(next[planeAy] - cy, next[planeAx] - cx);
+      const isFullCircle = (Math.abs(next[planeAx] - prev[planeAx]) < 0.000001 && Math.abs(next[planeAy] - prev[planeAy]) < 0.000001);
       if (isFullCircle) a1 = a0;
       let delta = a1 - a0;
       if (cw) { if (delta >= 0) delta -= Math.PI * 2; }
       else { if (delta <= 0) delta += Math.PI * 2; }
       if (isFullCircle) delta = cw ? -Math.PI * 2 : Math.PI * 2;
-      if (Math.abs(delta) < 0.0000001) { appendLinear(prev, next, false, cmdIdx); return; }
+      if (Math.abs(delta) < 0.0000001) { pushPt(prev, next, false, cmdIdx); return; }
       const arcLen = Math.abs(delta) * r;
       const n = clamp(Math.max(6, Math.ceil(Math.abs(delta) / CFG.ARC_MAX_THETA), Math.ceil(arcLen / CFG.ARC_STEP_MM)), 6, CFG.ARC_MAX_SEGS);
       let last = prev;
@@ -63,17 +44,43 @@ const segmentBuilder = {
         const t = k / n;
         const a = a0 + delta * t;
         const np = { ...last };
-        np[ax] = cx + Math.cos(a) * r;
-        np[ay] = cy + Math.sin(a) * r;
-        if (Math.abs(next[az] - prev[az]) > 0.000001) np[az] = prev[az] + (next[az] - prev[az]) * t;
-        appendLinear(last, np, false, cmdIdx);
+        np[planeAx] = cx + Math.cos(a) * r;
+        np[planeAy] = cy + Math.sin(a) * r;
+        if (Math.abs(next[perpAz] - prev[perpAz]) > 0.000001) np[perpAz] = prev[perpAz] + (next[perpAz] - prev[perpAz]) * t;
+        pushPt(last, np, false, cmdIdx);
         last = np;
       }
     };
 
+    // Resolve arc centre from R value
+    const centerFromR = (prev, next, rVal, cw) => {
+      const dx = next.x - prev.x, dy = next.y - prev.y;
+      const chord = Math.sqrt(dx * dx + dy * dy);
+      if (!isFinite(chord) || chord < 0.000001) return null;
+      let rAbs = Math.abs(rVal);
+      if (chord > 2 * rAbs) rAbs = chord * 0.5;
+      const h2 = Math.max(0, rAbs * rAbs - (chord * chord) / 4);
+      const h = Math.sqrt(h2);
+      const mx = (prev.x + next.x) * 0.5, my = (prev.y + next.y) * 0.5;
+      const ux = -dy / chord, uy = dx / chord;
+      const cands = [{ cx: mx + ux * h, cy: my + uy * h }, { cx: mx - ux * h, cy: my - uy * h }];
+      const sweep = (c) => {
+        let a0 = Math.atan2(prev.y - c.cy, prev.x - c.cx);
+        let a1 = Math.atan2(next.y - c.cy, next.x - c.cx);
+        let d = a1 - a0;
+        if (cw) { if (d >= 0) d -= Math.PI * 2; }
+        else { if (d <= 0) d += Math.PI * 2; }
+        return d;
+      };
+      const d0 = sweep(cands[0]), d1 = sweep(cands[1]);
+      return (rVal < 0 ? Math.abs(d0) >= Math.abs(d1) : Math.abs(d0) <= Math.abs(d1)) ? cands[0] : cands[1];
+    };
+
+    // Main loop — process every command once
     for (let i = 0; i < commands.length; i++) {
       const c = commands[i];
       const t = c.type;
+      // Modal state changes
       if (t === 'G91') { isRel = true; continue; }
       if (t === 'G90') { isRel = false; continue; }
       if (t === 'G20') { unitToMm = 25.4; continue; }
@@ -81,54 +88,58 @@ const segmentBuilder = {
       if (t === 'G17') { planeMode = 17; continue; }
       if (t === 'G18') { planeMode = 18; continue; }
       if (t === 'G19') { planeMode = 19; continue; }
-      if (t === 'G0' || t === 'G00' || t === 'G1' || t === 'G01' || t === 'G2' || t === 'G02' || t === 'G3' || t === 'G03') {
-        motionMode = (t === 'G0' || t === 'G00') ? 0 : ((t === 'G2' || t === 'G02' || t === 'G3' || t === 'G03') ? ((t === 'G2' || t === 'G02') ? 2 : 3) : 1);
-      }
-      if (motionMode < 0 || motionMode > 3) continue;
+      // Motion command
+      if (t === 'G0' || t === 'G00') motionMode = 0;
+      else if (t === 'G1' || t === 'G01') motionMode = 1;
+      else if (t === 'G2' || t === 'G02') motionMode = 2;
+      else if (t === 'G3' || t === 'G03') motionMode = 3;
+      else continue; // non-motion, skip
+      // Compute next position
       let nx = x, ny = y, nz = z;
-      const getVal = (axis) => c.params[axis] !== undefined ? c.params[axis] * unitToMm : null;
-      const vx = getVal('X'); if (vx !== null) nx = isRel ? x + vx : vx;
-      const vy = getVal('Y'); if (vy !== null) ny = isRel ? y + vy : vy;
-      const vz = getVal('Z'); if (vz !== null) nz = isRel ? z + vz : vz;
+      const getV = (a) => c.params[a] !== undefined ? c.params[a] * unitToMm : null;
+      const vx = getV('X'); if (vx !== null) nx = isRel ? x + vx : vx;
+      const vy = getV('Y'); if (vy !== null) ny = isRel ? y + vy : vy;
+      const vz = getV('Z'); if (vz !== null) nz = isRel ? z + vz : vz;
       const next = { x: nx, y: ny, z: nz };
       const prev = { x, y, z };
-      const rapid = motionMode === 0;
+      // Arc handling (plane-specific)
       if (motionMode === 2 || motionMode === 3) {
         const cw = motionMode === 2;
-        const hasArcCenter = (planeMode === 18 && (c.params.I !== undefined || c.params.K !== undefined)) ||
-                            (planeMode === 19 && (c.params.J !== undefined || c.params.K !== undefined)) ||
-                            (planeMode === 17 && (c.params.I !== undefined || c.params.J !== undefined || c.params.R !== undefined));
-        if (hasArcCenter) arcSegs(prev, next, cw, i);
-        else appendLinear(prev, next, false, i);
+        // Determine if we have arc centre info for this plane
+        let ax, ay, az, cx, cy, hasCenter;
+        if (planeMode === 18) { // XZ
+          ax = 'x'; ay = 'z'; az = 'y';
+          cx = prev.x + (c.params.I || 0) * unitToMm;
+          cy = prev.z + (c.params.K || 0) * unitToMm;
+          hasCenter = c.params.I !== undefined || c.params.K !== undefined;
+        } else if (planeMode === 19) { // YZ
+          ax = 'y'; ay = 'z'; az = 'x';
+          cx = prev.y + (c.params.J || 0) * unitToMm;
+          cy = prev.z + (c.params.K || 0) * unitToMm;
+          hasCenter = c.params.J !== undefined || c.params.K !== undefined;
+        } else { // G17 XY (default)
+          ax = 'x'; ay = 'y'; az = 'z';
+          if (c.params.R !== undefined) {
+            const cc = centerFromR(prev, next, c.params.R * unitToMm, cw);
+            if (cc) { cx = cc.cx; cy = cc.cy; hasCenter = true; }
+            else { hasCenter = false; }
+          } else {
+            cx = prev.x + (c.params.I || 0) * unitToMm;
+            cy = prev.y + (c.params.J || 0) * unitToMm;
+            hasCenter = c.params.I !== undefined || c.params.J !== undefined;
+          }
+        }
+        if (hasCenter) {
+          subdivideArc(prev, next, cw, cx, cy, ax, ay, az, i);
+        } else {
+          pushPt(prev, next, false, i);
+        }
       } else {
-        appendLinear(prev, next, rapid, i);
+        pushPt(prev, next, motionMode === 0, i);
       }
       x = nx; y = ny; z = nz;
     }
     return { points, segments, truncated, isRel, unitToMm, planeMode };
-  },
-
-  _chooseCenterFromR(prev, next, rVal, cw) {
-    const dx = next.x - prev.x, dy = next.y - prev.y;
-    const chord = Math.sqrt(dx * dx + dy * dy);
-    if (!isFinite(chord) || chord < 0.000001) return null;
-    let rAbs = Math.abs(rVal);
-    if (chord > 2 * rAbs) rAbs = chord * 0.5;
-    const h2 = Math.max(0, rAbs * rAbs - (chord * chord) / 4);
-    const h = Math.sqrt(h2);
-    const mx = (prev.x + next.x) * 0.5, my = (prev.y + next.y) * 0.5;
-    const ux = -dy / chord, uy = dx / chord;
-    const cands = [{ cx: mx + ux * h, cy: my + uy * h }, { cx: mx - ux * h, cy: my - uy * h }];
-    const sweep = (c) => {
-      let a0 = Math.atan2(prev.y - c.cy, prev.x - c.cx);
-      let a1 = Math.atan2(next.y - c.cy, next.x - c.cx);
-      let d = a1 - a0;
-      if (cw) { if (d >= 0) d -= Math.PI * 2; }
-      else { if (d <= 0) d += Math.PI * 2; }
-      return d;
-    };
-    const d0 = sweep(cands[0]), d1 = sweep(cands[1]);
-    return (rVal < 0 ? Math.abs(d0) >= Math.abs(d1) : Math.abs(d0) <= Math.abs(d1)) ? cands[0] : cands[1];
   },
 
   computeBounds(points) {

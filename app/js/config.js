@@ -6,7 +6,7 @@ const CFG = {
 
   // Preview / segment builder
   SEGMENT_CHUNK: 5000,
-  MAX_SEGMENTS: 2000000,
+  MAX_SEGMENTS: 4000000,
   ARC_STEP_MM: 0.8,
   ARC_MAX_THETA: Math.PI / 18,
   ARC_MAX_SEGS: 800,
