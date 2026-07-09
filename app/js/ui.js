@@ -970,7 +970,7 @@ const ui = {
         w.style.cursor = widgetsLocked ? 'default' : 'grab';
       });
       document.body.classList.toggle('widgets-locked', widgetsLocked);
-      if (lockBtn) lockBtn.textContent = widgetsLocked ? 'ðŸ”’ Widgets locked' : 'ðŸ”“ Widgets unlocked (drag active)';
+      if (lockBtn) lockBtn.textContent = widgetsLocked ? '[Locked] Widgets fixed' : '[Unlocked] Widgets (drag active)';
     }
     if (lockBtn) {
       _applyWidgetLock();
