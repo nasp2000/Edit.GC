@@ -1,0 +1,14 @@
+# OS files
+Thumbs.db
+.DS_Store
+*.lnk
+
+# Temp / generated
+app/js/_combined.js
+
+# Test G-code files (large, not part of source)
+teste/
+
+# Workspace config
+*.code-workspace
+work.md

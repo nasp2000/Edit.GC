@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Edit.GC</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- BANNER -->
+  <header id="banner">
+    <span class="banner-title">Edit<span class="banner-dot">.</span>GC</span>
+    <span class="banner-sub">G-code Editor</span>
+  </header>
+
+  <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
+  <input type="file" id="fileInputSvg" accept=".svg" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
+  <input type="file" id="fileInputDxf" accept=".dxf" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
+  <button id="btnSave"   style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
+  <button id="btnSaveAs" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
+  <button id="btnUndo"   style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
+  <button id="btnRedo"   style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
+
+  <!-- MAIN GRID: 3 columns -->
+  <div id="app-grid">
+    <div id="edge-hint" class="hidden"></div>
+
+    <!-- LEFT SIDE PANEL (slide-in) -->
+    <div id="left-panel">
+      <div class="lp-header">
+        <span class="lp-title">⚙ Widgets</span>
+        <div class="lp-header-hint">(hover left edge to open)</div>
+        <button id="lp-close" class="btn-icon" style="font-size:9px">✕</button>
+      </div>
+      <div class="lp-body">
+        <div class="lp-section">
+          <div class="lp-section-title">Move widgets</div>
+          <button id="lp-lock-btn" class="btn-action" style="width:100%">🔓 Widgets unlocked (drag active)</button>
+          <div class="lp-note">Locked = widgets fixed in place. Unlock to drag freely.</div>
+        </div>
+        <div class="lp-section">
+          <div class="lp-section-title">Theme</div>
+          <select id="themeSelect" class="bselect" style="width:100%">
+            <option value="default">Default</option>
+            <option value="midday">Midday</option>
+          </select>
+        </div>
+        <div class="lp-section">
+          <div class="lp-section-title">Left column</div>
+          <div id="lp-left-list" class="lp-widget-list"></div>
+        </div>
+        <div class="lp-section">
+          <div class="lp-section-title">Right column</div>
+          <div id="lp-right-list" class="lp-widget-list"></div>
+        </div>
+        <div class="lp-section">
+          <div class="lp-section-title">Visibility</div>
+          <div id="lp-visibility-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEFT COLUMN (setup: patterns, coordinates, dimensions) -->
+    <div id="col-left" class="app-col">
+      <div class="widget" draggable="true" data-widget="scale">
+        <div class="widget-title"><span>Scale</span><span class="widget-drag">⠿</span></div>
+        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
+          <span class="clabel" style="width:100%">Dimensions (mm)</span>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">W</span><input type="number" id="resizeW" class="cinput" style="width:65px" step="0.001" min="0.001" value="0" />
+          </div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">H</span><input type="number" id="resizeH" class="cinput" style="width:65px" step="0.001" min="0.001" value="0" />
+          </div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <button class="btn-action" id="btnScaleUp" style="flex:1">▲</button>
+            <button class="btn-action" id="btnScaleDown" style="flex:1">▼</button>
+          </div>
+          <button class="btn-action" id="btnApplyScale" style="width:100%">Apply</button>
+        </div>
+      </div>
+      <div class="widget" draggable="true" data-widget="template">
+        <div class="widget-title"><span>Template</span><span class="widget-drag">⠿</span></div>
+        <div class="widget-body">
+          <span class="clabel" style="width:100%;font-size:9px;color:var(--text-dim)">Save / load reusable G-code patterns</span>
+          <div style="display:flex;gap:3px;width:100%">
+            <button class="btn-action" id="btnExtractTemplate" style="flex:1">Extract</button>
+            <button class="btn-action" id="btnSaveTemplate" style="flex:1">Save</button>
+          </div>
+          <div style="display:flex;gap:3px;width:100%">
+            <select id="templateSelect" class="bselect" style="flex:1"><option value="">— Templates —</option></select>
+            <button class="btn-action" id="btnApplyTemplate">Apply</button>
+          </div>
+          <div style="display:flex;gap:3px;width:100%">
+            <button class="btn-action" id="btnImportTemplate" style="flex:1">Import file</button>
+            <button class="btn-action" id="btnOpenTemplatesFolder" style="flex:1">Open folder</button>
+          </div>
+          <input type="file" id="fileInputTemplate" accept=".gcode,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" />
+        </div>
+      </div>
+      <div class="widget" draggable="true" data-widget="origin">
+        <div class="widget-title"><span>Origin</span><span class="widget-drag">⠿</span></div>
+        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
+          <span class="clabel" style="width:100%">Machine coordinates</span>
+          <div style="display:flex;gap:4px;width:100%">
+            <div class="ogroup" style="flex:1">
+              <label class="orow"><span class="clabel">X</span><input type="number" id="originX" class="cinput" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">Y</span><input type="number" id="originY" class="cinput" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">Z</span><input type="number" id="originZ" class="cinput" value="0" step="0.1" /></label>
+            </div>
+            <div class="ogroup" style="flex:1">
+              <label class="orow"><span class="clabel">A</span><input type="number" id="originA" class="cinput" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">B</span><input type="number" id="originB" class="cinput" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">C</span><input type="number" id="originC" class="cinput" value="0" step="0.1" /></label>
+            </div>
+          </div>
+          <div class="ogroup" style="width:100%">
+            <label class="orow" style="justify-content:center"><span class="clabel">E1</span><input type="number" id="originE1" class="cinput" style="max-width:200px" value="0" step="0.1" /></label>
+          </div>
+          <span class="clabel" style="width:100%;margin-top:2px">Mark start</span>
+          <div style="display:flex;gap:3px;width:100%">
+            <button class="btn-action" id="btnMarkLeft" style="flex:1">◀ Left</button>
+            <button class="btn-action" id="btnMarkRight" style="flex:1">Right ▶</button>
+            <button class="btn-action" id="btnClearMark" style="flex:0 0 auto">✕</button>
+          </div>
+          <span class="clabel" style="width:100%;margin-top:2px">Fine offset</span>
+          <div style="display:flex;gap:3px;width:100%">
+            <span class="clabel">X</span><input type="number" id="originOffX" class="cinput" style="width:65px" value="0" step="0.1" />
+            <span class="clabel">Y</span><input type="number" id="originOffY" class="cinput" style="width:65px" value="0" step="0.1" />
+            <button class="btn-action" id="btnApplyOffsets" style="flex:1">Apply</button>
+          </div>
+          <button class="btn-action" id="btnApplyOrigin" style="width:100%;margin-top:2px">Apply Origin</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER COLUMN -->
+    <div id="col-center" class="app-col">
+      <div id="preview-area" class="drop-zone">
+        <div id="dropHint">Drop .gcode or .svg file here</div>
+        <div id="preview-toolbar">
+          <span class="ctrl-sep-v"></span>
+          <button class="btn-icon" onclick="document.getElementById('fileInputSvg').click()" style="font-size:9px">Open SVG</button>
+          <button class="btn-icon" onclick="document.getElementById('fileInputDxf').click()" style="font-size:9px">Open DXF</button>
+          <select id="svgViewMode" class="bselect" style="width:65px">
+            <option value="outlines">Outlines</option>
+            <option value="raster">Raster</option>
+          </select>
+          <button class="btn-icon" id="btnConvertSvg" disabled style="font-size:9px">SVG→G-code</button>
+          <button class="btn-icon" id="btnConvertDxf" disabled style="font-size:9px">DXF→G-code</button>
+          <button class="btn-icon" id="btnSavePreview" onclick="document.getElementById('btnSave').click()" style="font-size:9px">Save G-code</button>
+          <span class="ctrl-sep-v"></span>
+          <button class="btn-icon" id="btnPlay" title="Play preview" style="font-size:9px">▶ Play</button>
+          <button class="btn-icon" id="btnPause" title="Pause preview" style="font-size:9px">⏸ Pause</button>
+          <button class="btn-icon" id="btnStop" title="Stop preview" style="font-size:9px">⏹ Stop</button>
+          <label class="bar-speed-label" title="Playback speed">Speed
+            <input type="range" id="playSpeed" min="1" max="500" value="30" class="bar-speed-slider">
+          </label>
+          <input type="range" id="playProgress" min="0" max="100" value="0" class="bar-speed-slider" style="width:80px" title="Playback position">
+          <span class="ctrl-sep-v"></span>
+          <button class="btn-icon" id="btnPick" title="Pick coordinate from preview" style="font-size:9px">🎯 Pick</button>
+          <button class="btn-icon" id="btnMeasure" title="Measure distance" style="font-size:9px">📏</button>
+          <button class="btn-icon" id="btnZoomFit" title="Fit view" style="font-size:9px">⊞ Fit</button>
+          <button class="btn-icon" title="Maximize" onclick="openModal('modal-preview')" style="font-size:9px">⛶ Max</button>
+        </div>
+        <canvas id="previewCanvas"></canvas>
+      </div>
+      <div id="editor-area">
+        <div id="editor-tabs">
+          <button class="editor-tab active" data-tab="original">Original G-code</button>
+          <button class="editor-tab" data-tab="working">Working G-code</button>
+          <div style="flex:1"></div>
+          <button class="btn-action" id="btnGenerateGcode" data-tab-vis="working" style="font-size:10px;padding:0 12px;height:22px">⬇ Generate Updated G-code</button>
+          <div style="flex:1"></div>
+          <span class="ctrl-sep-v"></span>
+          <span class="file-actions">
+            <button class="btn-icon" onclick="document.getElementById('fileInputGcode').click()" style="font-size:9px" data-tab-vis="original">Open G-code</button>
+            <button class="btn-icon" id="btnSave2" onclick="document.getElementById('btnSave').click()" style="font-size:9px" data-tab-vis="working">Save</button>
+            <button class="btn-icon" id="btnSaveAs2" onclick="document.getElementById('btnSaveAs').click()" style="font-size:9px" data-tab-vis="working">Save As</button>
+            <span class="ctrl-sep-v" data-tab-vis="working"></span>
+            <button class="btn-icon" id="btnUndo2" onclick="document.getElementById('btnUndo').click()" style="font-size:9px" data-tab-vis="working">Undo</button>
+            <button class="btn-icon" id="btnRedo2" onclick="document.getElementById('btnRedo').click()" style="font-size:9px" data-tab-vis="working">Redo</button>
+            <button class="btn-icon" id="btnReset" style="font-size:9px" data-tab-vis="working">Reset</button>
+          </span>
+        </div>
+        <div id="findReplaceBar" class="find-replace-bar" style="display:none">
+          <input type="text" id="findInput" placeholder="Find…" style="flex:1;min-width:100px">
+          <input type="text" id="replaceInput" placeholder="Replace…" style="flex:1;min-width:100px">
+          <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="findRegex"> .*</label>
+          <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="findCase"> Aa</label>
+          <span id="findCount" style="font-size:10px;color:var(--text-dim);min-width:40px;text-align:center">0/0</span>
+          <button class="btn-icon" id="btnFindPrev" style="font-size:9px">◀</button>
+          <button class="btn-icon" id="btnFindNext" style="font-size:9px">▶</button>
+          <button class="btn-icon" id="btnReplace" style="font-size:9px">Rpl</button>
+          <button class="btn-icon" id="btnReplaceAll" style="font-size:9px">Rpl All</button>
+          <button class="btn-icon" id="btnFindClose" style="font-size:9px">✕</button>
+        </div>
+        <div id="editor-content">
+          <div class="editor-pane active" id="pane-original">
+            <div class="editor-wrap">
+              <div class="editor-lines" id="linesOriginal"></div>
+              <div class="highlight-overlay" id="highlightOriginal"></div>
+              <textarea id="editorOriginal" class="gcode-editor highlight-textarea" readonly placeholder="Open a G-code file…"></textarea>
+            </div>
+          </div>
+          <div class="editor-pane" id="pane-working">
+            <div class="editor-wrap">
+              <div class="editor-lines" id="linesWorking"></div>
+              <div class="highlight-overlay" id="highlightWorking"></div>
+              <textarea id="editorWorking" class="gcode-editor highlight-textarea" placeholder="Working G-code appears here…" spellcheck="false"></textarea>
+              <div id="virtualEditorWrap" style="display:none;flex:1;min-height:0;position:relative"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN (path editing: parameters, coordinates, points) -->
+    <div id="col-right" class="app-col">
+      <div class="widget" draggable="true" data-widget="feedpower">
+        <div class="widget-title"><span>Feed / Power</span><span class="widget-drag">⠿</span></div>
+        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">Feed</span><input type="number" id="batchFeed" class="cinput" style="width:65px" value="3000" min="0" step="100" />
+          </div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">Power</span><input type="number" id="batchPower" class="cinput" style="width:65px" value="1000" min="0" max="1000" step="10" />
+          </div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">Pass</span><input type="number" id="batchPasses" class="cinput" style="width:65px" value="1" min="1" step="1" />
+          </div>
+          <button class="btn-action" id="btnApplyFeedPower" style="width:100%">Apply</button>
+        </div>
+      </div>
+      <div class="widget" draggable="true" data-widget="batch">
+        <div class="widget-title"><span>Shift Points</span><span class="widget-drag">⠿</span></div>
+        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
+          <div style="display:flex;gap:3px;width:100%">
+            <select id="batchAxis" class="bselect" style="flex:1">
+              <option value="X">X</option>
+              <option value="Y">Y</option>
+              <option value="Z">Z</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+            </select>
+            <input type="number" id="batchAxisVal" class="cinput" style="width:65px" value="0" step="0.1" />
+            <button class="btn-action" id="btnBatchApply">Apply</button>
+          </div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">From line</span><input type="number" id="batchFrom" class="cinput" style="width:65px" value="" min="0" step="1" />
+          </div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">To line</span><input type="number" id="batchTo" class="cinput" style="width:65px" value="" min="0" step="1" />
+          </div>
+        </div>
+      </div>
+      <div class="widget" draggable="true" data-widget="points">
+        <div class="widget-title"><span>Add points</span><span class="widget-drag">⠿</span></div>
+        <div class="widget-body" style="flex-wrap:wrap">
+          <span class="clabel" id="pointsInfo" style="width:100%;color:var(--text-dim)">Select points on preview</span>
+          <span class="clabel">X</span><input type="number" id="pointsOffsetX" class="cinput" style="width:65px" value="-2" step="0.1" />
+          <span class="clabel">Y</span><input type="number" id="pointsOffsetY" class="cinput" style="width:65px" value="-2" step="0.1" />
+          <button class="btn-action" id="btnPointsGenerate">Gen</button>
+          <button class="btn-action" id="btnPointsDelete" style="color:#c00">Delete</button>
+        </div>
+      </div>
+      <div class="widget" draggable="true" data-widget="info">
+        <div class="widget-title"><span>Gcode Info</span><span class="widget-drag">⠿</span></div>
+        <div class="widget-body" style="flex-wrap:wrap;gap:3px;font-size:11px;line-height:1.5">
+          <span class="clabel" id="infoUnits" style="width:100%">—</span>
+          <span class="clabel" id="infoLines" style="width:100%">—</span>
+          <span class="clabel" id="infoDist" style="width:100%">—</span>
+          <span class="clabel" id="infoTime" style="width:100%">—</span>
+          <span class="clabel" id="infoWarn" style="width:100%;color:#d97706;white-space:pre-wrap">—</span>
+          <div style="display:flex;gap:6px;width:100%;align-items:center;margin-top:4px">
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px"><input type="checkbox" id="chkBounds" checked> BBox</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px"><input type="checkbox" id="chkCompare"> Compare</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px"><input type="checkbox" id="chkColorByFeed"> Feed</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px"><input type="checkbox" id="chkHideOriginal" title="Hide Original editor for large files"> Hide orig</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px"><input type="checkbox" id="chkMinimap" checked> Map</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RODAPÉ -->
+  <footer id="footer">
+    <span id="statusMsg">Ready.</span>
+    <div id="progressWrap" class="hidden">
+      <div id="progressTrack"><div id="progressBar"></div></div>
+      <span id="progressLabel"></span>
+    </div>
+    <span id="tplIndicator" class="tpl-indicator"></span>
+    <span id="footerInfo"></span>
+    <span class="footer-credit">Developed with Artificial Intelligence &mdash; April 2026 &mdash; An idea by <a href="mailto:nasp2000@gmail.com" class="footer-link">Nuno Pereira</a></span>
+  </footer>
+
+  <!-- MODAIS -->
+  <div class="modal" id="modal-preview" onclick="closeModalOutside(event,'modal-preview')">
+    <div class="modal-box">
+      <div class="modal-bar">
+        <span class="section-label">Preview</span>
+        <div class="modal-bar-actions">
+          <button class="btn-icon" onclick="fileInputGcode.click()">Open G-code</button>
+          <button class="btn-icon" onclick="fileInputSvg.click()">Open SVG</button>
+          <button class="btn-icon" onclick="fileInputDxf.click()">Open DXF</button>
+          <select id="svgViewModeModal" class="bselect" style="width:65px">
+            <option value="outlines">Outlines</option>
+            <option value="raster">Raster</option>
+          </select>
+          <button class="btn-icon" id="mBtnPlay" title="Play preview">▶</button>
+          <button class="btn-icon" id="mBtnPause" title="Pause preview">⏸</button>
+          <button class="btn-icon" id="mBtnStop" title="Stop preview">⏹</button>
+          <label class="bar-speed-label" title="Playback speed">Speed
+            <input type="range" id="mPlaySpeed" min="1" max="500" value="30" class="bar-speed-slider">
+          </label>
+          <span class="bar-info" id="previewInfoModal"></span>
+          <button class="btn-close" onclick="closeModal('modal-preview')">✕</button>
+        </div>
+      </div>
+      <div id="modalPreviewWrap" style="flex:1;min-height:0;position:relative">
+        <canvas id="previewCanvasModal"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-original" onclick="closeModalOutside(event,'modal-original')">
+    <div class="modal-box">
+      <div class="modal-bar">
+        <span class="section-label">Original G-code</span>
+        <button class="btn-close" onclick="closeModal('modal-original')">✕</button>
+      </div>
+      <div class="editor-wrap" style="flex:1;min-height:0">
+        <div class="highlight-overlay modal-editor-overlay" id="highlightOriginalModal"></div>
+        <textarea id="editorOriginalModal" class="gcode-editor modal-editor highlight-textarea" readonly></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-working" onclick="closeModalOutside(event,'modal-working')">
+    <div class="modal-box">
+      <div class="modal-bar">
+        <span class="section-label">Working G-code</span>
+        <button class="btn-close" onclick="closeModal('modal-working')">✕</button>
+      </div>
+      <div class="editor-wrap" style="flex:1;min-height:0">
+        <div class="highlight-overlay modal-editor-overlay" id="highlightWorkingModal"></div>
+        <textarea id="editorWorkingModal" class="gcode-editor modal-editor highlight-textarea"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-analysis" onclick="closeModalOutside(event,'modal-analysis')">
+    <div class="modal-box" style="max-width:500px;height:auto">
+      <div class="modal-bar">
+        <span class="section-label">G-code Analysis</span>
+        <button class="btn-close" onclick="closeModal('modal-analysis')">✕</button>
+      </div>
+      <div id="analysisContent" style="padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;overflow-y:auto;background:var(--bg4)"></div>
+    </div>
+  </div>
+
+  <script src="js/config.js?v=2"></script>
+  <script src="js/helpers.js?v=2"></script>
+  <script src="js/state.js?v=2"></script>
+  <script src="js/globals.js?v=2"></script>
+  <script src="js/fileManager.js?v=2"></script>
+  <script src="js/gcodeParser.js?v=2"></script>
+  <script src="js/templateManager.js?v=2"></script>
+  <script src="js/recentFiles.js?v=2"></script>
+  <script src="js/highlight.js?v=2"></script>
+  <script src="js/svgConverter.js?v=2"></script>
+  <script src="js/dxfParser.js?v=2"></script>
+  <script src="js/undoRedo.js?v=2"></script>
+  <script src="js/segmentBuilder.js?v=2"></script>
+  <script src="js/preview.js?v=2"></script>
+  <script src="js/dragdrop.js?v=2"></script>
+  <script src="js/ui.js?v=2"></script>
+  <script src="js/modal.js?v=2"></script>
+  <script src="js/virtualEditor.js?v=2"></script>
+  <script src="js/findReplace.js?v=2"></script>
+  <script src="js/main.js?v=2"></script>
+</body>
+</html>

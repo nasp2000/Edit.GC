@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Edit.GC — Parser Tests</title>
+<style>
+body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+h1 { color: #22d3ee; }
+.pass { color: #22c55e; }
+.fail { color: #ef4444; }
+pre { background: #16213e; padding: 8px; border-radius: 4px; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>Edit.GC — Parser Edge Case Tests</h1>
+<div id="results"></div>
+<script src="../app/js/config.js"></script>
+<script src="../app/js/helpers.js"></script>
+<script src="../app/js/state.js"></script>
+<script src="../app/js/globals.js"></script>
+<script src="../app/js/segmentBuilder.js"></script>
+<script>
+const results = document.getElementById('results');
+let total = 0, passed = 0;
+
+function test(name, fn) {
+  total++;
+  try {
+    fn();
+    passed++;
+    results.innerHTML += `<div class="pass">✓ ${name}</div>`;
+  } catch (e) {
+    results.innerHTML += `<div class="fail">✗ ${name}: ${e.message}</div>`;
+  }
+}
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || 'assertion failed');
+}
+
+// ── Tests ──
+
+test('G1 absolute', () => {
+  const res = gcodeParser.parse('G1 X10 Y20 F500\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G1');
+  assert(res[0].params.X === 10);
+  assert(res[0].params.Y === 20);
+  assert(res[0].params.F === 500);
+});
+
+test('G91 relative mode', () => {
+  const res = gcodeParser.parse('G91\nG1 X5\n');
+  assert(res.length === 2);
+  assert(res[0].type === 'G91');
+  assert(res[1].type === 'G1');
+  assert(res[1].params.X === 5);
+});
+
+test('Comment ; style', () => {
+  const res = gcodeParser.parse('G1 X10 ; feed move\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G1');
+  assert(res[0].comment === 'feed move');
+});
+
+test('Comment ( ) style', () => {
+  const res = gcodeParser.parse('G1 X10 (feed move)\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G1');
+  assert(res[0].comment === 'feed move');
+});
+
+test('Line number N', () => {
+  const res = gcodeParser.parse('N100 G1 X10\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G1');
+  assert(res[0].params.X === 10);
+});
+
+test('Block delete /', () => {
+  const res = gcodeParser.parse('/G1 X10\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G1');
+  assert(res[0].blockDelete === true);
+});
+
+test('Block delete with N', () => {
+  const res = gcodeParser.parse('/N100 G1 X10\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G1');
+  assert(res[0].blockDelete === true);
+});
+
+test('G20 inches', () => {
+  const res = gcodeParser.parse('G20\nG1 X1\n');
+  assert(res[0].type === 'G20');
+});
+
+test('G21 mm', () => {
+  const res = gcodeParser.parse('G21\n');
+  assert(res[0].type === 'G21');
+});
+
+test('G2 arc with I,J', () => {
+  const res = gcodeParser.parse('G2 X10 Y0 I5 J0\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G2');
+  assert(res[0].params.I === 5);
+  assert(res[0].params.J === 0);
+});
+
+test('G2 arc with R', () => {
+  const res = gcodeParser.parse('G2 X10 Y0 R5\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G2');
+  assert(res[0].params.R === 5);
+});
+
+test('G17/G18/G19 plane', () => {
+  const res = gcodeParser.parse('G17\nG18\nG19\n');
+  assert(res.length === 3);
+  assert(res[0].type === 'G17');
+  assert(res[1].type === 'G18');
+  assert(res[2].type === 'G19');
+});
+
+test('M3/M4/M5 laser', () => {
+  const res = gcodeParser.parse('M3 S1000\nM4\nM5\n');
+  assert(res[0].type === 'M3');
+  assert(res[0].params.S === 1000);
+  assert(res[1].type === 'M4');
+  assert(res[2].type === 'M5');
+});
+
+test('Blank line', () => {
+  const res = gcodeParser.parse('\nG1 X10\n');
+  assert(res.length === 2);
+  assert(res[0].isBlank === true);
+  assert(res[1].type === 'G1');
+});
+
+test('Comment-only line', () => {
+  const res = gcodeParser.parse('; header comment\n');
+  assert(res.length === 1);
+  assert(res[0].isComment === true);
+});
+
+test('Multiple params on one line', () => {
+  const res = gcodeParser.parse('G00 G17 G40 G21 G54\n');
+  assert(res.length === 1);
+  assert(res[0].type === 'G00');
+});
+
+test('Serialise round-trip', () => {
+  const text = 'G1 X10 Y20 F500\nG0 Z5\nM5\n';
+  const parsed = gcodeParser.parse(text);
+  const serialised = gcodeParser.serialize(parsed);
+  assert(serialised.includes('G1'));
+  assert(serialised.includes('X10'));
+  assert(serialised.includes('F500'));
+});
+
+test('analyzeFull detects unknown', () => {
+  const res = gcodeParser.parse('G1 X10\nG999 P1\n');
+  const analysis = gcodeParser.analyzeFull(res);
+  assert(analysis.unknownCmds.includes('G999'));
+});
+
+test('analyzeFull counts G1/G0', () => {
+  const res = gcodeParser.parse('G0 X0 Y0\nG1 X10 Y10\nG1 X20 Y0\n');
+  const analysis = gcodeParser.analyzeFull(res);
+  assert(analysis.moveLines === 3);
+});
+
+test('applyOffset shifts coords', () => {
+  const res = gcodeParser.parse('G1 X10 Y20\nG0 X0 Y0\n');
+  const shifted = gcodeParser.applyOffset(res, 5, -3);
+  assert(shifted[0].params.X === 15);
+  assert(shifted[0].params.Y === 17);
+  assert(shifted[1].params.X === 5);
+  assert(shifted[1].params.Y === -3);
+});
+
+test('scaleCommands uniform', () => {
+  const res = gcodeParser.parse('G1 X10 Y20\nG0 X5 Y10\n');
+  const scaled = gcodeParser.scaleCommands(res, 2);
+  assert(scaled[0].params.X === 20);
+  assert(scaled[0].params.Y === 40);
+  assert(scaled[1].params.X === 10);
+  assert(scaled[1].params.Y === 20);
+});
+
+test('scaleCommandsXY non-uniform', () => {
+  const res = gcodeParser.parse('G1 X10 Y20\n');
+  const scaled = gcodeParser.scaleCommandsXY(res, 2, 0.5);
+  assert(scaled[0].params.X === 20);
+  assert(scaled[0].params.Y === 10);
+});
+
+test('mirrorX flips Y', () => {
+  const res = gcodeParser.parse('G1 X10 Y20\n');
+  const mir = gcodeParser.mirrorX(res);
+  assert(mir[0].params.Y === -20);
+  assert(mir[0].params.X === 10);
+});
+
+test('mirrorY flips X', () => {
+  const res = gcodeParser.parse('G1 X10 Y20\n');
+  const mir = gcodeParser.mirrorY(res);
+  assert(mir[0].params.X === -10);
+  assert(mir[0].params.Y === 20);
+});
+
+test('applyBatchParam sets G1 feed', () => {
+  const res = gcodeParser.parse('G1 X10\nG0 X20\nG1 X30\n');
+  const mod = gcodeParser.applyBatchParam(res, 'G1', 'F', 500);
+  assert(mod[0].params.F === 500);
+  assert(mod[2].params.F === 500);
+  assert(mod[1].params.F === undefined); // G0 not affected
+});
+
+test('highlight produces spans', () => {
+  const hl = gcodeParser.highlight('G1 X10 Y20\n');
+  assert(hl.includes('hl-g1'));
+  assert(hl.includes('hl-param'));
+  assert(hl.includes('hl-value'));
+});
+
+test('highlight N line number', () => {
+  const hl = gcodeParser.highlight('N100 G1 X10\n');
+  assert(hl.includes('hl-lineno'));
+  assert(hl.includes('hl-g1'));
+});
+
+test('highlight block delete', () => {
+  const hl = gcodeParser.highlight('/G1 X10\n');
+  assert(hl.includes('hl-blockdel'));
+});
+
+test('G90/G91 in analyzeFull', () => {
+  const res = gcodeParser.parse('G90\nG1 X10\nG91\nG1 X5\n');
+  const analysis = gcodeParser.analyzeFull(res);
+  assert(analysis.moveLines === 2);
+});
+
+// ── Segment Builder Tests ──
+
+test('segmentBuilder basic G91 relative', () => {
+  const cmds = gcodeParser.parse('G91\nG1 X10 Y10\nG1 X5 Y-3\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.segments.length === 2);
+  assert(result.segments[0].b.x === 10);
+  assert(result.segments[0].b.y === 10);
+  assert(result.segments[1].b.x === 15);
+  assert(result.segments[1].b.y === 7);
+});
+
+test('segmentBuilder G90 absolute', () => {
+  const cmds = gcodeParser.parse('G1 X10 Y10\nG1 X20 Y5\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.segments.length === 2);
+  assert(result.segments[0].b.x === 10);
+  assert(result.segments[1].b.x === 20);
+});
+
+test('segmentBuilder G90/G91 toggle', () => {
+  const cmds = gcodeParser.parse('G91\nG1 X5\nG90\nG1 X20\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.segments.length === 2);
+  assert(result.segments[0].b.x === 5);   // relative: 0+5
+  assert(result.segments[1].b.x === 20);  // absolute: 20
+});
+
+test('segmentBuilder units G20/G21', () => {
+  const cmdsInch = gcodeParser.parse('G20\nG1 X1\n');
+  const resultInch = segmentBuilder.build(cmdsInch);
+  assert(Math.abs(resultInch.segments[0].b.x - 25.4) < 0.001);
+  const cmdsMm = gcodeParser.parse('G21\nG1 X10\n');
+  const resultMm = segmentBuilder.build(cmdsMm);
+  assert(Math.abs(resultMm.segments[0].b.x - 10) < 0.001);
+});
+
+test('segmentBuilder arc G2 I,J', () => {
+  const cmds = gcodeParser.parse('G17\nG2 X10 Y0 I5 J0\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.segments.length > 2);
+  assert(result.segments[0].arc === false); // first linear, rest arc
+});
+
+test('segmentBuilder arc G3 R', () => {
+  const cmds = gcodeParser.parse('G17\nG3 X10 Y0 R5\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.segments.length > 2);
+});
+
+test('segmentBuilder plane G18 XZ', () => {
+  const cmds = gcodeParser.parse('G18\nG2 X10 Z5 I5 K0\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.segments.length > 0);
+  assert(result.segments[0].b.x === 10 || result.segments[0].b.z === 5);
+});
+
+test('segmentBuilder G0 rapids', () => {
+  const cmds = gcodeParser.parse('G0 X50\nG1 X100\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.segments[0].rapid === true);
+  assert(result.segments[1].rapid === false);
+});
+
+test('segmentBuilder computeBounds', () => {
+  const cmds = gcodeParser.parse('G1 X10 Y20\nG1 X30 Y5\n');
+  const result = segmentBuilder.build(cmds);
+  const bounds = segmentBuilder.computeBounds(result.points);
+  assert(bounds.minX === 0);
+  assert(bounds.maxX === 30);
+  assert(bounds.minY === 5);
+  assert(bounds.maxY === 20);
+});
+
+test('segmentBuilder truncated at limit', () => {
+  const cmds = gcodeParser.parse('G1 X1\n');
+  const result = segmentBuilder.build(cmds, 2);
+  assert(result.truncated === true);
+});
+
+test('segmentBuilder initialState', () => {
+  const cmds = gcodeParser.parse('G1 X10 Y10\n');
+  const result = segmentBuilder.build(cmds, CFG.MAX_SEGMENTS, { x: 5, y: 5, isRel: false });
+  assert(result.segments[0].b.x === 10);
+  assert(result.segments[0].b.y === 10);
+});
+
+test('segmentBuilder returns modal state', () => {
+  const cmds = gcodeParser.parse('G91\nG21\nG17\nG1 X5\n');
+  const result = segmentBuilder.build(cmds);
+  assert(result.isRel === true);
+  assert(result.unitToMm === 1);
+  assert(result.planeMode === 17);
+});
+
+// ── Summary ──
+results.innerHTML += `<hr><div class="${passed === total ? 'pass' : 'fail'}">${passed}/${total} tests passed</div>`;
+</script>
+</body>
+</html>
