@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -29,14 +29,14 @@
     <!-- LEFT SIDE PANEL (slide-in) -->
     <div id="left-panel">
       <div class="lp-header">
-        <span class="lp-title">âš™ Widgets</span>
+        <span class="lp-title">⚙ Widgets</span>
         <div class="lp-header-hint">(hover left edge to open)</div>
-        <button id="lp-close" class="btn-icon" style="font-size:9px">âœ•</button>
+        <button id="lp-close" class="btn-icon" style="font-size:9px">✕</button>
       </div>
       <div class="lp-body">
         <div class="lp-section">
           <div class="lp-section-title">Move widgets</div>
-          <button id="lp-lock-btn" class="btn-action" style="width:100%">ðŸ”“ Widgets unlocked (drag active)</button>
+          <button id="lp-lock-btn" class="btn-action" style="width:100%">🔓 Widgets unlocked (drag active)</button>
           <div class="lp-note">Locked = widgets fixed in place. Unlock to drag freely.</div>
         </div>
         <div class="lp-section">
@@ -64,7 +64,7 @@
     <!-- LEFT COLUMN (setup: patterns, coordinates, dimensions) -->
     <div id="col-left" class="app-col">
       <div class="widget" draggable="true" data-widget="scale">
-        <div class="widget-title"><span>Scale</span><span class="widget-drag">â ¿</span></div>
+        <div class="widget-title"><span>Scale</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body" style="flex-wrap:wrap;gap:3px">
           <span class="clabel" style="width:100%">Dimensions (mm)</span>
           <div style="display:flex;gap:3px;width:100%;align-items:center">
@@ -74,14 +74,14 @@
             <span class="clabel">H</span><input type="number" id="resizeH" class="cinput" style="width:65px" step="0.001" min="0.001" value="0" />
           </div>
           <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <button class="btn-action" id="btnScaleUp" style="flex:1">â–²</button>
-            <button class="btn-action" id="btnScaleDown" style="flex:1">â–¼</button>
+            <button class="btn-action" id="btnScaleUp" style="flex:1">▲</button>
+            <button class="btn-action" id="btnScaleDown" style="flex:1">▼</button>
           </div>
           <button class="btn-action" id="btnApplyScale" style="width:100%">Apply</button>
         </div>
       </div>
       <div class="widget" draggable="true" data-widget="template">
-        <div class="widget-title"><span>Template</span><span class="widget-drag">â ¿</span></div>
+        <div class="widget-title"><span>Template</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body">
           <span class="clabel" style="width:100%;font-size:9px;color:var(--text-dim)">Save / load reusable G-code patterns</span>
           <div style="display:flex;gap:3px;width:100%">
@@ -89,7 +89,7 @@
             <button class="btn-action" id="btnSaveTemplate" style="flex:1">Save</button>
           </div>
           <div style="display:flex;gap:3px;width:100%">
-            <select id="templateSelect" class="bselect" style="flex:1"><option value="">â€” Templates â€”</option></select>
+            <select id="templateSelect" class="bselect" style="flex:1"><option value="">— Templates —</option></select>
             <button class="btn-action" id="btnApplyTemplate">Apply</button>
           </div>
           <div style="display:flex;gap:3px;width:100%">
@@ -100,7 +100,7 @@
         </div>
       </div>
       <div class="widget" draggable="true" data-widget="origin">
-        <div class="widget-title"><span>Origin</span><span class="widget-drag">â ¿</span></div>
+        <div class="widget-title"><span>Origin</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body" style="flex-wrap:wrap;gap:3px">
           <span class="clabel" style="width:100%">Machine coordinates</span>
           <div style="display:flex;gap:4px;width:100%">
@@ -120,9 +120,9 @@
           </div>
           <span class="clabel" style="width:100%;margin-top:2px">Mark start</span>
           <div style="display:flex;gap:3px;width:100%">
-            <button class="btn-action" id="btnMarkLeft" style="flex:1">â—€ Left</button>
-            <button class="btn-action" id="btnMarkRight" style="flex:1">Right â–¶</button>
-            <button class="btn-action" id="btnClearMark" style="flex:0 0 auto">âœ•</button>
+            <button class="btn-action" id="btnMarkLeft" style="flex:1">◀ Left</button>
+            <button class="btn-action" id="btnMarkRight" style="flex:1">Right ▶</button>
+            <button class="btn-action" id="btnClearMark" style="flex:0 0 auto">✕</button>
           </div>
           <span class="clabel" style="width:100%;margin-top:2px">Fine offset</span>
           <div style="display:flex;gap:3px;width:100%">
@@ -147,22 +147,22 @@
             <option value="outlines">Outlines</option>
             <option value="raster">Raster</option>
           </select>
-          <button class="btn-icon" id="btnConvertSvg" disabled style="font-size:9px">SVGâ†’G-code</button>
-          <button class="btn-icon" id="btnConvertDxf" disabled style="font-size:9px">DXFâ†’G-code</button>
+          <button class="btn-icon" id="btnConvertSvg" disabled style="font-size:9px">SVG→G-code</button>
+          <button class="btn-icon" id="btnConvertDxf" disabled style="font-size:9px">DXF→G-code</button>
           <button class="btn-icon" id="btnSavePreview" onclick="document.getElementById('btnSave').click()" style="font-size:9px">Save G-code</button>
           <span class="ctrl-sep-v"></span>
-          <button class="btn-icon" id="btnPlay" title="Play preview" style="font-size:9px">â–¶ Play</button>
-          <button class="btn-icon" id="btnPause" title="Pause preview" style="font-size:9px">â¸ Pause</button>
-          <button class="btn-icon" id="btnStop" title="Stop preview" style="font-size:9px">â¹ Stop</button>
+          <button class="btn-icon" id="btnPlay" title="Play preview" style="font-size:9px">▶ Play</button>
+          <button class="btn-icon" id="btnPause" title="Pause preview" style="font-size:9px">⏸ Pause</button>
+          <button class="btn-icon" id="btnStop" title="Stop preview" style="font-size:9px">⏹ Stop</button>
           <label class="bar-speed-label" title="Playback speed">Speed
             <input type="range" id="playSpeed" min="1" max="500" value="30" class="bar-speed-slider">
           </label>
           <input type="range" id="playProgress" min="0" max="100" value="0" class="bar-speed-slider" style="width:80px" title="Playback position">
           <span class="ctrl-sep-v"></span>
-          <button class="btn-icon" id="btnPick" title="Pick coordinate from preview" style="font-size:9px">ðŸŽ¯ Pick</button>
-          <button class="btn-icon" id="btnMeasure" title="Measure distance" style="font-size:9px">ðŸ“</button>
-          <button class="btn-icon" id="btnZoomFit" title="Fit view" style="font-size:9px">âŠž Fit</button>
-          <button class="btn-icon" title="Maximize" onclick="openModal('modal-preview')" style="font-size:9px">â›¶ Max</button>
+          <button class="btn-icon" id="btnPick" title="Pick coordinate from preview" style="font-size:9px">🎯 Pick</button>
+          <button class="btn-icon" id="btnMeasure" title="Measure distance" style="font-size:9px">📏</button>
+          <button class="btn-icon" id="btnZoomFit" title="Fit view" style="font-size:9px">⊞ Fit</button>
+          <button class="btn-icon" title="Maximize" onclick="openModal('modal-preview')" style="font-size:9px">⛶ Max</button>
         </div>
         <canvas id="previewCanvas"></canvas>
       </div>
@@ -184,30 +184,30 @@
           </span>
         </div>
         <div id="findReplaceBar" class="find-replace-bar" style="display:none">
-          <input type="text" id="findInput" placeholder="Findâ€¦" style="flex:1;min-width:100px">
-          <input type="text" id="replaceInput" placeholder="Replaceâ€¦" style="flex:1;min-width:100px">
+          <input type="text" id="findInput" placeholder="Find…" style="flex:1;min-width:100px">
+          <input type="text" id="replaceInput" placeholder="Replace…" style="flex:1;min-width:100px">
           <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="findRegex"> .*</label>
           <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="findCase"> Aa</label>
           <span id="findCount" style="font-size:10px;color:var(--text-dim);min-width:40px;text-align:center">0/0</span>
-          <button class="btn-icon" id="btnFindPrev" style="font-size:9px">â—€</button>
-          <button class="btn-icon" id="btnFindNext" style="font-size:9px">â–¶</button>
+          <button class="btn-icon" id="btnFindPrev" style="font-size:9px">◀</button>
+          <button class="btn-icon" id="btnFindNext" style="font-size:9px">▶</button>
           <button class="btn-icon" id="btnReplace" style="font-size:9px">Rpl</button>
           <button class="btn-icon" id="btnReplaceAll" style="font-size:9px">Rpl All</button>
-          <button class="btn-icon" id="btnFindClose" style="font-size:9px">âœ•</button>
+          <button class="btn-icon" id="btnFindClose" style="font-size:9px">✕</button>
         </div>
         <div id="editor-content">
           <div class="editor-pane active" id="pane-original">
             <div class="editor-wrap">
               <div class="editor-lines" id="linesOriginal"></div>
               <div class="highlight-overlay" id="highlightOriginal"></div>
-              <textarea id="editorOriginal" class="gcode-editor highlight-textarea" readonly placeholder="Open a G-code fileâ€¦"></textarea>
+              <textarea id="editorOriginal" class="gcode-editor highlight-textarea" readonly placeholder="Open a G-code file…"></textarea>
             </div>
           </div>
           <div class="editor-pane" id="pane-working">
             <div class="editor-wrap">
               <div class="editor-lines" id="linesWorking"></div>
               <div class="highlight-overlay" id="highlightWorking"></div>
-              <textarea id="editorWorking" class="gcode-editor highlight-textarea" placeholder="Working G-code appears hereâ€¦" spellcheck="false"></textarea>
+              <textarea id="editorWorking" class="gcode-editor highlight-textarea" placeholder="Working G-code appears here…" spellcheck="false"></textarea>
               <div id="virtualEditorWrap" style="display:none;flex:1;min-height:0;position:relative"></div>
             </div>
           </div>
@@ -218,7 +218,7 @@
     <!-- RIGHT COLUMN (path editing: parameters, coordinates, points) -->
     <div id="col-right" class="app-col">
       <div class="widget" draggable="true" data-widget="feedpower">
-        <div class="widget-title"><span>Feed / Power</span><span class="widget-drag">â ¿</span></div>
+        <div class="widget-title"><span>Feed / Power</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body" style="flex-wrap:wrap;gap:3px">
           <div style="display:flex;gap:3px;width:100%;align-items:center">
             <span class="clabel">Feed</span><input type="number" id="batchFeed" class="cinput" style="width:65px" value="3000" min="0" step="100" />
@@ -233,7 +233,7 @@
         </div>
       </div>
       <div class="widget" draggable="true" data-widget="batch">
-        <div class="widget-title"><span>Shift Points</span><span class="widget-drag">â ¿</span></div>
+        <div class="widget-title"><span>Shift Points</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body" style="flex-wrap:wrap;gap:3px">
           <div style="display:flex;gap:3px;width:100%">
             <select id="batchAxis" class="bselect" style="flex:1">
@@ -256,7 +256,7 @@
         </div>
       </div>
       <div class="widget" draggable="true" data-widget="points">
-        <div class="widget-title"><span>Add points</span><span class="widget-drag">â ¿</span></div>
+        <div class="widget-title"><span>Add points</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body" style="flex-wrap:wrap">
           <span class="clabel" id="pointsInfo" style="width:100%;color:var(--text-dim)">Select points on preview</span>
           <span class="clabel">X</span><input type="number" id="pointsOffsetX" class="cinput" style="width:65px" value="-2" step="0.1" />
@@ -266,16 +266,16 @@
         </div>
       </div>
       <div class="widget" draggable="true" data-widget="info">
-        <div class="widget-title"><span>Gcode Info</span><span class="widget-drag">â ¿</span></div>
+        <div class="widget-title"><span>Gcode Info</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body" style="flex-wrap:wrap;gap:3px;font-size:11px;line-height:1.6;min-height:120px">
-          <span class="clabel" id="infoFileName" style="width:100%;color:var(--accent);font-weight:600;word-break:break-all;margin-bottom:2px">â€”</span>
+          <span class="clabel" id="infoFileName" style="width:100%;color:var(--accent);font-weight:600;word-break:break-all;margin-bottom:2px">—</span>
           <div style="display:grid;grid-template-columns:1fr 1fr;width:100%;gap:2px">
-            <span class="clabel" id="infoUnits" style="grid-column:1">â€”</span>
-            <span class="clabel" id="infoLines" style="grid-column:2">â€”</span>
-            <span class="clabel" id="infoDist" style="grid-column:1">â€”</span>
-            <span class="clabel" id="infoTime" style="grid-column:2">â€”</span>
+            <span class="clabel" id="infoUnits" style="grid-column:1">—</span>
+            <span class="clabel" id="infoLines" style="grid-column:2">—</span>
+            <span class="clabel" id="infoDist" style="grid-column:1">—</span>
+            <span class="clabel" id="infoTime" style="grid-column:2">—</span>
           </div>
-          <span class="clabel" id="infoWarn" style="width:100%;color:#d97706;white-space:pre-wrap">â€”</span>
+          <span class="clabel" id="infoWarn" style="width:100%;color:#d97706;white-space:pre-wrap">—</span>
           <div style="display:flex;gap:6px;width:100%;align-items:center;margin-top:4px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkBounds" checked> BBox</label>
             <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkCompare"> Compare</label>
@@ -289,7 +289,7 @@
 
   </div>
 
-  <!-- RODAPÃ‰ -->
+  <!-- RODAPÉ -->
   <footer id="footer">
     <span id="statusMsg">Ready.</span>
     <div id="progressWrap" class="hidden">
@@ -298,7 +298,7 @@
     </div>
     <span id="tplIndicator" class="tpl-indicator"></span>
     <span id="footerInfo"></span>
-    <span class="footer-credit">Developed with Artificial Intelligence â€” April 2026 â€” <a href="https://github.com/nasp2000/Edit.GC" class="footer-link" target="_blank">Visit us on GitHub for Updates</a></span>
+    <span class="footer-credit">Developed with Artificial Intelligence — April 2026 — <a href="https://github.com/nasp2000/Edit.GC" class="footer-link" target="_blank">Visit us on GitHub for Updates</a></span>
   </footer>
 
   <!-- MODAIS -->
@@ -314,14 +314,14 @@
             <option value="outlines">Outlines</option>
             <option value="raster">Raster</option>
           </select>
-          <button class="btn-icon" id="mBtnPlay" title="Play preview">â–¶</button>
-          <button class="btn-icon" id="mBtnPause" title="Pause preview">â¸</button>
-          <button class="btn-icon" id="mBtnStop" title="Stop preview">â¹</button>
+          <button class="btn-icon" id="mBtnPlay" title="Play preview">▶</button>
+          <button class="btn-icon" id="mBtnPause" title="Pause preview">⏸</button>
+          <button class="btn-icon" id="mBtnStop" title="Stop preview">⏹</button>
           <label class="bar-speed-label" title="Playback speed">Speed
             <input type="range" id="mPlaySpeed" min="1" max="500" value="30" class="bar-speed-slider">
           </label>
           <span class="bar-info" id="previewInfoModal"></span>
-          <button class="btn-close" onclick="closeModal('modal-preview')">âœ•</button>
+          <button class="btn-close" onclick="closeModal('modal-preview')">✕</button>
         </div>
       </div>
       <div id="modalPreviewWrap" style="flex:1;min-height:0;position:relative">
@@ -334,7 +334,7 @@
     <div class="modal-box">
       <div class="modal-bar">
         <span class="section-label">Original G-code</span>
-        <button class="btn-close" onclick="closeModal('modal-original')">âœ•</button>
+        <button class="btn-close" onclick="closeModal('modal-original')">✕</button>
       </div>
       <div class="editor-wrap" style="flex:1;min-height:0">
         <div class="highlight-overlay modal-editor-overlay" id="highlightOriginalModal"></div>
@@ -347,7 +347,7 @@
     <div class="modal-box">
       <div class="modal-bar">
         <span class="section-label">Working G-code</span>
-        <button class="btn-close" onclick="closeModal('modal-working')">âœ•</button>
+        <button class="btn-close" onclick="closeModal('modal-working')">✕</button>
       </div>
       <div class="editor-wrap" style="flex:1;min-height:0">
         <div class="highlight-overlay modal-editor-overlay" id="highlightWorkingModal"></div>
@@ -360,31 +360,31 @@
     <div class="modal-box" style="max-width:500px;height:auto">
       <div class="modal-bar">
         <span class="section-label">G-code Analysis</span>
-        <button class="btn-close" onclick="closeModal('modal-analysis')">âœ•</button>
+        <button class="btn-close" onclick="closeModal('modal-analysis')">✕</button>
       </div>
       <div id="analysisContent" style="padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;overflow-y:auto;background:var(--bg4)"></div>
     </div>
   </div>
 
-  <script src="js/config.js?v=3"></script>
-  <script src="js/helpers.js?v=3"></script>
-  <script src="js/state.js?v=3"></script>
-  <script src="js/globals.js?v=3"></script>
-  <script src="js/fileManager.js?v=3"></script>
-  <script src="js/gcodeParser.js?v=3"></script>
-  <script src="js/templateManager.js?v=3"></script>
-  <script src="js/recentFiles.js?v=3"></script>
-  <script src="js/highlight.js?v=3"></script>
-  <script src="js/svgConverter.js?v=3"></script>
-  <script src="js/dxfParser.js?v=3"></script>
-  <script src="js/undoRedo.js?v=3"></script>
-  <script src="js/segmentBuilder.js?v=3"></script>
-  <script src="js/preview.js?v=3"></script>
-  <script src="js/dragdrop.js?v=3"></script>
-  <script src="js/ui.js?v=3"></script>
-  <script src="js/modal.js?v=3"></script>
-  <script src="js/virtualEditor.js?v=3"></script>
-  <script src="js/findReplace.js?v=3"></script>
-  <script src="js/main.js?v=3"></script>
+  <script src="js/config.js?v=2"></script>
+  <script src="js/helpers.js?v=2"></script>
+  <script src="js/state.js?v=2"></script>
+  <script src="js/globals.js?v=2"></script>
+  <script src="js/fileManager.js?v=2"></script>
+  <script src="js/gcodeParser.js?v=2"></script>
+  <script src="js/templateManager.js?v=2"></script>
+  <script src="js/recentFiles.js?v=2"></script>
+  <script src="js/highlight.js?v=2"></script>
+  <script src="js/svgConverter.js?v=2"></script>
+  <script src="js/dxfParser.js?v=2"></script>
+  <script src="js/undoRedo.js?v=2"></script>
+  <script src="js/segmentBuilder.js?v=2"></script>
+  <script src="js/preview.js?v=2"></script>
+  <script src="js/dragdrop.js?v=2"></script>
+  <script src="js/ui.js?v=2"></script>
+  <script src="js/modal.js?v=2"></script>
+  <script src="js/virtualEditor.js?v=2"></script>
+  <script src="js/findReplace.js?v=2"></script>
+  <script src="js/main.js?v=2"></script>
 </body>
 </html>
