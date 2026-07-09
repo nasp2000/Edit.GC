@@ -2,6 +2,7 @@
 const segmentBuilder = {
   build(commands, maxSegs, initialState) {
     maxSegs = maxSegs || CFG.MAX_SEGMENTS;
+    const startIdx = initialState?.idx ?? 0;
     let x = initialState?.x ?? 0;
     let y = initialState?.y ?? 0;
     let z = initialState?.z ?? 0;
@@ -9,6 +10,8 @@ const segmentBuilder = {
     let unitToMm = initialState?.unitToMm ?? 1;
     let planeMode = initialState?.planeMode ?? 17;
     let motionMode = 1;
+    // Always seed the starting point. On resume this equals the last point of the
+    // previous chunk, so the caller skips index 0 to avoid duplication.
     const points = [{ x, y, z }];
     const segments = [];
     let truncated = false;
@@ -77,7 +80,7 @@ const segmentBuilder = {
     };
 
     // Main loop — process every command once
-    for (let i = 0; i < commands.length; i++) {
+    for (let i = startIdx; i < commands.length; i++) {
       const c = commands[i];
       const t = c.type;
       // Modal state changes
@@ -139,7 +142,7 @@ const segmentBuilder = {
       }
       x = nx; y = ny; z = nz;
     }
-    return { points, segments, truncated, isRel, unitToMm, planeMode };
+    return { points, segments, truncated, isRel, unitToMm, planeMode, idx: commands.length };
   },
 
   computeBounds(points) {

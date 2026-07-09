@@ -7,10 +7,15 @@ function openModal(id) {
     const mc = document.getElementById('previewCanvasModal');
     // aguardar frame para o modal estar visÃ­vel e ter dimensÃµes correctas
     requestAnimationFrame(() => {
-      mc.width  = mc.offsetWidth;
-      mc.height = mc.offsetHeight;
+      const dpr = window.devicePixelRatio || 1;
+      mc.width  = Math.floor(mc.offsetWidth * dpr);
+      mc.height = Math.floor(mc.offsetHeight * dpr);
+      mc.style.width  = mc.offsetWidth + 'px';
+      mc.style.height = mc.offsetHeight + 'px';
+      const ctx = mc.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       preview.canvas = mc;
-      preview.ctx    = mc.getContext('2d');
+      preview.ctx    = ctx;
       // pan/zoom no canvas do modal — setup once
       if (!mc._panZoomReady) {
         mc._panZoomReady = true;

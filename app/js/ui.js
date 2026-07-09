@@ -30,6 +30,7 @@ const ui = {
       applyHighlight(document.getElementById('highlightWorking'), workHLText);
       ui.setProgress(90, 'Rendering…');
       preview.resize(); // garante dimensÃµes do canvas e faz draw
+      preview.fitView(); // centra e ajusta o toolpath Ã  vista (top-down)
       // Check for unknown commands
       const analysis = gcodeParser.analyzeFull(state.workingCmds);
       let statusMsg = `Opened: ${file.name} (${state.workingCmds.length} lines)`;
@@ -589,10 +590,15 @@ const ui = {
     });
     document.getElementById('editorWorkingModal').addEventListener('input', e => {
       const text = e.target.value;
-      ui._updateWorkingEditor(text);
-      applyHighlight(document.getElementById('highlightWorking'), text);
+      // Sync state + preview directly. Do NOT call _updateWorkingEditor here:
+      // for large files it would swap the main editor to the (truncated) modal text.
+      state.workingCmds = gcodeParser.parse(text);
+      state._boundsCache = null;
+      state.dirty = true;
+      preview.draw(state.workingCmds);
       applyHighlight(document.getElementById('highlightWorkingModal'), text);
-      _onWorkingInput(text);
+      ui.updateFooterInfo();
+      ui.updateResizePanel();
     });
 
     // â”€â”€ Recent Files â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -662,9 +668,12 @@ const ui = {
       cmds = gcodeParser.applyBatchParam(cmds, 'G1', 'F', feed);
       cmds = gcodeParser.applyBatchParam(cmds, 'G1', 'S', power);
       if (passes > 1) {
-        const all = [];
+        // Duplicate only the G1 cut moves (header/footer stay once)
+        const cutMoves = cmds.filter(c => c.type === 'G1' || c.type === 'G01');
+        const nonCut = cmds.filter(c => !(c.type === 'G1' || c.type === 'G01'));
+        const all = nonCut.slice();
         for (let p = 0; p < passes; p++) {
-          cmds.forEach(c => all.push({ ...c, raw: '' }));
+          cutMoves.forEach(c => all.push({ ...c, raw: '' }));
         }
         cmds = all;
       }
@@ -822,6 +831,8 @@ const ui = {
     ui.updateTemplateIndicator();
     preview.init(document.getElementById('previewCanvas'));
     findReplace.init();
+    const btnFind = document.getElementById('btnFind');
+    if (btnFind) btnFind.addEventListener('click', () => findReplace.open());
     ui._setupBackplot();
 
     // â”€â”€ Sync editor scrolls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

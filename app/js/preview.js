@@ -6,7 +6,7 @@ const preview = {
   _segVersion: 0,
   _segBuilding: false,
   _segments: null,
-  _points: null,
+  _points: null,     // full point array (kept only when needed for hit-testing)
   _segBounds: null,
   _segCommands: null,
   _segTruncated: false,
@@ -16,6 +16,9 @@ const preview = {
   _drawRafId: null,
   _hlCmdIdx: -1,      // backplot: command index to highlight
   _hlTimeout: null,   // auto-clear timeout
+  _rebuildTimer: null,// debounce timer for segment rebuild
+  _lastProgDraw: 0,   // throttle timestamp for progressive draws
+  _keepPoints: false, // set true only while a point-pick session is active
 
   // Returns cached bounds from segments if available, otherwise computes from commands
   _getBounds(commands) {
@@ -48,13 +51,54 @@ const preview = {
     return state._boundsCache;
   },
 
+  // ── Shared grid + axes for SVG/DXF modes ──────────────────────────
+  _drawGridAxesSVG(ctx, w, h, b, baseFit) {
+    const { minX, maxX, minY, maxY, rangeX, rangeY } = b;
+    const dpr = window.devicePixelRatio || 1;
+    const pad = 40;
+    // Center the toolpath in the canvas (top-down view) — must match the
+    // segment transforms above so grid/axes align with the toolpath.
+    const cx = (w - pad * 2 - rangeX * baseFit) / 2;
+    const cy = (h - pad * 2 - rangeY * baseFit) / 2;
+    const toCx = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
+    const toCy = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    ctx.save();
+    ctx.lineWidth = 1;
+    const mmPerPx = 1 / (baseFit * state.previewScale);
+    const minCellPx = 50 * dpr;
+    const cand = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+    let step = 10;
+    for (let i = 0; i < cand.length; i++) { if (cand[i] / mmPerPx >= minCellPx) { step = cand[i]; break; } }
+    const startX = Math.floor(minX / step) * step;
+    const startY = Math.floor(minY / step) * step;
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+    ctx.beginPath();
+    for (let gx = startX; gx <= maxX; gx += step) { const cx = toCx(gx); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); }
+    for (let gy = startY; gy <= maxY; gy += step) { const cy = toCy(gy); ctx.moveTo(0, cy); ctx.lineTo(w, cy); }
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(148,163,184,0.65)';
+    ctx.font = `${Math.round(9 * dpr)}px monospace`;
+    ctx.textAlign = 'center';
+    for (let gx = startX; gx <= maxX; gx += step) ctx.fillText(String(Math.round(gx * 100) / 100), toCx(gx), h - 6);
+    // Axis lines at origin
+    const ox0 = toCx(0), oy0 = toCy(0);
+    if (ox0 >= 0 && ox0 <= w && oy0 >= 0 && oy0 <= h) {
+      ctx.lineWidth = Math.max(1.2, dpr);
+      ctx.strokeStyle = '#dc2626'; ctx.beginPath(); ctx.moveTo(ox0, oy0); ctx.lineTo(toCx(Math.min(maxX, 20 * mmPerPx)), oy0); ctx.stroke();
+      ctx.strokeStyle = '#16a34a'; ctx.beginPath(); ctx.moveTo(ox0, oy0); ctx.lineTo(ox0, toCy(Math.min(maxY, 20 * mmPerPx))); ctx.stroke();
+      ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ox0, oy0, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    return { toCx, toCy };
+  },
+
   // â”€â”€ Segment-based G-code preview (2D) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   buildOriginal() {
     if (this._origSegments || !state.originalCmds || !state.originalCmds.length) return;
     const cmds = state.originalCmds;
     this._buildSegmentsAsync(cmds, (result) => {
       this._origSegments = result.segments;
-      this._origPoints = result.points;
+      this._origPoints = null; // not needed for compare overlay; saves RAM
       this._origBounds = result.bounds;
       this.draw(state.workingCmds);
     }, () => {});
@@ -66,34 +110,63 @@ const preview = {
     if (total === 0) { if (onDone) onDone({ points: [], segments: [], bounds: null, truncated: false }); return; }
 
     this._segBuilding = true;
-    this._segVersion++;
+    const myVersion = ++this._segVersion;
 
-    // Helper to finalise after build
+    // RAM optimization: only accumulate the full point array when needed for
+    // hit-testing (point selection). Otherwise we keep only the bounds, which is
+    // all the renderer needs — this avoids holding millions of {x,y,z} objects.
+    const keepPoints = this._keepPoints;
+    const allPoints = keepPoints ? [{ x: 0, y: 0, z: 0 }] : null;
+    const allSegments = [];
+    let truncated = false;
+    let state2 = null; // resume state for segmentBuilder
+
+    const CHUNK = CFG.SEGMENT_CHUNK || 5000;
+
     const finish = (result) => {
       this._segBuilding = false;
-      const bounds = segmentBuilder.computeBounds(result.points);
-      this._segments = result.segments;
-      this._points = result.points;
+      const bounds = segmentBuilder.computeBounds(keepPoints ? allPoints : result._lastPoint ? [result._lastPoint] : [{ x: 0, y: 0, z: 0 }]);
+      this._segments = allSegments;
+      this._points = keepPoints ? allPoints : null;
       this._segBounds = bounds;
-      this._segTruncated = result.truncated;
+      this._segTruncated = truncated;
       if (onDone) onDone(result);
     };
 
-    // For small files, build synchronously (fast path)
-    if (total <= 20000) {
-      const result = segmentBuilder.build(commands);
-      finish(result);
-      return;
-    }
-
-    // For large files, defer via setTimeout to keep UI responsive
-    const doBuild = () => {
-      const result = segmentBuilder.build(commands);
-      finish(result);
+    const processChunk = () => {
+      // Abort if a newer build was requested (e.g. new edit arrived)
+      if (myVersion !== this._segVersion) return;
+      const start = state2 ? state2.idx : 0;
+      const end = Math.min(start + CHUNK, total);
+      const res = segmentBuilder.build(commands, CFG.MAX_SEGMENTS, state2 ? {
+        x: state2.x, y: state2.y, z: state2.z, isRel: state2.isRel,
+        unitToMm: state2.unitToMm, planeMode: state2.planeMode, idx: start
+      } : undefined);
+      // Each chunk seeds its own starting point (== last point of previous chunk),
+      // so skip index 0 to avoid duplicating it.
+      if (keepPoints) for (let i = 1; i < res.points.length; i++) allPoints.push(res.points[i]);
+      for (const s of res.segments) allSegments.push(s);
+      if (res.truncated) truncated = true;
+      state2 = res; // carries x,y,z,isRel,unitToMm,planeMode,idx
+      if (onProgress) onProgress(Math.round(end / total * 100));
+      // Progressive draw so the user sees the toolpath grow
+      const now = performance.now();
+      if (now - this._lastProgDraw > 120) {
+        this._lastProgDraw = now;
+        this._segBounds = segmentBuilder.computeBounds(keepPoints ? allPoints : [res.points[res.points.length - 1]]);
+        this._segments = allSegments;
+        this._points = keepPoints ? allPoints : null;
+        this._drawCore(commands, end);
+      }
+      if (end < total && !truncated) {
+        requestAnimationFrame(processChunk);
+      } else {
+        finish({ points: keepPoints ? allPoints : null, segments: allSegments, bounds: this._segBounds, truncated, _lastPoint: res.points[res.points.length - 1] });
+      }
     };
-    // Use setTimeout with progress update before starting
+
     if (onProgress) onProgress(0);
-    setTimeout(doBuild, 50);
+    requestAnimationFrame(processChunk);
   },
 
   fitView() {
@@ -200,14 +273,20 @@ const preview = {
       this._segVersion++;
     }
     if (state.mode === 'gcode' && !this._segments && !this._segBuilding && n > 0) {
-      ui.setProgress(0, 'Building preview…');
-      this._buildSegmentsAsync(cmds, (result) => {
-        ui.setProgress(-1);
-        this._drawCore(cmds, n);
-        if (ui.updateResizePanel) ui.updateResizePanel();
-      }, (pct) => {
-        ui.setProgress(pct, 'Building preview…');
-      });
+      // Debounce: coalesce rapid edits (e.g. typing) into a single rebuild
+      if (this._rebuildTimer) clearTimeout(this._rebuildTimer);
+      this._rebuildTimer = setTimeout(() => {
+        this._rebuildTimer = null;
+        ui.setProgress(0, 'Building preview…');
+        this._buildSegmentsAsync(cmds, (result) => {
+          ui.setProgress(-1);
+          this._drawCore(cmds, n);
+          if (ui.updateResizePanel) ui.updateResizePanel();
+          if (ui.updateFooterInfo) ui.updateFooterInfo();
+        }, (pct) => {
+          ui.setProgress(pct, 'Building preview…');
+        });
+      }, 120);
       this._drawCore(cmds, 0);
       return;
     }
@@ -252,8 +331,11 @@ const preview = {
     const { width: w, height: h } = this.canvas;
     const pad = 40;
     const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    const toCanvasX = x => pad + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => h - pad - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    // Center the toolpath in the canvas (top-down view)
+    const cx = (w - pad * 2 - rangeX * baseFit) / 2;
+    const cy = (h - pad * 2 - rangeY * baseFit) / 2;
+    const toCanvasX = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
+    const toCanvasY = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
     const ctx = this.ctx;
     const sMax = 1000;
     const CHUNK = 2000;
@@ -550,8 +632,13 @@ const preview = {
             const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
             const pad = 40;
             const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-            const toCx = x => pad + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-            const toCy = y => h - pad - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+            // Center the toolpath in the canvas (top-down view)
+            const cx = (w - pad * 2 - rangeX * baseFit) / 2;
+            const cy = (h - pad * 2 - rangeY * baseFit) / 2;
+            const toCx = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
+            const toCy = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+            // Grid + axes for spatial reference
+            this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit);
             ctx.strokeStyle = '#2563eb';
             ctx.lineWidth = 1.5;
             ctx.setLineDash([]);
@@ -586,8 +673,13 @@ const preview = {
         const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
         const pad = 40;
         const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-        const toCx = x => pad + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-        const toCy = y => h - pad - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+        // Center the toolpath in the canvas (top-down view)
+        const cx = (w - pad * 2 - rangeX * baseFit) / 2;
+        const cy = (h - pad * 2 - rangeY * baseFit) / 2;
+        const toCx = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
+        const toCy = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+        // Grid + axes for spatial reference
+        this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit);
         ctx.strokeStyle = '#2563eb';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([]);
@@ -618,13 +710,16 @@ const preview = {
       return;
     }
 
-    const b = this._segBounds || this._computeSegBounds(this._points);
+    const b = this._segBounds || (this._points ? this._computeSegBounds(this._points) : null);
     if (!b) return;
     const { minX, maxX, minY, maxY, rangeX, rangeY } = b;
     const pad = 40;
     const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    const toCanvasX = x => pad + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => h - pad - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    // Center the toolpath in the canvas (top-down view)
+    const cx = (w - pad * 2 - rangeX * baseFit) / 2;
+    const cy = (h - pad * 2 - rangeY * baseFit) / 2;
+    const toCanvasX = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
+    const toCanvasY = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
 
     // Dynamic grid with labels
     const dpr = window.devicePixelRatio || 1;
@@ -898,7 +993,7 @@ const preview = {
         if (d < bestDist) { bestDist = d; bestCmdIdx = s.cmdIdx; }
       }
     } else {
-      // Fallback: iterate commands
+      // Fallback: iterate commands (no retained point array needed)
       let _curX = 0, _curY = 0, _isRel = false;
       state.workingCmds.forEach((c, i) => {
         if (c.type === 'G91') { _isRel = true; return; }
@@ -911,6 +1006,17 @@ const preview = {
         const d = Math.hypot(cx - px, cy - py);
         if (d < bestDist) { bestDist = d; bestCmdIdx = i; }
       });
+    }
+    // If we needed the full point array for hit-testing but it wasn't retained,
+    // rebuild it lazily and drop it again afterwards to keep RAM low.
+    if (!segs && !this._points && bestCmdIdx < 0) {
+      this._keepPoints = true;
+      this._buildSegmentsAsync(state.workingCmds, () => {
+        this._keepPoints = false;
+        this._points = null;
+        this.draw(state.workingCmds);
+      });
+      return;
     }
     if (bestCmdIdx < 0 || bestDist > 15) return;
     if (state.selectedPoints.has(bestCmdIdx)) {
@@ -961,8 +1067,15 @@ const preview = {
       ta.dispatchEvent(new Event('input'));
     } else if (ui._ve) {
       const text = ui._ve.getText();
-      const pos = text.length;
-      ui._ve.setText(text + '\n' + line);
+      const newText = text + '\n' + line;
+      ui._ve.setText(newText);
+      // Re-parse so preview + state stay in sync
+      state.workingCmds = gcodeParser.parse(newText);
+      state._boundsCache = null;
+      state.dirty = true;
+      preview.draw(state.workingCmds);
+      ui.updateFooterInfo();
+      ui.updateResizePanel();
     }
     ui.setStatus('Inserted G1 X' + worldX + ' Y' + worldY);
   },

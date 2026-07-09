@@ -815,7 +815,10 @@ body.widgets-locked .widget-drag {
   scrollbar-width: none;
   -ms-overflow-style: none;
   pointer-events: none;
-  color: transparent;
+  /* Visible base color: the textarea on top is transparent, so all visible
+     text comes from this overlay. Unmatched tokens inherit this color instead
+     of becoming invisible (white-on-white). */
+  color: var(--text);
   background: var(--bg4);
   z-index: 0;
 }
@@ -842,6 +845,7 @@ body.widgets-locked .widget-drag {
 .hl-comment { color: #16a34a; font-style: italic; }
 .hl-param { color: #000; }
 .hl-value { color: #000; }
+.hl-other { color: var(--text); }
 .hl-unknown { color: #d97706; }
 .hl-blockdel { color: #dc2626; font-weight: 700; }
 .hl-lineno { color: #999; }
@@ -948,5 +952,5 @@ body.drag-over-file { outline: 3px dashed #22d3ee; outline-offset: -6px; }
 .modal-editor::-webkit-scrollbar-track { background: var(--bg3); }
 .modal-editor::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 6px; border: 2px solid var(--bg3); }
 .modal-editor::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
-.modal-editor-overlay { position: absolute; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; padding: 6px 10px; white-space: pre-wrap; word-wrap: break-word; pointer-events: none; color: transparent; background: var(--bg4); inset:0;overflow:auto;scrollbar-width:none;z-index:0; }
+.modal-editor-overlay { position: absolute; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; padding: 6px 10px; white-space: pre-wrap; word-wrap: break-word; pointer-events: none; color: var(--text); background: var(--bg4); inset:0;overflow:auto;scrollbar-width:none;z-index:0; }
 .modal-editor-overlay::-webkit-scrollbar { display: none; }

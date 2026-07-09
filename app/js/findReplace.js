@@ -169,6 +169,15 @@ const findReplace = {
     let text = this._getText();
     text = text.substring(0, m.index) + rep + text.substring(m.index + m.length);
     this._setText(text);
+    // Refresh the highlight overlay so the visible (overlay) text updates too
+    applyHighlight(document.getElementById('highlightWorking'), text);
+    // Re-parse into working commands and refresh preview
+    state.workingCmds = gcodeParser.parse(text);
+    state._boundsCache = null;
+    state.dirty = true;
+    preview.draw(state.workingCmds);
+    ui.updateFooterInfo();
+    ui.updateResizePanel();
     // Re-search from same position
     const query = document.getElementById('findInput').value;
     this.search(query);
@@ -192,6 +201,15 @@ const findReplace = {
     const newText = text.replace(pattern, rep);
     if (newText !== text) {
       this._setText(newText);
+      // Refresh the highlight overlay so the visible (overlay) text updates too
+      applyHighlight(document.getElementById('highlightWorking'), newText);
+      // Re-parse into working commands and refresh preview
+      state.workingCmds = gcodeParser.parse(newText);
+      state._boundsCache = null;
+      state.dirty = true;
+      preview.draw(state.workingCmds);
+      ui.updateFooterInfo();
+      ui.updateResizePanel();
       this.search(query);
     }
   },

@@ -85,11 +85,13 @@ const gcodeParser = {
       if (cmd) result += `<span class="${cmdClass}">${this._escape(cmd)}</span>`;
       for (let i = ti + 1; i < tokens.length; i++) {
         const p = tokens[i];
-        const m = p.match(/^([A-Z])([-\d.]+)$/);
+        const m = p.match(/^([A-Z])([-\d.eE+]+)$/);
         if (m) {
           result += ` <span class="hl-param">${this._escape(m[1])}</span><span class="hl-value">${this._escape(m[2])}</span>`;
         } else {
-          result += ` ${this._escape(p)}`;
+          // Any other token (e.g. scientific notation, stray text) is still
+          // wrapped so it inherits the visible base color instead of vanishing.
+          result += ` <span class="hl-other">${this._escape(p)}</span>`;
         }
       }
       if (commentPart) {
