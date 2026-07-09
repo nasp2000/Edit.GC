@@ -225,13 +225,13 @@
       this._segCommands = cmds;
     }
     if (state.mode === 'gcode' && !this._segments && !this._segBuilding && n > 0) {
-      ui.setProgress(0, 'Building previewâ€¦');
+      ui.setProgress(0, 'Building preview…');
       this._buildSegmentsAsync(cmds, (result) => {
         ui.setProgress(-1);
         this._drawCore(cmds, n);
         if (ui.updateResizePanel) ui.updateResizePanel();
       }, (pct) => {
-        ui.setProgress(pct, 'Building previewâ€¦');
+        ui.setProgress(pct, 'Building preview…');
       });
       // Draw a placeholder frame immediately
       this._drawCore(cmds, 0);
@@ -333,7 +333,7 @@
         this._drawRafId = null;
       }
     };
-    ui.setProgress(0, 'Renderingâ€¦');
+    ui.setProgress(0, 'Rendering…');
     requestAnimationFrame(processChunk);
   },
 
@@ -551,7 +551,7 @@
           }
         } catch (_) {}
       } else {
-        // Contours (outline paths) â€” cached for performance
+        // Contours (outline paths) — cached for performance
         try {
           if (!state.svgSegments) {
             const parser2 = new DOMParser();
@@ -640,7 +640,7 @@
       ctx.fillStyle = '#555';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Building previewâ€¦', w / 2, h / 2);
+      ctx.fillText('Building preview…', w / 2, h / 2);
       return;
     }
 
@@ -839,7 +839,7 @@
     ui.setStatus(`Origin set to X=${this.originX}  Y=${this.originY}`);
   },
 
-  // Click to place/remove origin mark (red X) â€” toggles on each click
+  // Click to place/remove origin mark (red X) — toggles on each click
   highlightLine(cmdIdx) {
     this._hlCmdIdx = cmdIdx;
     if (this._hlTimeout) clearTimeout(this._hlTimeout);

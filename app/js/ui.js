@@ -5,11 +5,11 @@ const ui = {
     document.getElementById('fileInputGcode').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
       e.target.value = ''; // permite reabrir o mesmo ficheiro
-      ui.setProgress(2, 'Reading fileâ€¦');
+      ui.setProgress(2, 'Reading file…');
       const text = await fileManager.readGcode(file);
-      ui.setProgress(30, 'Parsingâ€¦');
+      ui.setProgress(30, 'Parsing…');
       state.originalCmds  = gcodeParser.parse(text);
-      ui.setProgress(50, 'Preparing editorâ€¦');
+      ui.setProgress(50, 'Preparing editor…');
       const isLarge = text.length > 5 * 1024 * 1024
       const isHuge = text.length > 50 * 1024 * 1024;
       state.originalText  = isLarge ? '' : text;
@@ -23,12 +23,12 @@ const ui = {
       const origEditorText = isLarge ? '(original text too large for editor)' : truncateForEditor(text);
       document.getElementById('editorOriginal').value = origEditorText;
       ui._updateWorkingEditor(gcodeParser.serialize(state.workingCmds));
-      ui.setProgress(70, 'Applying syntax highlightâ€¦');
+      ui.setProgress(70, 'Applying syntax highlight…');
       const origHLText = isLarge ? '' : text;
       const workHLText = gcodeParser.serialize(state.workingCmds);
       applyHighlight(document.getElementById('highlightOriginal'), origHLText);
       applyHighlight(document.getElementById('highlightWorking'), workHLText);
-      ui.setProgress(90, 'Renderingâ€¦');
+      ui.setProgress(90, 'Rendering…');
       preview.resize(); // garante dimensÃµes do canvas e faz draw
       // Check for unknown commands
       const analysis = gcodeParser.analyzeFull(state.workingCmds);
@@ -158,7 +158,7 @@ const ui = {
         document.getElementById('resizeW').value = dimW.toFixed(3);
         document.getElementById('resizeH').value = dimH.toFixed(3);
         preview.resize();
-        ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} Ã— H: ${dimH.toFixed(1)} â€” click "SVG â†’ G-code" to convert`);
+        ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} × H: ${dimH.toFixed(1)} — click "SVG → G-code" to convert`);
         recentFiles.add(file.name, 'SVG');
       };
       img.onerror = () => {
@@ -209,15 +209,15 @@ const ui = {
       document.getElementById('btnConvertDxf').disabled = false;
       document.getElementById('btnConvertSvg').disabled = true;
       preview.draw();
-      ui.setStatus(`DXF: ${file.name} â€” ${segments.length} segments, ${all.length} points`);
+      ui.setStatus(`DXF: ${file.name} — ${segments.length} segments, ${all.length} points`);
     });
 
-    // Convert DXF â†’ G-code
+    // Convert DXF → G-code
     document.getElementById('btnConvertDxf').addEventListener('click', () => {
       if (!state.dxfSegments || !state.dxfSegments.length) { ui.setStatus('No DXF loaded.', 'error'); return; }
       try {
-        ui.setStatus('Converting DXFâ€¦');
-        ui.setProgress(5, 'Converting DXFâ€¦');
+        ui.setStatus('Converting DXF…');
+        ui.setProgress(5, 'Converting DXF…');
         const cmds = svgConverter.segmentsToGcode(state.dxfSegments, state.template);
         const tw = parseFloat(document.getElementById('resizeW').value);
         const th = parseFloat(document.getElementById('resizeH').value);
@@ -249,7 +249,7 @@ const ui = {
         ui._updateWorkingEditor(gcode);
         applyHighlight(document.getElementById('highlightOriginal'), gcode);
         applyHighlight(document.getElementById('highlightWorking'), gcode);
-        ui.setProgress(90, 'Renderingâ€¦');
+        ui.setProgress(90, 'Rendering…');
         preview.draw(state.workingCmds);
         ui.syncModals();
         ui.updateFooterInfo();
@@ -263,14 +263,14 @@ const ui = {
       }
     });
 
-    // Convert SVG â†’ G-code
+    // Convert SVG → G-code
     document.getElementById('btnConvertSvg').addEventListener('click', () => {
       if (!state.svgText) { ui.setStatus('No SVG loaded.', 'error'); return; }
       try {
-        ui.setStatus('Converting SVGâ€¦');
-        ui.setProgress(5, 'Parsing SVGâ€¦');
+        ui.setStatus('Converting SVG…');
+        ui.setProgress(5, 'Parsing SVG…');
         const cmds    = svgConverter.convert(state.svgText, state.template);
-        ui.setProgress(70, 'Applying resizeâ€¦');
+        ui.setProgress(70, 'Applying resize…');
         // apply resize if different from original SVG dims
         const tw = parseFloat(document.getElementById('resizeW').value);
         const th = parseFloat(document.getElementById('resizeH').value);
@@ -313,7 +313,7 @@ const ui = {
         if (analysis.unknownCmds.length) {
           statusMsg += `  âš  Unknown: ${analysis.unknownCmds.join(', ')}`;
         }
-        ui.setProgress(90, 'Renderingâ€¦');
+        ui.setProgress(90, 'Rendering…');
         preview.resize();
         ui.syncModals();
         ui.setProgress(100, 'Done');
@@ -427,7 +427,7 @@ const ui = {
       state.resizeBaseH = newH;
       document.getElementById('resizeW').value = newW.toFixed(3);
       document.getElementById('resizeH').value = newH.toFixed(3);
-      ui.setStatus(`Scaled ${factor >= 1 ? 'up' : 'down'} by ${Math.abs((factor - 1) * 100).toFixed(1)}% â†’ ${newW.toFixed(3)} Ã— ${newH.toFixed(3)} mm`);
+      ui.setStatus(`Scaled ${factor >= 1 ? 'up' : 'down'} by ${Math.abs((factor - 1) * 100).toFixed(1)}% → ${newW.toFixed(3)} × ${newH.toFixed(3)} mm`);
     };
 
     document.getElementById('btnScaleUp').addEventListener('click', () => _scaleFactor(1.05));
@@ -446,7 +446,7 @@ const ui = {
         const curW = m1.max - m1.min || 1, curH = m2.max - m2.min || 1;
         state.svgScale = tw / curW;
         preview.draw(state.workingCmds);
-        ui.setStatus(`SVG scaled: ${curW.toFixed(3)}Ã—${curH.toFixed(3)} â†’ ${tw.toFixed(3)}Ã—${th.toFixed(3)} mm`);
+        ui.setStatus(`SVG scaled: ${curW.toFixed(3)}×${curH.toFixed(3)} → ${tw.toFixed(3)}×${th.toFixed(3)} mm`);
         state.resizeBaseW = tw;
         state.resizeBaseH = th;
         return;
@@ -457,10 +457,10 @@ const ui = {
       undoRedo.push(state.workingCmds);
       if (Math.abs(fx - fy) < 0.0001) {
         state.workingCmds = gcodeParser.scaleCommands(state.workingCmds, fx);
-        ui.setStatus(`Resized: ${b.rangeX.toFixed(3)}Ã—${b.rangeY.toFixed(3)} â†’ ${tw.toFixed(3)}Ã—${th.toFixed(3)} mm`);
+        ui.setStatus(`Resized: ${b.rangeX.toFixed(3)}×${b.rangeY.toFixed(3)} → ${tw.toFixed(3)}×${th.toFixed(3)} mm`);
       } else {
         state.workingCmds = gcodeParser.scaleCommandsXY(state.workingCmds, fx, fy);
-        ui.setStatus(`Resized (non-uniform): WÃ—${fx.toFixed(3)} HÃ—${fy.toFixed(3)}`);
+        ui.setStatus(`Resized (non-uniform): W×${fx.toFixed(3)} H×${fy.toFixed(3)}`);
       }
       state.resizeBaseW = tw;
       state.resizeBaseH = th;
@@ -566,7 +566,7 @@ const ui = {
       }
     });
 
-    // Working editor â†’ sync state (debounced)
+    // Working editor → sync state (debounced)
     let _editTimer = null;
     const _onWorkingInput = (text) => {
       if (_editTimer) clearTimeout(_editTimer);
@@ -610,7 +610,7 @@ const ui = {
       preview.originY = 0;
       document.getElementById('originX').value = '0';
       document.getElementById('originY').value = '0';
-      ui.setStatus(`Origin offset applied: X${ox} Y${oy} â†’ 0,0`);
+      ui.setStatus(`Origin offset applied: X${ox} Y${oy} → 0,0`);
     });
 
     // Origin mark buttons (Left/Right)
@@ -698,7 +698,7 @@ const ui = {
         return { ...c, params: p, raw: '' };
       });
       ui.refreshWorking();
-      ui.setStatus(`Batch: ${axis} ${val >= 0 ? '-' : '+'}${Math.abs(val)} applied${from >= 0 ? ` to lines ${from}â€“${to}` : ''}.`);
+      ui.setStatus(`Batch: ${axis} ${val >= 0 ? '-' : '+'}${Math.abs(val)} applied${from >= 0 ? ` to lines ${from}–${to}` : ''}.`);
     });
 
     // â”€â”€ Points widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -756,23 +756,23 @@ const ui = {
 
     // â”€â”€ Keyboard Shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     document.addEventListener('keydown', e => {
-      // Ctrl+O â€” Open G-code
+      // Ctrl+O — Open G-code
       if (e.ctrlKey && !e.shiftKey && e.key === 'o') {
         e.preventDefault();
         document.getElementById('fileInputGcode').click();
       }
-      // Ctrl+Shift+S â€” Save As
+      // Ctrl+Shift+S — Save As
       if (e.ctrlKey && e.shiftKey && e.key === 's') {
         e.preventDefault();
         document.getElementById('btnSaveAs').click();
       }
-      // Space â€” Play/Pause (unless in input/textarea)
+      // Space — Play/Pause (unless in input/textarea)
       if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         if (preview._pb.active && !preview._pb.paused) preview.pause();
         else preview.play();
       }
-      // Esc â€” Stop
+      // Esc — Stop
       if (e.key === 'Escape' && e.target.tagName !== 'TEXTAREA') {
         if (pickMode) {
           pickMode = false;
@@ -790,7 +790,7 @@ const ui = {
           preview.stop();
         }
       }
-      // + / - â€” Zoom (only when not in input/textarea)
+      // + / - — Zoom (only when not in input/textarea)
       if ((e.key === '+' || e.key === '=') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         state.previewScale *= 1.15;
         preview.draw(state.workingCmds);
@@ -1058,7 +1058,7 @@ const ui = {
         const moveBtn = document.createElement('button');
         moveBtn.className = 'lp-widget-btn move-btn';
         const otherSide = side === 'left' ? 'right' : 'left';
-        moveBtn.textContent = side === 'left' ? 'â†’' : 'â†';
+        moveBtn.textContent = side === 'left' ? '→' : 'â†';
         moveBtn.title = `Move to ${otherSide} column`;
         moveBtn.addEventListener('click', () => {
           const targetCol = document.getElementById('col-' + otherSide);
@@ -1220,7 +1220,7 @@ const ui = {
   refreshTemplateList() {
     const sel = document.getElementById('templateSelect');
     const cur = sel.value;
-    sel.innerHTML = '<option value="">â€” Templates â€”</option>';
+    sel.innerHTML = '<option value="">— Templates —</option>';
     templateManager.list().sort().forEach(name => {
       const opt = document.createElement('option');
       opt.value = opt.textContent = name;

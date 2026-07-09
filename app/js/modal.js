@@ -11,7 +11,7 @@ function openModal(id) {
       mc.height = mc.offsetHeight;
       preview.canvas = mc;
       preview.ctx    = mc.getContext('2d');
-      // pan/zoom no canvas do modal â€” setup once
+      // pan/zoom no canvas do modal — setup once
       if (!mc._panZoomReady) {
         mc._panZoomReady = true;
         let dragging = false, lastX = 0, lastY = 0;

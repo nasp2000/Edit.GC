@@ -259,7 +259,7 @@ const svgConverter = {
     return result;
   },
 
-  _bezierTolerance: 0.1, // mm â€” configurable
+  _bezierTolerance: 0.1, // mm — configurable
 
   _flattenCubic(x0, y0, x1, y1, x2, y2, x3, y3, pts, scale) {
     const tol = this._bezierTolerance / scale;
