@@ -268,11 +268,13 @@
       <div class="widget" draggable="true" data-widget="info">
         <div class="widget-title"><span>Gcode Info</span><span class="widget-drag">⠿</span></div>
         <div class="widget-body" style="flex-wrap:wrap;gap:3px;font-size:11px;line-height:1.6;min-height:120px">
-          <span class="clabel" id="infoFileName" style="width:100%;color:var(--accent);font-weight:600;word-break:break-all">—</span>
-          <span class="clabel" id="infoUnits" style="width:100%">—</span>
-          <span class="clabel" id="infoLines" style="width:100%">—</span>
-          <span class="clabel" id="infoDist" style="width:100%">—</span>
-          <span class="clabel" id="infoTime" style="width:100%">—</span>
+          <span class="clabel" id="infoFileName" style="width:100%;color:var(--accent);font-weight:600;word-break:break-all;margin-bottom:2px">—</span>
+          <div style="display:grid;grid-template-columns:1fr 1fr;width:100%;gap:2px">
+            <span class="clabel" id="infoUnits" style="grid-column:1">—</span>
+            <span class="clabel" id="infoLines" style="grid-column:2">—</span>
+            <span class="clabel" id="infoDist" style="grid-column:1">—</span>
+            <span class="clabel" id="infoTime" style="grid-column:2">—</span>
+          </div>
           <span class="clabel" id="infoWarn" style="width:100%;color:#d97706;white-space:pre-wrap">—</span>
           <div style="display:flex;gap:6px;width:100%;align-items:center;margin-top:4px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkBounds" checked> BBox</label>
