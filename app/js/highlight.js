@@ -3,7 +3,7 @@
   const lines = text.split('\n');
   if (lines.length <= CFG.EDITOR_LINE_LIMIT) return text;
   return lines.slice(0, CFG.EDITOR_LINE_LIMIT).join('\n') +
-    `\n\n; âš  File truncated: showing first ${_EDITOR_LINE_LIMIT.toLocaleString()} of ${lines.length.toLocaleString()} lines.`;
+    `\n\n;  !  File truncated: showing first ${_EDITOR_LINE_LIMIT.toLocaleString()} of ${lines.length.toLocaleString()} lines.`;
 }
 function editorLineCount(text) {
   return text ? text.split('\n').length : 0;

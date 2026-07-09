@@ -74,8 +74,8 @@
             <span class="clabel">H</span><input type="number" id="resizeH" class="cinput" style="width:65px" step="0.001" min="0.001" value="0" />
           </div>
           <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <button class="btn-action" id="btnScaleUp" style="flex:1">â–²</button>
-            <button class="btn-action" id="btnScaleDown" style="flex:1">â–¼</button>
+            <button class="btn-action" id="btnScaleUp" style="flex:1">-²</button>
+            <button class="btn-action" id="btnScaleDown" style="flex:1">-¼</button>
           </div>
           <button class="btn-action" id="btnApplyScale" style="width:100%">Apply</button>
         </div>
@@ -120,9 +120,9 @@
           </div>
           <span class="clabel" style="width:100%;margin-top:2px">Mark start</span>
           <div style="display:flex;gap:3px;width:100%">
-            <button class="btn-action" id="btnMarkLeft" style="flex:1">â—€ Left</button>
-            <button class="btn-action" id="btnMarkRight" style="flex:1">Right â–¶</button>
-            <button class="btn-action" id="btnClearMark" style="flex:0 0 auto">âœ•</button>
+            <button class="btn-action" id="btnMarkLeft" style="flex:1">Left</button>
+            <button class="btn-action" id="btnMarkRight" style="flex:1">Right</button>
+            <button class="btn-action" id="btnClearMark" style="flex:0 0 auto">X</button>
           </div>
           <span class="clabel" style="width:100%;margin-top:2px">Fine offset</span>
           <div style="display:flex;gap:3px;width:100%">
@@ -184,30 +184,30 @@
           </span>
         </div>
         <div id="findReplaceBar" class="find-replace-bar" style="display:none">
-          <input type="text" id="findInput" placeholder="Findâ€¦" style="flex:1;min-width:100px">
-          <input type="text" id="replaceInput" placeholder="Replaceâ€¦" style="flex:1;min-width:100px">
+          <input type="text" id="findInput" placeholder="Find..." style="flex:1;min-width:100px">
+          <input type="text" id="replaceInput" placeholder="Replace..." style="flex:1;min-width:100px">
           <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="findRegex"> .*</label>
           <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="findCase"> Aa</label>
           <span id="findCount" style="font-size:10px;color:var(--text-dim);min-width:40px;text-align:center">0/0</span>
           <button class="btn-icon" id="btnFindPrev" style="font-size:9px">â—€</button>
-          <button class="btn-icon" id="btnFindNext" style="font-size:9px">â–¶</button>
+          <button class="btn-icon" id="btnFindNext" style="font-size:9px">Play</button>
           <button class="btn-icon" id="btnReplace" style="font-size:9px">Rpl</button>
           <button class="btn-icon" id="btnReplaceAll" style="font-size:9px">Rpl All</button>
-          <button class="btn-icon" id="btnFindClose" style="font-size:9px">âœ•</button>
+          <button class="btn-icon" id="btnFindClose" style="font-size:9px">X</button>
         </div>
         <div id="editor-content">
           <div class="editor-pane active" id="pane-original">
             <div class="editor-wrap">
               <div class="editor-lines" id="linesOriginal"></div>
               <div class="highlight-overlay" id="highlightOriginal"></div>
-              <textarea id="editorOriginal" class="gcode-editor highlight-textarea" readonly placeholder="Open a G-code fileâ€¦"></textarea>
+              <textarea id="editorOriginal" class="gcode-editor highlight-textarea" readonly placeholder="Open a G-code file..."></textarea>
             </div>
           </div>
           <div class="editor-pane" id="pane-working">
             <div class="editor-wrap">
               <div class="editor-lines" id="linesWorking"></div>
               <div class="highlight-overlay" id="highlightWorking"></div>
-              <textarea id="editorWorking" class="gcode-editor highlight-textarea" placeholder="Working G-code appears hereâ€¦" spellcheck="false"></textarea>
+              <textarea id="editorWorking" class="gcode-editor highlight-textarea" placeholder="Working G-code appears here..." spellcheck="false"></textarea>
               <div id="virtualEditorWrap" style="display:none;flex:1;min-height:0;position:relative"></div>
             </div>
           </div>
@@ -314,14 +314,14 @@
             <option value="outlines">Outlines</option>
             <option value="raster">Raster</option>
           </select>
-          <button class="btn-icon" id="mBtnPlay" title="Play preview">â–¶</button>
-          <button class="btn-icon" id="mBtnPause" title="Pause preview">â¸</button>
+          <button class="btn-icon" id="mBtnPlay" title="Play preview">Play</button>
+          <button class="btn-icon" id="mBtnPause" title="Pause preview">Pause</button>
           <button class="btn-icon" id="mBtnStop" title="Stop preview">â¹</button>
           <label class="bar-speed-label" title="Playback speed">Speed
             <input type="range" id="mPlaySpeed" min="1" max="500" value="30" class="bar-speed-slider">
           </label>
           <span class="bar-info" id="previewInfoModal"></span>
-          <button class="btn-close" onclick="closeModal('modal-preview')">âœ•</button>
+          <button class="btn-close" onclick="closeModal('modal-preview')">X</button>
         </div>
       </div>
       <div id="modalPreviewWrap" style="flex:1;min-height:0;position:relative">
@@ -334,7 +334,7 @@
     <div class="modal-box">
       <div class="modal-bar">
         <span class="section-label">Original G-code</span>
-        <button class="btn-close" onclick="closeModal('modal-original')">âœ•</button>
+        <button class="btn-close" onclick="closeModal('modal-original')">X</button>
       </div>
       <div class="editor-wrap" style="flex:1;min-height:0">
         <div class="highlight-overlay modal-editor-overlay" id="highlightOriginalModal"></div>
@@ -347,7 +347,7 @@
     <div class="modal-box">
       <div class="modal-bar">
         <span class="section-label">Working G-code</span>
-        <button class="btn-close" onclick="closeModal('modal-working')">âœ•</button>
+        <button class="btn-close" onclick="closeModal('modal-working')">X</button>
       </div>
       <div class="editor-wrap" style="flex:1;min-height:0">
         <div class="highlight-overlay modal-editor-overlay" id="highlightWorkingModal"></div>
@@ -360,7 +360,7 @@
     <div class="modal-box" style="max-width:500px;height:auto">
       <div class="modal-bar">
         <span class="section-label">G-code Analysis</span>
-        <button class="btn-close" onclick="closeModal('modal-analysis')">âœ•</button>
+        <button class="btn-close" onclick="closeModal('modal-analysis')">X</button>
       </div>
       <div id="analysisContent" style="padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;overflow-y:auto;background:var(--bg4)"></div>
     </div>

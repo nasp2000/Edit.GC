@@ -34,7 +34,7 @@ const ui = {
       const analysis = gcodeParser.analyzeFull(state.workingCmds);
       let statusMsg = `Opened: ${file.name} (${state.workingCmds.length} lines)`;
       if (analysis.unknownCmds.length) {
-        statusMsg += `  âš  Unknown: ${analysis.unknownCmds.join(', ')}`;
+        statusMsg += `   !  Unknown: ${analysis.unknownCmds.join(', ')}`;
       }
       ui.setProgress(100, 'Done');
       setTimeout(() => ui.setProgress(-1), 1000);
@@ -311,7 +311,7 @@ const ui = {
         const analysis = gcodeParser.analyzeFull(finalCmds);
         let statusMsg = `Converted: ${cutLines} cut moves Â· ${cmds.length} lines Â· "${baseName}"`;
         if (analysis.unknownCmds.length) {
-          statusMsg += `  âš  Unknown: ${analysis.unknownCmds.join(', ')}`;
+          statusMsg += `   !  Unknown: ${analysis.unknownCmds.join(', ')}`;
         }
         ui.setProgress(90, 'Rendering…');
         preview.resize();
@@ -1029,7 +1029,7 @@ const ui = {
         // up button
         const upBtn = document.createElement('button');
         upBtn.className = 'lp-widget-btn';
-        upBtn.textContent = 'â–²';
+        upBtn.textContent = '^';
         upBtn.title = 'Move up';
         upBtn.addEventListener('click', () => {
           const prev = row.previousElementSibling;
@@ -1043,7 +1043,7 @@ const ui = {
         // down button
         const dnBtn = document.createElement('button');
         dnBtn.className = 'lp-widget-btn';
-        dnBtn.textContent = 'â–¼';
+        dnBtn.textContent = 'v';
         dnBtn.title = 'Move down';
         dnBtn.addEventListener('click', () => {
           const next = row.nextElementSibling;

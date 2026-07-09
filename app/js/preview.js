@@ -370,7 +370,7 @@
       ctx.fillStyle = '#ff0000';
       ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(dir === 'left' ? 'â—€' : 'â–¶', mx, my + sz + 18);
+      ctx.fillText(dir === 'left' ? 'â—€' : '>', mx, my + sz + 18);
       ctx.restore();
     }
     this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
@@ -810,7 +810,7 @@
       ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
       ctx.stroke(); ctx.shadowBlur = 0;
       ctx.fillStyle = '#ff0000'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(state.originMark.dir === 'left' ? 'â—€' : 'â–¶', mx, my + sz + 18);
+      ctx.fillText(state.originMark.dir === 'left' ? 'â—€' : '>', mx, my + sz + 18);
       ctx.restore();
     }
 
