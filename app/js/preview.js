@@ -1,4 +1,4 @@
-﻿const preview = {
+const preview = {
   canvas: null,
   ctx: null,
   originX: 0,

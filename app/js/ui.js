@@ -1,4 +1,4 @@
-﻿// â”€â”€ uiController â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ uiController â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ui = {
   init() {
     // Abrir G-code
@@ -1058,7 +1058,7 @@ const ui = {
         const moveBtn = document.createElement('button');
         moveBtn.className = 'lp-widget-btn move-btn';
         const otherSide = side === 'left' ? 'right' : 'left';
-        moveBtn.textContent = side === 'left' ? '→' : 'â†';
+        moveBtn.textContent = side === 'left' ? 'right' : 'left';
         moveBtn.title = `Move to ${otherSide} column`;
         moveBtn.addEventListener('click', () => {
           const targetCol = document.getElementById('col-' + otherSide);
