@@ -1238,12 +1238,18 @@ const ui = {
 
   updateFooterInfo() {
     // Populate Gcode Info widget
+    const iName  = document.getElementById('infoFileName');
     const iUnits = document.getElementById('infoUnits');
     const iLines = document.getElementById('infoLines');
     const iDist  = document.getElementById('infoDist');
     const iTime  = document.getElementById('infoTime');
     const iWarn  = document.getElementById('infoWarn');
     const hasGcode = state.workingCmds.length > 0;
+    if (hasGcode) {
+      if (iName) iName.textContent = state.originalName || 'Untitled';
+    } else {
+      if (iName) iName.textContent = '—';
+    }
     if (hasGcode) {
       const unitsCmd = state.workingCmds.find(c => c.type === 'G20' || c.type === 'G21');
       const modeCmd  = state.workingCmds.find(c => c.type === 'G90' || c.type === 'G91');
