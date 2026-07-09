@@ -22,8 +22,8 @@
   populateSelect(sel) {
     if (!sel) return;
     const list = this.list();
-    sel.innerHTML = '<option value="">— Recent files —</option>';
-    if (!list.length) { sel.innerHTML = '<option value="">— No files —</option>'; return; }
+    sel.innerHTML = '<option value="">â€” Recent files â€”</option>';
+    if (!list.length) { sel.innerHTML = '<option value="">â€” No files â€”</option>'; return; }
     list.forEach(f => {
       const opt = document.createElement('option');
       opt.value = opt.textContent = `${f.name}  (${f.type})`;

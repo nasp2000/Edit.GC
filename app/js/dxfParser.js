@@ -1,5 +1,5 @@
 ﻿const dxfParser = {
-  // Parse DXF text → array of segments (each segment = array of {x,y,cut})
+  // Parse DXF text â†’ array of segments (each segment = array of {x,y,cut})
   parse(text, scaleFactor) {
     const scale = scaleFactor || 1;
     const lines = text.split(/\r?\n/).map(l => l.trim());
