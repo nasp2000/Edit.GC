@@ -674,60 +674,7 @@ const ui = {
     });
 
     // â”€â”€ Generate Updated G-code â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    document.getElementById('btnGenerateGcode').addEventListener('click', () => {
-      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
-      ui.setProgress(5, 'Applying changesâ€¦');
-      // Start from original commands
-      undoRedo.push(state.workingCmds);
-      let cmds = state.originalCmds.map(c => ({ ...c }));
-      // Apply template (header/footer from active template)
-      const tpl = state.template;
-      if (tpl) {
-        const tplHeader = tpl.header || [];
-        const tplFooter = tpl.footer || [];
-        if (tplHeader.length || tplFooter.length) {
-          const firstMove = cmds.findIndex(c => ['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type));
-          const lastMove  = cmds.reduce((acc, c, i) => ['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type) ? i : acc, -1);
-          const body = cmds.slice(firstMove >= 0 ? firstMove : 0, lastMove >= 0 ? lastMove + 1 : cmds.length);
-          const header = firstMove > 0 ? cmds.slice(0, firstMove) : [];
-          const footer = lastMove >= 0 ? cmds.slice(lastMove + 1) : [];
-          cmds = [
-            ...tplHeader.map(r => gcodeParser.parse(r + '\n')).flat(),
-            ...body,
-            ...tplFooter.map(r => gcodeParser.parse(r + '\n')).flat(),
-          ];
-        }
-      }
-      // Apply feed/power from widget
-      const feed = parseFloat(document.getElementById('batchFeed').value);
-      const power = parseFloat(document.getElementById('batchPower').value);
-      if (feed) cmds = gcodeParser.applyBatchParam(cmds, 'G1', 'F', feed);
-      if (power) cmds = gcodeParser.applyBatchParam(cmds, 'G1', 'S', power);
-      // Apply scale from widget
-      const scaleW = parseFloat(document.getElementById('resizeW').value);
-      const scaleH = parseFloat(document.getElementById('resizeH').value);
-      if (scaleW && scaleH && state.resizeBaseW && state.resizeBaseH) {
-        const fx = scaleW / state.resizeBaseW, fy = scaleH / state.resizeBaseH;
-        if (Math.abs(fx - 1) > 0.0001 || Math.abs(fy - 1) > 0.0001) {
-          cmds = Math.abs(fx - fy) < 0.0001
-            ? gcodeParser.scaleCommands(cmds, fx)
-            : gcodeParser.scaleCommandsXY(cmds, fx, fy);
-        }
-      }
-      // Apply origin offset (X=0,Y=0 shift)
-      const ox = parseFloat(document.getElementById('originOffX').value) || 0;
-      const oy = parseFloat(document.getElementById('originOffY').value) || 0;
-      if (ox || oy) cmds = gcodeParser.applyOffset(cmds, ox, oy);
-      ui.setProgress(70, 'Updating previewâ€¦');
-      state.workingCmds = cmds;
-      state.dirty = true;
-      ui.refreshWorking();
-      ui.setProgress(100, 'Done');
-      setTimeout(() => ui.setProgress(-1), 800);
-      ui.setStatus('G-code updated successfully.');
-    });
-
-    // â”€â”€ Batch widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    
     document.getElementById('btnBatchApply').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       const axis = document.getElementById('batchAxis').value;
