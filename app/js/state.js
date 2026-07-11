@@ -27,4 +27,5 @@ const state = {
   originMark:    null,    // { x, y, dir: 'left'|'right' } for red X mark
   dirty:         false,   // unsaved changes flag
   _duringUndoRedo: false,// prevents recursive undo push during undo/redo
+  showRapids:     true,   // show G0 rapid moves in preview
 };

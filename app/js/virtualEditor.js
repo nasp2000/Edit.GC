@@ -168,12 +168,13 @@ class VirtualEditor {
     if (cmd) result += `<span style="color:${cmdColor}">${this._escape(cmd)}</span>`;
     for (let i = ti + 1; i < tokens.length; i++) {
       const p = tokens[i];
-      const m = p.match(/^([A-Z])([-\d.]+)$/);
-      if (m) {
-        result += ` <span style="color:#000">${this._escape(m[1])}</span><span style="color:#000">${this._escape(m[2])}</span>`;
-      } else {
-        result += ` ${this._escape(p)}`;
-      }
+      let pos = 0;
+      p.replace(/([A-Z])([-\d.]+)/g, (_, letter, num, offset) => {
+        if (offset > pos) result += `<span style="color:#d97706">${this._escape(p.slice(pos, offset))}</span>`;
+        result += ` <span style="color:#000">${this._escape(letter)}</span><span style="color:#000">${this._escape(num)}</span>`;
+        pos = offset + letter.length + num.length;
+      });
+      if (pos < p.length) result += `<span style="color:#d97706">${this._escape(p.slice(pos))}</span>`;
     }
     if (commentPart) {
       result += ` <span style="color:#16a34a;font-style:italic">${this._escape(commentPart)}</span>`;

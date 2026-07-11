@@ -40,11 +40,7 @@ function openModal(id) {
         // Click handler for modal canvas
         mc.addEventListener('click', e => {
           if (e.clientX !== lastX || e.clientY !== lastY) return;
-          if (pickMode) {
-            preview._handlePickClick(e);
-          } else if (measureMode) {
-            preview._handleMeasureClick(e);
-          } else if (originMarkMode) {
+          if (originMarkMode) {
             preview._setMarkFromClick(e);
           } else if (state.mode === 'gcode') {
             preview._selectPointFromClick(e);
@@ -92,6 +88,10 @@ function closeModal(id) {
     preview.canvas = document.getElementById('previewCanvas');
     preview.ctx    = preview.canvas.getContext('2d');
     preview.resize();
+  }
+  if (id === 'modal-working') {
+    const bar = document.getElementById('mFindReplaceBar');
+    if (bar) bar.style.display = 'none';
   }
 }
 function closeModalOutside(e, id) {

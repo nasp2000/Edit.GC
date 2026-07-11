@@ -3,6 +3,7 @@ async function handleDroppedFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (['gcode','gc','nc','cnc','tap','mpf','iso','min','eia','ncc','pnc','plt','hpgl','spf','din','g','ngc','prg','txt'].includes(ext)) {
     // Treat as G-code
+    ui.clearState();
     const text = await fileManager.readGcode(file);
     state.originalCmds  = gcodeParser.parse(text);
     const isLarge = text.length > 5 * 1024 * 1024;
@@ -13,15 +14,18 @@ async function handleDroppedFile(file) {
     state.previewScale  = 1;
     state.previewOffX   = 0;
     state.previewOffY   = 0;
-    document.getElementById('editorOriginal').value = isLarge ? '(original text too large for editor)' : truncateForEditor(text);
-    ui._updateWorkingEditor(gcodeParser.serialize(state.workingCmds));
+    const editorText = isLarge ? '(original text too large for editor)' : truncateForEditor(text);
+    document.getElementById('editorOriginal').value = editorText;
+    document.getElementById('editorWorking').value = editorText;
     preview.resize();
     ui.setStatus(`Opened: ${file.name} (${state.workingCmds.length} lines)`);
     ui.syncModals();
     if (recentFiles) recentFiles.add(file.name, 'G-code');
+    const _rs = document.getElementById('recentFilesSelect');
+    if (_rs) recentFiles.populateSelect(_rs);
     ui.updateFooterInfo();
     applyHighlight(document.getElementById('highlightOriginal'), isLarge ? '' : text);
-    applyHighlight(document.getElementById('highlightWorking'), gcodeParser.serialize(state.workingCmds));
+    applyHighlight(document.getElementById('highlightWorking'), isLarge ? '' : text);
     document.getElementById('btnConvertSvg').disabled = true;
     document.getElementById('btnConvertDxf').disabled = true;
   } else if (ext === 'svg') {

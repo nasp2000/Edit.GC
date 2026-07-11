@@ -28,8 +28,8 @@ function applyHighlight(el, text) {
   const id = el.id;
   if (id === 'highlightOriginal') updateLineNumbers('linesOriginal', 'editorOriginal');
   else if (id === 'highlightWorking') updateLineNumbers('linesWorking', 'editorWorking');
-  else if (id === 'highlightOriginalModal') updateLineNumbers(null, null);
-  else if (id === 'highlightWorkingModal') updateLineNumbers(null, null);
+  else if (id === 'highlightOriginalModal') updateLineNumbers('linesOriginalModal', 'editorOriginalModal');
+  else if (id === 'highlightWorkingModal') updateLineNumbers('linesWorkingModal', 'editorWorkingModal');
 }
 
 function updateLineNumbers(linesId, textareaId) {

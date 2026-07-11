@@ -6,13 +6,23 @@
     try { return JSON.parse(localStorage.getItem(this._key)) || []; } catch { return []; }
   },
 
-  add(name, type) {
+  add(name, type, content) {
     try {
-      const list = this.list().filter(f => f.name !== name);
-      list.unshift({ name, type, time: Date.now() });
+      let list = this.list().filter(f => f.name !== name);
+      const entry = { name, type, time: Date.now() };
+      if (content) entry.content = content;
+      list.unshift(entry);
       if (list.length > this._max) list.length = this._max;
       localStorage.setItem(this._key, JSON.stringify(list));
-    } catch (_) {}
+    } catch (_) {
+      // If storage fails (quota exceeded), store metadata only
+      try {
+        let list = this.list().filter(f => f.name !== name);
+        list.unshift({ name, type, time: Date.now() });
+        if (list.length > this._max) list.length = this._max;
+        localStorage.setItem(this._key, JSON.stringify(list));
+      } catch (_) {}
+    }
   },
 
   clear() {
@@ -22,15 +32,14 @@
   populateSelect(sel) {
     if (!sel) return;
     const list = this.list();
-    sel.innerHTML = '<option value="">— Recent files —</option>';
-    if (!list.length) { sel.innerHTML = '<option value="">— No files —</option>'; return; }
+    sel.innerHTML = '<option value="">— Recent —</option>';
+    if (!list.length) { sel.innerHTML = '<option value="">— No recent —</option>'; return; }
     list.forEach(f => {
       const opt = document.createElement('option');
-      opt.value = opt.textContent = `${f.name}  (${f.type})`;
-      opt.dataset.name = f.name;
-      opt.dataset.type = f.type;
+      opt.textContent = f.name;
+      opt.value = f.name;
+      if (f.content) opt.dataset.cached = '1';
       sel.appendChild(opt);
     });
   },
 };
-

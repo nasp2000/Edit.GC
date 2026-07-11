@@ -1,6 +1,8 @@
 // â”€â”€ gcodeParser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const gcodeParser = {
   parse(text) {
+    if (typeof text !== 'string') return [];
+    text = text.replace(/\r/g, '');
     return text.split('\n').map((raw, lineIndex) => {
       // Strip comments
       const stripped = raw.replace(/\(.*?\)/g, '').replace(/;.*$/, '').trim();
@@ -24,8 +26,7 @@ const gcodeParser = {
       const type   = parts.length > firstIdx ? parts[firstIdx] : '';
       const params = {};
       for (let i = firstIdx + 1; i < parts.length; i++) {
-        const m = parts[i].match(/^([A-Z])([-\d.]+)$/);
-        if (m) params[m[1]] = parseFloat(m[2]);
+        parts[i].replace(/([A-Z])([-\d.]+)/g, (_, l, n) => { params[l] = parseFloat(n); });
       }
       return { lineIndex, raw, type, params, comment, isBlank: false, isComment: false, blockDelete };
     });
@@ -48,7 +49,7 @@ const gcodeParser = {
 
   highlight(text) {
     if (!text) return '';
-    return text.split('\n').map(line => {
+    return text.replace(/\r/g, '').split('\n').map(line => {
       // Comment-only line
       if (/^\s*\(/.test(line) || /^\s*;/.test(line)) {
         return `<span class="hl-comment">${this._escape(line)}</span>`;
@@ -85,14 +86,13 @@ const gcodeParser = {
       if (cmd) result += `<span class="${cmdClass}">${this._escape(cmd)}</span>`;
       for (let i = ti + 1; i < tokens.length; i++) {
         const p = tokens[i];
-        const m = p.match(/^([A-Z])([-\d.eE+]+)$/);
-        if (m) {
-          result += ` <span class="hl-param">${this._escape(m[1])}</span><span class="hl-value">${this._escape(m[2])}</span>`;
-        } else {
-          // Any other token (e.g. scientific notation, stray text) is still
-          // wrapped so it inherits the visible base color instead of vanishing.
-          result += ` <span class="hl-other">${this._escape(p)}</span>`;
-        }
+        let pos = 0;
+        p.replace(/([A-Z])([-\d.eE+]+)/g, (_, letter, num, offset) => {
+          if (offset > pos) result += `<span class="hl-other">${this._escape(p.slice(pos, offset))}</span>`;
+          result += ` <span class="hl-param">${this._escape(letter)}</span><span class="hl-value">${this._escape(num)}</span>`;
+          pos = offset + letter.length + num.length;
+        });
+        if (pos < p.length) result += `<span class="hl-other">${this._escape(p.slice(pos))}</span>`;
       }
       if (commentPart) {
         result += ` <span class="hl-comment">${this._escape(commentPart)}</span>`;
@@ -167,12 +167,16 @@ const gcodeParser = {
     };
   },
 
-  applyOffset(commands, dx, dy) {
+  applyOffset(commands, offsets) {
+    const axes = ['X','Y','Z','A','B','C'];
     return commands.map(c => {
       if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
       const p = { ...c.params };
-      if (p.X !== undefined) p.X = parseFloat((p.X + dx).toFixed(4));
-      if (p.Y !== undefined) p.Y = parseFloat((p.Y + dy).toFixed(4));
+      for (const k of axes) {
+        if (p[k] !== undefined && offsets[k] !== undefined) {
+          p[k] = parseFloat((p[k] + offsets[k]).toFixed(4));
+        }
+      }
       return { ...c, params: p, raw: '' };
     });
   },

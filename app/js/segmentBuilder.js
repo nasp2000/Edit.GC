@@ -55,28 +55,29 @@ const segmentBuilder = {
       }
     };
 
-    // Resolve arc centre from R value
-    const centerFromR = (prev, next, rVal, cw) => {
-      const dx = next.x - prev.x, dy = next.y - prev.y;
-      const chord = Math.sqrt(dx * dx + dy * dy);
+    // Resolve arc centre from R value for any axis pair
+    const centerFromR = (prev, next, ax, ay, rVal, clockwise) => {
+      const da = next[ax] - prev[ax], db = next[ay] - prev[ay];
+      const chord = Math.sqrt(da * da + db * db);
       if (!isFinite(chord) || chord < 0.000001) return null;
-      let rAbs = Math.abs(rVal);
-      if (chord > 2 * rAbs) rAbs = chord * 0.5;
-      const h2 = Math.max(0, rAbs * rAbs - (chord * chord) / 4);
+      let rabs = Math.abs(rVal);
+      if (chord > 2 * rabs) rabs = chord * 0.5;
+      const h2 = Math.max(0, rabs * rabs - (chord * chord) / 4);
       const h = Math.sqrt(h2);
-      const mx = (prev.x + next.x) * 0.5, my = (prev.y + next.y) * 0.5;
-      const ux = -dy / chord, uy = dx / chord;
-      const cands = [{ cx: mx + ux * h, cy: my + uy * h }, { cx: mx - ux * h, cy: my - uy * h }];
+      const ma = (prev[ax] + next[ax]) * 0.5, mb = (prev[ay] + next[ay]) * 0.5;
+      const ua = -db / chord, ub = da / chord;
+      const c1 = { ca: ma + ua * h, cb: mb + ub * h };
+      const c2 = { ca: ma - ua * h, cb: mb - ub * h };
       const sweep = (c) => {
-        let a0 = Math.atan2(prev.y - c.cy, prev.x - c.cx);
-        let a1 = Math.atan2(next.y - c.cy, next.x - c.cx);
+        let a0 = Math.atan2(prev[ay] - c.cb, prev[ax] - c.ca);
+        let a1 = Math.atan2(next[ay] - c.cb, next[ax] - c.ca);
         let d = a1 - a0;
-        if (cw) { if (d >= 0) d -= Math.PI * 2; }
+        if (clockwise) { if (d >= 0) d -= Math.PI * 2; }
         else { if (d <= 0) d += Math.PI * 2; }
         return d;
       };
-      const d0 = sweep(cands[0]), d1 = sweep(cands[1]);
-      return (rVal < 0 ? Math.abs(d0) >= Math.abs(d1) : Math.abs(d0) <= Math.abs(d1)) ? cands[0] : cands[1];
+      const d0 = sweep(c1), d1 = sweep(c2);
+      return (rVal < 0 ? Math.abs(d0) >= Math.abs(d1) : Math.abs(d0) <= Math.abs(d1)) ? c1 : c2;
     };
 
     // Main loop — process every command once
@@ -112,19 +113,31 @@ const segmentBuilder = {
         let ax, ay, az, cx, cy, hasCenter;
         if (planeMode === 18) { // XZ
           ax = 'x'; ay = 'z'; az = 'y';
-          cx = prev.x + (c.params.I || 0) * unitToMm;
-          cy = prev.z + (c.params.K || 0) * unitToMm;
-          hasCenter = c.params.I !== undefined || c.params.K !== undefined;
+          if (c.params.R !== undefined) {
+            const cc = centerFromR(prev, next, ax, ay, c.params.R * unitToMm, cw);
+            if (cc) { cx = cc.ca; cy = cc.cb; hasCenter = true; }
+            else { hasCenter = false; }
+          } else {
+            cx = prev.x + (c.params.I || 0) * unitToMm;
+            cy = prev.z + (c.params.K || 0) * unitToMm;
+            hasCenter = c.params.I !== undefined || c.params.K !== undefined;
+          }
         } else if (planeMode === 19) { // YZ
           ax = 'y'; ay = 'z'; az = 'x';
-          cx = prev.y + (c.params.J || 0) * unitToMm;
-          cy = prev.z + (c.params.K || 0) * unitToMm;
-          hasCenter = c.params.J !== undefined || c.params.K !== undefined;
+          if (c.params.R !== undefined) {
+            const cc = centerFromR(prev, next, ax, ay, c.params.R * unitToMm, cw);
+            if (cc) { cx = cc.ca; cy = cc.cb; hasCenter = true; }
+            else { hasCenter = false; }
+          } else {
+            cx = prev.y + (c.params.J || 0) * unitToMm;
+            cy = prev.z + (c.params.K || 0) * unitToMm;
+            hasCenter = c.params.J !== undefined || c.params.K !== undefined;
+          }
         } else { // G17 XY (default)
           ax = 'x'; ay = 'y'; az = 'z';
           if (c.params.R !== undefined) {
-            const cc = centerFromR(prev, next, c.params.R * unitToMm, cw);
-            if (cc) { cx = cc.cx; cy = cc.cy; hasCenter = true; }
+            const cc = centerFromR(prev, next, ax, ay, c.params.R * unitToMm, cw);
+            if (cc) { cx = cc.ca; cy = cc.cb; hasCenter = true; }
             else { hasCenter = false; }
           } else {
             cx = prev.x + (c.params.I || 0) * unitToMm;

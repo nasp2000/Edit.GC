@@ -22,7 +22,7 @@
   <button id="btnUndo"   style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
   <button id="btnRedo"   style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
 
-  <!-- MAIN GRID: 3 columns -->
+  <!-- MAIN GRID: 2 columns (left sidebar + center) -->
   <div id="app-grid">
     <div id="edge-hint" class="hidden"></div>
 
@@ -35,11 +35,6 @@
       </div>
       <div class="lp-body">
         <div class="lp-section">
-          <div class="lp-section-title">Move widgets</div>
-          <button id="lp-lock-btn" class="btn-action" style="width:100%">[Unlocked] Widgets (drag active)</button>
-          <div class="lp-note">Locked = widgets fixed in place. Unlock to drag freely.</div>
-        </div>
-        <div class="lp-section">
           <div class="lp-section-title">Theme</div>
           <select id="themeSelect" class="bselect" style="width:100%">
             <option value="default">Default</option>
@@ -47,41 +42,104 @@
           </select>
         </div>
         <div class="lp-section">
-          <div class="lp-section-title">Left column</div>
-          <div id="lp-left-list" class="lp-widget-list"></div>
-        </div>
-        <div class="lp-section">
-          <div class="lp-section-title">Right column</div>
-          <div id="lp-right-list" class="lp-widget-list"></div>
-        </div>
-        <div class="lp-section">
-          <div class="lp-section-title">Visibility</div>
-          <div id="lp-visibility-list"></div>
+          <div class="lp-section-title">Widget order</div>
+          <div id="lp-widget-list" class="lp-widget-list"></div>
         </div>
       </div>
     </div>
 
-    <!-- LEFT COLUMN (setup: patterns, coordinates, dimensions) -->
+    <!-- LEFT COLUMN (all widgets) -->
     <div id="col-left" class="app-col">
-      <div class="widget" draggable="true" data-widget="scale">
-        <div class="widget-title"><span>Scale</span><span class="widget-drag">⠿</span></div>
-        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
-          <span class="clabel" style="width:100%">Dimensions (mm)</span>
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <span class="clabel">W</span><input type="number" id="resizeW" class="cinput" style="width:65px" step="0.001" min="0.001" value="0" />
+      <div id="colStatus" class="col-status">
+        <span id="statusMsg" style="flex:1;font-size:10px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+        <div id="colStatusTrack" class="hidden"><div id="colStatusBar"></div></div>
+        <span id="colStatusLabel"></span>
+      </div>
+      <div class="widget" data-widget="origin">
+        <div class="widget-title"><span>Origin</span><button class="widget-maximize" title="Maximize">▢</button></div>
+        <div class="widget-body" style="position:relative;flex-wrap:wrap;gap:3px">
+          <div class="step-corner"><span class="step-label">Step</span><select id="originStep" class="bselect step-select"><option value="0.01">0.01</option><option value="0.1">0.1</option><option value="1" selected>1</option><option value="10">10</option><option value="100">100</option></select></div>
+          <span class="clabel" style="width:100%">Machine coordinates</span>
+          <div style="display:flex;gap:4px;width:100%">
+            <div class="ogroup" style="flex:1">
+              <label class="orow"><span class="clabel">X</span><input type="number" id="originX" class="cinput" style="flex:1" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">Y</span><input type="number" id="originY" class="cinput" style="flex:1" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">Z</span><input type="number" id="originZ" class="cinput" style="flex:1" value="0" step="0.1" /></label>
+            </div>
+            <div class="ogroup" style="flex:1">
+              <label class="orow"><span class="clabel">A</span><input type="number" id="originA" class="cinput" style="flex:1" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">B</span><input type="number" id="originB" class="cinput" style="flex:1" value="0" step="0.1" /></label>
+              <label class="orow"><span class="clabel">C</span><input type="number" id="originC" class="cinput" style="flex:1" value="0" step="0.1" /></label>
+            </div>
           </div>
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <span class="clabel">H</span><input type="number" id="resizeH" class="cinput" style="width:65px" step="0.001" min="0.001" value="0" />
+          <div class="ogroup" style="width:100%">
+            <label class="orow" style="justify-content:center"><span class="clabel">E1</span><input type="number" id="originE1" class="cinput" style="max-width:200px" value="0" step="0.1" /></label>
           </div>
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <button class="btn-action" id="btnScaleUp" style="flex:1">Up</button>
-            <button class="btn-action" id="btnScaleDown" style="flex:1">Down</button>
+          <span class="clabel" style="width:100%;margin-top:2px">Mark start</span>
+          <div style="display:flex;gap:3px;width:100%">
+            <button class="btn-action" id="btnMarkLeft" style="flex:1">Left</button>
+            <button class="btn-action" id="btnMarkRight" style="flex:1">Right</button>
+            <button class="btn-action" id="btnClearMark" style="flex:0 0 auto">X</button>
           </div>
-          <button class="btn-action" id="btnApplyScale" style="width:100%">Apply</button>
+          <span class="clabel" style="width:100%;margin-top:2px">Fine offset</span>
+          <div style="display:flex;gap:3px;width:100%">
+            <span class="clabel">X</span><input type="number" id="originOffX" class="cinput" style="flex:1;min-width:50px" value="0" step="any" />
+            <span class="clabel">Y</span><input type="number" id="originOffY" class="cinput" style="flex:1;min-width:50px" value="0" step="any" />
+            <span class="clabel">Z</span><input type="number" id="originOffZ" class="cinput" style="flex:1;min-width:50px" value="0" step="any" />
+            <button class="btn-action" id="btnApplyOffsets" style="width:50px;flex:none">Apply</button>
+          </div>
+            <button class="btn-action" id="btnApplyOrigin" style="width:110px;margin:2px auto 0;display:block">Apply Origin</button>
         </div>
       </div>
-      <div class="widget" draggable="true" data-widget="template">
-        <div class="widget-title"><span>Template</span><span class="widget-drag">⠿</span></div>
+      <div class="widget" data-widget="scale">
+        <div class="widget-title"><span>Scale</span><button class="widget-maximize" title="Maximize">▢</button></div>
+        <div class="widget-body" style="position:relative;flex-wrap:wrap;gap:3px">
+          <div class="step-corner"><span class="step-label">Step</span><select id="scaleStep" class="bselect step-select"><option value="0.01">0.01</option><option value="0.1">0.1</option><option value="1" selected>1</option><option value="10">10</option><option value="100">100</option></select></div>
+          <span class="clabel" style="width:100%">Dimensions (mm)</span>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel">W</span><input type="number" id="resizeW" class="cinput" style="flex:1" min="0.001" value="0" />
+            <span class="clabel">H</span><input type="number" id="resizeH" class="cinput" style="flex:1" min="0.001" value="0" />
+          </div>
+          <button class="btn-action" id="btnApplyScale" style="width:110px;margin:0 auto;display:block">Apply</button>
+        </div>
+      </div>
+      <div class="widget" data-widget="batch">
+        <div class="widget-title"><span>Shift Points</span><button class="widget-maximize" title="Maximize">▢</button></div>
+        <div class="widget-body" style="position:relative;flex-wrap:wrap;gap:3px">
+          <div class="step-corner"><span class="step-label">Step</span><select id="batchStep" class="bselect step-select"><option value="0.01">0.01</option><option value="0.1">0.1</option><option value="1" selected>1</option><option value="10">10</option><option value="100">100</option></select></div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center;flex-wrap:wrap">
+            <select id="batchAxis" class="bselect" style="width:50px">
+              <option value="X">X</option>
+              <option value="Y">Y</option>
+              <option value="Z">Z</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+            </select>
+            <input type="number" id="batchAxisVal" class="cinput" style="flex:1" value="0" step="0.1" />
+            <button class="btn-action" id="btnBatchApply" style="width:50px;flex:none">Apply</button>
+          </div>
+          <div style="display:flex;gap:3px;width:100%;align-items:center;margin-top:2px">
+            <span class="clabel" style="min-width:32px">Line</span><input type="number" id="batchFrom" class="cinput" style="flex:1" value="" min="0" step="1" />
+            <span class="clabel" style="min-width:16px;margin-left:4px">To</span><input type="number" id="batchTo" class="cinput" style="flex:1" value="" min="0" step="1" />
+          </div>
+        </div>
+      </div>
+      <div class="widget" data-widget="points">
+        <div class="widget-title"><span>Add points</span><button class="widget-maximize" title="Maximize">▢</button></div>
+        <div class="widget-body" style="position:relative;flex-wrap:wrap">
+          <div class="step-corner"><span class="step-label">Step</span><select id="pointsStep" class="bselect step-select"><option value="0.01">0.01</option><option value="0.1">0.1</option><option value="1" selected>1</option><option value="10">10</option><option value="100">100</option></select></div>
+          <span class="clabel" id="pointsInfo" style="width:100%;color:var(--text-dim)">Select points on preview</span>
+          <div style="display:flex;gap:3px;width:100%;align-items:center">
+            <span class="clabel" style="flex:none">X</span><input type="number" id="pointsOffsetX" class="cinput" style="flex:1" value="-2" step="any" />
+            <span class="clabel" style="flex:none">Y</span><input type="number" id="pointsOffsetY" class="cinput" style="flex:1" value="-2" step="any" />
+            <button class="btn-action" id="btnPointsGenerate">Gen</button>
+            <button class="btn-action" id="btnPointsDelete" style="color:#c00">Delete</button>
+          </div>
+        </div>
+      </div>
+      <div class="widget" data-widget="template">
+        <div class="widget-title"><span>Template</span><button class="widget-maximize" title="Maximize">▢</button></div>
         <div class="widget-body">
           <span class="clabel" style="width:100%;font-size:9px;color:var(--text-dim)">Save / load reusable G-code patterns</span>
           <div style="display:flex;gap:3px;width:100%">
@@ -99,38 +157,25 @@
           <input type="file" id="fileInputTemplate" accept=".gcode,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" />
         </div>
       </div>
-      <div class="widget" draggable="true" data-widget="origin">
-        <div class="widget-title"><span>Origin</span><span class="widget-drag">⠿</span></div>
-        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
-          <span class="clabel" style="width:100%">Machine coordinates</span>
-          <div style="display:flex;gap:4px;width:100%">
-            <div class="ogroup" style="flex:1">
-              <label class="orow"><span class="clabel">X</span><input type="number" id="originX" class="cinput" value="0" step="0.1" /></label>
-              <label class="orow"><span class="clabel">Y</span><input type="number" id="originY" class="cinput" value="0" step="0.1" /></label>
-              <label class="orow"><span class="clabel">Z</span><input type="number" id="originZ" class="cinput" value="0" step="0.1" /></label>
-            </div>
-            <div class="ogroup" style="flex:1">
-              <label class="orow"><span class="clabel">A</span><input type="number" id="originA" class="cinput" value="0" step="0.1" /></label>
-              <label class="orow"><span class="clabel">B</span><input type="number" id="originB" class="cinput" value="0" step="0.1" /></label>
-              <label class="orow"><span class="clabel">C</span><input type="number" id="originC" class="cinput" value="0" step="0.1" /></label>
-            </div>
+      <div class="widget" data-widget="info">
+        <div class="widget-title"><span>Gcode Info</span><button class="widget-maximize" title="Maximize">▢</button></div>
+        <div class="widget-body" style="flex-wrap:wrap;gap:3px;font-size:11px;line-height:1.6;min-height:120px">
+          <span class="clabel" id="infoFileName" style="width:100%;color:var(--accent);font-weight:600;word-break:break-all;margin-bottom:2px"> - </span>
+          <div style="display:grid;grid-template-columns:1fr 1fr;width:100%;gap:2px">
+            <span class="clabel" id="infoUnits"> - </span>
+            <span class="clabel" id="infoLines"> - </span>
+            <span class="clabel" id="infoDist"> - </span>
+            <span class="clabel" id="infoTime"> - </span>
           </div>
-          <div class="ogroup" style="width:100%">
-            <label class="orow" style="justify-content:center"><span class="clabel">E1</span><input type="number" id="originE1" class="cinput" style="max-width:200px" value="0" step="0.1" /></label>
+          <span class="clabel" id="infoWarn" style="width:100%;color:#d97706;white-space:pre-wrap"> - </span>
+          <div style="display:flex;gap:6px;width:100%;align-items:center;margin-top:4px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkBounds" checked> BBox</label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkCompare"> Compare</label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkColorByFeed"> Feed</label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkRapids" checked> Rapids</label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkHideOriginal" title="Hide Original editor for large files"> Hide</label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkMinimap" checked> Map</label>
           </div>
-          <span class="clabel" style="width:100%;margin-top:2px">Mark start</span>
-          <div style="display:flex;gap:3px;width:100%">
-            <button class="btn-action" id="btnMarkLeft" style="flex:1">Left</button>
-            <button class="btn-action" id="btnMarkRight" style="flex:1">Right</button>
-            <button class="btn-action" id="btnClearMark" style="flex:0 0 auto">X</button>
-          </div>
-          <span class="clabel" style="width:100%;margin-top:2px">Fine offset</span>
-          <div style="display:flex;gap:3px;width:100%">
-            <span class="clabel">X</span><input type="number" id="originOffX" class="cinput" style="width:65px" value="0" step="0.1" />
-            <span class="clabel">Y</span><input type="number" id="originOffY" class="cinput" style="width:65px" value="0" step="0.1" />
-            <button class="btn-action" id="btnApplyOffsets" style="flex:1">Apply</button>
-          </div>
-          <button class="btn-action" id="btnApplyOrigin" style="width:100%;margin-top:2px">Apply Origin</button>
         </div>
       </div>
     </div>
@@ -139,6 +184,7 @@
     <div id="col-center" class="app-col">
       <div id="preview-area" class="drop-zone">
         <div id="dropHint">Drop .gcode or .svg file here</div>
+        <div id="previewProgress" class="preview-progress hidden"><div id="previewProgressTrack"><div id="previewProgressBar"></div></div><span id="previewProgressLabel">Building preview...</span></div>
         <div id="preview-toolbar">
           <span class="ctrl-sep-v"></span>
           <button class="btn-icon" onclick="document.getElementById('fileInputSvg').click()" style="font-size:9px">Open SVG</button>
@@ -159,10 +205,8 @@
           </label>
           <input type="range" id="playProgress" min="0" max="100" value="0" class="bar-speed-slider" style="width:80px" title="Playback position">
           <span class="ctrl-sep-v"></span>
-          <button class="btn-icon" id="btnPick" title="Pick coordinate from preview" style="font-size:9px">Pick</button>
-          <button class="btn-icon" id="btnMeasure" title="Measure distance" style="font-size:9px">Ruler</button>
           <button class="btn-icon" id="btnZoomFit" title="Fit view" style="font-size:9px">Fit</button>
-          <button class="btn-icon" title="Maximize" onclick="openModal('modal-preview')" style="font-size:9px">Max</button>
+          <button class="btn-icon" title="Maximize" onclick="openModal('modal-preview')" style="font-size:12px;line-height:1">▢</button>
         </div>
         <canvas id="previewCanvas"></canvas>
       </div>
@@ -175,6 +219,7 @@
           <span class="ctrl-sep-v"></span>
           <span class="file-actions">
             <button class="btn-icon" onclick="document.getElementById('fileInputGcode').click()" style="font-size:9px" data-tab-vis="original">Open G-code</button>
+            <select id="recentFilesSelect" class="bselect" style="width:110px;height:18px;font-size:9px" data-tab-vis="original" title="Open recent file"><option value="">— Recent —</option></select>
             <button class="btn-icon" id="btnSave2" onclick="document.getElementById('btnSave').click()" style="font-size:9px" data-tab-vis="working">Save</button>
             <button class="btn-icon" id="btnSaveAs2" onclick="document.getElementById('btnSaveAs').click()" style="font-size:9px" data-tab-vis="working">Save As</button>
             <span class="ctrl-sep-v" data-tab-vis="working"></span>
@@ -182,6 +227,9 @@
             <button class="btn-icon" id="btnRedo2" onclick="document.getElementById('btnRedo').click()" style="font-size:9px" data-tab-vis="working">Redo</button>
             <button class="btn-icon" id="btnReset" style="font-size:9px" data-tab-vis="working">Reset</button>
             <button class="btn-icon" id="btnFind" style="font-size:9px" data-tab-vis="working" title="Find / Replace (Ctrl+F)">Find</button>
+            <span class="ctrl-sep-v" data-tab-vis="working"></span>
+            <button class="btn-icon" onclick="openModal('modal-original')" style="font-size:12px;line-height:1" data-tab-vis="original" title="Maximize">▢</button>
+            <button class="btn-icon" onclick="openModal('modal-working')" style="font-size:12px;line-height:1" data-tab-vis="working" title="Maximize">▢</button>
           </span>
         </div>
         <div id="findReplaceBar" class="find-replace-bar" style="display:none">
@@ -216,87 +264,10 @@
       </div>
     </div>
 
-    <!-- RIGHT COLUMN (path editing: parameters, coordinates, points) -->
-    <div id="col-right" class="app-col">
-      <div class="widget" draggable="true" data-widget="feedpower">
-        <div class="widget-title"><span>Feed / Power</span><span class="widget-drag">⠿</span></div>
-        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <span class="clabel">Feed</span><input type="number" id="batchFeed" class="cinput" style="width:65px" value="3000" min="0" step="100" />
-          </div>
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <span class="clabel">Power</span><input type="number" id="batchPower" class="cinput" style="width:65px" value="1000" min="0" max="1000" step="10" />
-          </div>
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <span class="clabel">Pass</span><input type="number" id="batchPasses" class="cinput" style="width:65px" value="1" min="1" step="1" />
-          </div>
-          <button class="btn-action" id="btnApplyFeedPower" style="width:100%">Apply</button>
-        </div>
-      </div>
-      <div class="widget" draggable="true" data-widget="batch">
-        <div class="widget-title"><span>Shift Points</span><span class="widget-drag">⠿</span></div>
-        <div class="widget-body" style="flex-wrap:wrap;gap:3px">
-          <div style="display:flex;gap:3px;width:100%">
-            <select id="batchAxis" class="bselect" style="flex:1">
-              <option value="X">X</option>
-              <option value="Y">Y</option>
-              <option value="Z">Z</option>
-              <option value="A">A</option>
-              <option value="B">B</option>
-              <option value="C">C</option>
-            </select>
-            <input type="number" id="batchAxisVal" class="cinput" style="width:65px" value="0" step="0.1" />
-            <button class="btn-action" id="btnBatchApply">Apply</button>
-          </div>
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <span class="clabel">From line</span><input type="number" id="batchFrom" class="cinput" style="width:65px" value="" min="0" step="1" />
-          </div>
-          <div style="display:flex;gap:3px;width:100%;align-items:center">
-            <span class="clabel">To line</span><input type="number" id="batchTo" class="cinput" style="width:65px" value="" min="0" step="1" />
-          </div>
-        </div>
-      </div>
-      <div class="widget" draggable="true" data-widget="points">
-        <div class="widget-title"><span>Add points</span><span class="widget-drag">⠿</span></div>
-        <div class="widget-body" style="flex-wrap:wrap">
-          <span class="clabel" id="pointsInfo" style="width:100%;color:var(--text-dim)">Select points on preview</span>
-          <span class="clabel">X</span><input type="number" id="pointsOffsetX" class="cinput" style="width:65px" value="-2" step="0.1" />
-          <span class="clabel">Y</span><input type="number" id="pointsOffsetY" class="cinput" style="width:65px" value="-2" step="0.1" />
-          <button class="btn-action" id="btnPointsGenerate">Gen</button>
-          <button class="btn-action" id="btnPointsDelete" style="color:#c00">Delete</button>
-        </div>
-      </div>
-      <div class="widget" draggable="true" data-widget="info">
-        <div class="widget-title"><span>Gcode Info</span><span class="widget-drag">⠿</span></div>
-        <div class="widget-body" style="flex-wrap:wrap;gap:3px;font-size:11px;line-height:1.6;min-height:120px">
-          <span class="clabel" id="infoFileName" style="width:100%;color:var(--accent);font-weight:600;word-break:break-all;margin-bottom:2px"> - </span>
-          <div style="display:grid;grid-template-columns:1fr 1fr;width:100%;gap:2px">
-            <span class="clabel" id="infoUnits" style="grid-column:1"> - </span>
-            <span class="clabel" id="infoLines" style="grid-column:2"> - </span>
-            <span class="clabel" id="infoDist" style="grid-column:1"> - </span>
-            <span class="clabel" id="infoTime" style="grid-column:2"> - </span>
-          </div>
-          <span class="clabel" id="infoWarn" style="width:100%;color:#d97706;white-space:pre-wrap"> - </span>
-          <div style="display:flex;gap:6px;width:100%;align-items:center;margin-top:4px;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkBounds" checked> BBox</label>
-            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkCompare"> Compare</label>
-            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkColorByFeed"> Feed</label>
-            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkHideOriginal" title="Hide Original editor for large files"> Hide</label>
-            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkMinimap" checked> Map</label>
-          </div>
-        </div>
-      </div>
-    </div>
-
   </div>
 
   <!-- RODAPÃ‰ -->
   <footer id="footer">
-    <span id="statusMsg" style="display:none">Ready.</span>
-    <div id="progressWrap" class="hidden">
-      <div id="progressTrack"><div id="progressBar"></div></div>
-      <span id="progressLabel"></span>
-    </div>
     <span id="tplIndicator" class="tpl-indicator"></span>
     <span id="footerInfo"></span>
     <span class="footer-credit">Developed with Artificial Intelligence - April 2026 - <a href="https://github.com/nasp2000/Edit.GC" class="footer-link" target="_blank">Visit us on GitHub for Updates</a></span>
@@ -317,7 +288,7 @@
           </select>
           <button class="btn-icon" id="mBtnPlay" title="Play preview">Play</button>
           <button class="btn-icon" id="mBtnPause" title="Pause preview">Pause</button>
-          <button class="btn-icon" id="mBtnStop" title="Stop preview">â¹</button>
+          <button class="btn-icon" id="mBtnStop" title="Stop preview">Stop</button>
           <label class="bar-speed-label" title="Playback speed">Speed
             <input type="range" id="mPlaySpeed" min="1" max="500" value="30" class="bar-speed-slider">
           </label>
@@ -338,6 +309,7 @@
         <button class="btn-close" onclick="closeModal('modal-original')">X</button>
       </div>
       <div class="editor-wrap" style="flex:1;min-height:0">
+        <div class="editor-lines" id="linesOriginalModal"></div>
         <div class="highlight-overlay modal-editor-overlay" id="highlightOriginalModal"></div>
         <textarea id="editorOriginalModal" class="gcode-editor modal-editor highlight-textarea" readonly></textarea>
       </div>
@@ -348,12 +320,45 @@
     <div class="modal-box">
       <div class="modal-bar">
         <span class="section-label">Working G-code</span>
-        <button class="btn-close" onclick="closeModal('modal-working')">X</button>
+        <div class="modal-bar-actions" style="flex:1;justify-content:flex-start;padding-left:16px">
+          <button class="btn-icon" onclick="document.getElementById('btnSave').click()" style="font-size:9px">Save</button>
+          <button class="btn-icon" onclick="document.getElementById('btnSaveAs').click()" style="font-size:9px">Save As</button>
+          <span class="ctrl-sep-v"></span>
+          <button class="btn-icon" onclick="document.getElementById('btnUndo').click()" style="font-size:9px">Undo</button>
+          <button class="btn-icon" onclick="document.getElementById('btnRedo').click()" style="font-size:9px">Redo</button>
+          <button class="btn-icon" onclick="document.getElementById('btnReset').click()" style="font-size:9px">Reset</button>
+          <button class="btn-icon" onclick="modalFind.open()" style="font-size:9px" title="Find / Replace (Ctrl+F)">Find</button>
+          <span class="ctrl-sep-v"></span>
+          <button class="btn-close" onclick="closeModal('modal-working')" style="margin-left:auto">X</button>
+        </div>
+      </div>
+      <div id="mFindReplaceBar" class="find-replace-bar" style="display:none">
+        <input type="text" id="mFindInput" placeholder="Find..." style="flex:1;min-width:80px">
+        <input type="text" id="mReplaceInput" placeholder="Replace..." style="flex:1;min-width:80px">
+        <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="mFindRegex"> .*</label>
+        <label style="font-size:10px;display:flex;align-items:center;gap:2px"><input type="checkbox" id="mFindCase"> Aa</label>
+        <span id="mFindCount" style="font-size:10px;color:var(--text-dim);min-width:40px;text-align:center">0/0</span>
+        <button class="btn-icon" id="mBtnFindPrev" style="font-size:9px">◀</button>
+        <button class="btn-icon" id="mBtnFindNext" style="font-size:9px">▶</button>
+        <button class="btn-icon" id="mBtnReplace" style="font-size:9px">Rpl</button>
+        <button class="btn-icon" id="mBtnReplaceAll" style="font-size:9px">Rpl All</button>
+        <button class="btn-icon" id="mBtnFindClose" style="font-size:9px">X</button>
       </div>
       <div class="editor-wrap" style="flex:1;min-height:0">
+        <div class="editor-lines" id="linesWorkingModal"></div>
         <div class="highlight-overlay modal-editor-overlay" id="highlightWorkingModal"></div>
         <textarea id="editorWorkingModal" class="gcode-editor modal-editor highlight-textarea"></textarea>
       </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-widget" onclick="closeModalOutside(event,'modal-widget')">
+    <div class="modal-box" style="max-width:700px;height:auto">
+      <div class="modal-bar">
+        <span class="section-label" id="modalWidgetTitle">Widget</span>
+        <button class="btn-close" onclick="closeModal('modal-widget')">X</button>
+      </div>
+      <div id="modalWidgetBody" style="padding:16px;display:flex;flex-direction:column;gap:8px;background:var(--bg2);overflow-y:auto"></div>
     </div>
   </div>
 

@@ -13,7 +13,6 @@ const preview = {
   _origSegments: null,
   _origPoints: null,
   _origBounds: null,
-  _drawRafId: null,
   _hlCmdIdx: -1,      // backplot: command index to highlight
   _hlTimeout: null,   // auto-clear timeout
   _rebuildTimer: null,// debounce timer for segment rebuild
@@ -125,7 +124,7 @@ const preview = {
 
     const finish = (result) => {
       this._segBuilding = false;
-      const bounds = segmentBuilder.computeBounds(keepPoints ? allPoints : result._lastPoint ? [result._lastPoint] : [{ x: 0, y: 0, z: 0 }]);
+      const bounds = this._computeSegBoundsFromSegs(allSegments);
       this._segments = allSegments;
       this._points = keepPoints ? allPoints : null;
       this._segBounds = bounds;
@@ -148,12 +147,18 @@ const preview = {
       for (const s of res.segments) allSegments.push(s);
       if (res.truncated) truncated = true;
       state2 = res; // carries x,y,z,isRel,unitToMm,planeMode,idx
-      if (onProgress) onProgress(Math.round(end / total * 100));
+      if (onProgress) {
+        const pct = Math.round(end / total * 100);
+        onProgress(pct);
+        const pb = document.getElementById('previewProgressBar');
+        const pl = document.getElementById('previewProgressLabel');
+        if (pb) pb.style.width = pct + '%';
+        if (pl) pl.textContent = 'Building preview... ' + pct + '%';
+      }
       // Progressive draw so the user sees the toolpath grow
       const now = performance.now();
       if (now - this._lastProgDraw > 120) {
         this._lastProgDraw = now;
-        this._segBounds = segmentBuilder.computeBounds(keepPoints ? allPoints : [res.points[res.points.length - 1]]);
         this._segments = allSegments;
         this._points = keepPoints ? allPoints : null;
         this._drawCore(commands, end);
@@ -184,6 +189,23 @@ const preview = {
       if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
       if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
       if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+    }
+    return { minX, maxX, minY, maxY, minZ, maxZ, rangeX: maxX - minX || 1, rangeY: maxY - minY || 1 };
+  },
+  _computeSegBoundsFromSegs(segs) {
+    if (!segs || segs.length < 1) return null;
+    const s0 = segs[0];
+    let minX = Math.min(s0.a.x, s0.b.x), maxX = Math.max(s0.a.x, s0.b.x);
+    let minY = Math.min(s0.a.y, s0.b.y), maxY = Math.max(s0.a.y, s0.b.y);
+    let minZ = Math.min(s0.a.z, s0.b.z), maxZ = Math.max(s0.a.z, s0.b.z);
+    for (let i = 1; i < segs.length; i++) {
+      const s = segs[i];
+      if (s.a.x < minX) minX = s.a.x; if (s.a.x > maxX) maxX = s.a.x;
+      if (s.b.x < minX) minX = s.b.x; if (s.b.x > maxX) maxX = s.b.x;
+      if (s.a.y < minY) minY = s.a.y; if (s.a.y > maxY) maxY = s.a.y;
+      if (s.b.y < minY) minY = s.b.y; if (s.b.y > maxY) maxY = s.b.y;
+      if (s.a.z < minZ) minZ = s.a.z; if (s.a.z > maxZ) maxZ = s.a.z;
+      if (s.b.z < minZ) minZ = s.b.z; if (s.b.z > maxZ) maxZ = s.b.z;
     }
     return { minX, maxX, minY, maxY, minZ, maxZ, rangeX: maxX - minX || 1, rangeY: maxY - minY || 1 };
   },
@@ -236,11 +258,7 @@ const preview = {
     // Click: measure | origin mark | point select | set origin
     c.addEventListener('click', e => {
       if (e.clientX !== lastX || e.clientY !== lastY) return;
-      if (pickMode) {
-        this._handlePickClick(e);
-      } else if (measureMode) {
-        this._handleMeasureClick(e);
-      } else if (originMarkMode) {
+      if (originMarkMode) {
 
         this._setMarkFromClick(e);
       } else if (state.mode === 'gcode') {
@@ -263,7 +281,6 @@ const preview = {
   draw(commands) {
     this._stopPlayback();
     const cmds = commands;
-    if (this._drawRafId) { cancelAnimationFrame(this._drawRafId); this._drawRafId = null; }
     const n = cmds ? cmds.length : 0;
     if (state.mode === 'gcode' && n > 0 && cmds !== this._segCommands) {
       this._segments = null;
@@ -273,14 +290,24 @@ const preview = {
       this._segVersion++;
     }
     if (state.mode === 'gcode' && !this._segments && !this._segBuilding && n > 0) {
+      // Analyse bounds first so view is centered from the start
+      const preBounds = this._getBounds(cmds);
+      if (preBounds) {
+        this._segBounds = preBounds;
+        state.previewScale = 1;
+        state.previewOffX = 0;
+        state.previewOffY = 0;
+      }
       // Debounce: coalesce rapid edits (e.g. typing) into a single rebuild
       if (this._rebuildTimer) clearTimeout(this._rebuildTimer);
       this._rebuildTimer = setTimeout(() => {
         this._rebuildTimer = null;
         ui.setProgress(0, 'Building preview…');
+        this._showPreviewProgress(true);
         this._buildSegmentsAsync(cmds, (result) => {
           ui.setProgress(-1);
-          this._drawCore(cmds, n);
+          this._showPreviewProgress(false);
+          this.fitView();
           if (ui.updateResizePanel) ui.updateResizePanel();
           if (ui.updateFooterInfo) ui.updateFooterInfo();
         }, (pct) => {
@@ -318,79 +345,6 @@ const preview = {
     for (let x = ox5; x < w; x += gStep5) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
     for (let y = oy5; y < h; y += gStep5) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
     ctx.stroke();
-  },
-
-  _drawChunked(commands, limit) {
-    if (!this.canvas || !commands || !limit) return;
-    // SVG/DXF modes don't need chunking
-    if (state.mode !== 'gcode') { this._drawCore(commands, limit); return; }
-    const b = this._getBounds(commands);
-    if (!b) return;
-    this._drawInit();
-    const { minX, minY, maxX, maxY, rangeX, rangeY } = b;
-    const { width: w, height: h } = this.canvas;
-    const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    // Center the toolpath in the canvas (top-down view)
-    const cx = (w - pad * 2 - rangeX * baseFit) / 2;
-    const cy = (h - pad * 2 - rangeY * baseFit) / 2;
-    const toCanvasX = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
-    const ctx = this.ctx;
-    const sMax = 1000;
-    const CHUNK = 2000;
-    let curX = 0, curY = 0, isRel = false;
-    let batchPath = null, batchColor = null, batchDash = null, batchWidth = 1;
-    const flushBatch = () => {
-      if (!batchPath) return;
-      if (batchDash) ctx.setLineDash(batchDash);
-      ctx.strokeStyle = batchColor;
-      ctx.lineWidth = batchWidth;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      batchPath = null; batchColor = null; batchDash = null;
-    };
-    let idx = 0;
-    const processChunk = () => {
-      const end = Math.min(idx + CHUNK, limit);
-      for (; idx < end; idx++) {
-        const c = commands[idx];
-        if (c.type === 'G91') { isRel = true; continue; }
-        if (c.type === 'G90') { isRel = false; continue; }
-        let x = curX, y = curY;
-        if (c.params.X !== undefined) x = isRel ? curX + c.params.X : c.params.X;
-        if (c.params.Y !== undefined) y = isRel ? curY + c.params.Y : c.params.Y;
-        const type = c.type;
-        if (type === 'G0' || type === 'G00') {
-          if (batchColor !== '#aaaaaa') flushBatch();
-          batchColor = '#aaaaaa'; batchDash = [4, 6]; batchWidth = 1;
-          if (!batchPath) { ctx.beginPath(); batchPath = true; ctx.moveTo(toCanvasX(curX), toCanvasY(curY)); }
-          ctx.lineTo(toCanvasX(x), toCanvasY(y));
-        } else if (type === 'G1' || type === 'G01') {
-          const s = c.params.S || sMax;
-          const ratio = Math.min(1, s / sMax);
-          const color = `rgb(${Math.round(220*ratio)},${Math.round(60*(1-ratio))},${Math.round(200*(1-ratio))})`;
-          if (batchColor !== color) flushBatch();
-          batchColor = color; batchDash = null; batchWidth = 1.5;
-          if (!batchPath) { ctx.beginPath(); batchPath = true; ctx.moveTo(toCanvasX(curX), toCanvasY(curY)); }
-          ctx.lineTo(toCanvasX(x), toCanvasY(y));
-        } else { flushBatch(); }
-        curX = x; curY = y;
-      }
-      flushBatch();
-      const pct = Math.round(idx / limit * 100);
-      ui.setProgress(pct, `Rendering ${Math.min(idx, limit)}/${limit}`);
-      if (idx < limit) {
-        this._drawRafId = requestAnimationFrame(processChunk);
-      } else {
-        this._drawFinalize(commands, limit, b, toCanvasX, toCanvasY);
-        ui.setProgress(100, 'Done');
-        setTimeout(() => ui.setProgress(-1), 800);
-        this._drawRafId = null;
-      }
-    };
-    ui.setProgress(0, 'Rendering…');
-    requestAnimationFrame(processChunk);
   },
 
   _drawFinalize(commands, limit, b, toCanvasX, toCanvasY) {
@@ -460,6 +414,7 @@ const preview = {
 
   stop() {
     this._stopPlayback();
+    document.getElementById('btnPlay').textContent = 'Play';
     this._drawCore(state.workingCmds, state.workingCmds ? state.workingCmds.length : 0);
   },
 
@@ -468,6 +423,7 @@ const preview = {
     this._pb.paused = false;
     this._pb.idx    = 0;
     if (this._pb.rafId) { cancelAnimationFrame(this._pb.rafId); this._pb.rafId = null; }
+    document.getElementById('btnPlay').textContent = 'Play';
   },
 
   _updatePlayProgress() {
@@ -807,6 +763,7 @@ const preview = {
     const segsToDraw = limit < commands.length ? Math.floor((limit / commands.length) * segments.length) : segments.length;
     for (let i = 0; i < segsToDraw; i++) {
       const s = segments[i];
+      if (!state.showRapids && s.rapid) continue;
       if (s.rapid) {
         if (batchColor !== 'rgba(170,170,170,0.65)') flushBatch();
         batchColor = 'rgba(170,170,170,0.65)'; batchDash = [4, 6]; batchWidth = 1;
@@ -883,7 +840,6 @@ const preview = {
       ctx.restore();
     }
 
-    this._drawMeasureOverlay(ctx, toCanvasX, toCanvasY);
     this._drawMinimap(ctx, w, h, b, baseFit);
     this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
   },
@@ -960,6 +916,7 @@ const preview = {
     worldY = Math.round(worldY / step) * step;
     state.originMark = { x: parseFloat(worldX.toFixed(3)), y: parseFloat(worldY.toFixed(3)), dir: originMarkMode };
     this.draw(state.workingCmds);
+    originMarkMode = null;
     ui.setStatus(`Mark at X=${state.originMark.x} Y=${state.originMark.y}`);
   },
 
@@ -1041,74 +998,6 @@ const preview = {
     this.draw(state.workingCmds);
   },
 
-  _handlePickClick(e) {
-    pickMode = false;
-    const mb = document.getElementById('btnPick');
-    if (mb) mb.style.background = '';
-    const rect = this.canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const b = this._getBounds(state.workingCmds);
-    if (!b) { ui.setStatus('No G-code loaded.', 'error'); return; }
-    const { minX, minY, rangeX, rangeY } = b;
-    const w = this.canvas.width, h = this.canvas.height;
-    const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    const worldX = ((cx - pad - state.previewOffX) / (baseFit * state.previewScale) + minX).toFixed(3);
-    const worldY = (minY + rangeY - (cy - pad - state.previewOffY) / (baseFit * state.previewScale)).toFixed(3);
-    const line = 'G1 X' + worldX + ' Y' + worldY;
-    const ta = document.getElementById('editorWorking');
-    if (ta && ta.style.display !== 'none') {
-      const pos = ta.selectionStart;
-      const before = ta.value.substring(0, pos);
-      const after = ta.value.substring(pos);
-      ta.value = before + '\n' + line + after;
-      ta.selectionStart = ta.selectionEnd = pos + line.length + 1;
-      ta.dispatchEvent(new Event('input'));
-    } else if (ui._ve) {
-      const text = ui._ve.getText();
-      const newText = text + '\n' + line;
-      ui._ve.setText(newText);
-      // Re-parse so preview + state stay in sync
-      state.workingCmds = gcodeParser.parse(newText);
-      state._boundsCache = null;
-      state.dirty = true;
-      preview.draw(state.workingCmds);
-      ui.updateFooterInfo();
-      ui.updateResizePanel();
-    }
-    ui.setStatus('Inserted G1 X' + worldX + ' Y' + worldY);
-  },
-
-  _handleMeasureClick(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const b = this._getBounds(state.workingCmds);
-    const w = this.canvas.width, h = this.canvas.height;
-    if (!b) { ui.setStatus('No bounds for measurement.', 'error'); return; }
-    const { minX, minY, rangeX, rangeY } = b;
-    const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    let worldX = (cx - pad - state.previewOffX) / (baseFit * state.previewScale) + minX;
-    let worldY = minY + rangeY - (cy - pad - state.previewOffY) / (baseFit * state.previewScale);
-    const step = this._getGridStep();
-    worldX = Math.round(worldX / step) * step;
-    worldY = Math.round(worldY / step) * step;
-    if (!measureStart) {
-      measureStart = { x: parseFloat(worldX.toFixed(3)), y: parseFloat(worldY.toFixed(3)) };
-      measureEnd = null;
-      ui.setStatus(`Measure from (${measureStart.x}, ${measureStart.y}) — click again`);
-    } else {
-      measureEnd = { x: parseFloat(worldX.toFixed(3)), y: parseFloat(worldY.toFixed(3)) };
-      const dx = measureEnd.x - measureStart.x;
-      const dy = measureEnd.y - measureStart.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      ui.setStatus(`Distance: ${dist.toFixed(2)} mm  ΔX: ${dx.toFixed(2)}  ΔY: ${dy.toFixed(2)}`);
-    }
-    this.draw(state.workingCmds);
-  },
-
   _drawMinimap(ctx, w, h, b, baseFit) {
     if (!previewOpts.showMinimap || !this._segments || this._segments.length < 10) return;
     const mmSize = 120;
@@ -1152,50 +1041,19 @@ const preview = {
     ctx.restore();
   },
 
-  _drawMeasureOverlay(ctx, toCanvasX, toCanvasY) {
-    if (measureStart) {
-      const sx = toCanvasX(measureStart.x), sy = toCanvasY(measureStart.y);
-      const ex = measureEnd ? toCanvasX(measureEnd.x) : sx;
-      const ey = measureEnd ? toCanvasY(measureEnd.y) : sy;
-      ctx.save();
-      ctx.strokeStyle = '#22d3ee';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 4]);
-      ctx.beginPath();
-      ctx.moveTo(toCanvasX(measureStart.x), toCanvasY(measureStart.y));
-      if (measureEnd) ctx.lineTo(toCanvasX(measureEnd.x), toCanvasY(measureEnd.y));
-      ctx.stroke();
-      ctx.setLineDash([]);
-      [measureStart, measureEnd].forEach(p => {
-        if (!p) return;
-        const px = toCanvasX(p.x), py = toCanvasY(p.y);
-        ctx.fillStyle = '#22d3ee';
-        ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.stroke();
-      });
-      if (measureEnd) {
-        const dx = measureEnd.x - measureStart.x;
-        const dy = measureEnd.y - measureStart.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const mx = (toCanvasX(measureStart.x) + toCanvasX(measureEnd.x)) / 2;
-        const my = (toCanvasY(measureStart.y) + toCanvasY(measureEnd.y)) / 2;
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        const label = `${dist.toFixed(1)} mm`;
-        ctx.font = '12px sans-serif';
-        const tw = ctx.measureText(label).width;
-        ctx.fillRect(mx - tw / 2 - 4, my - 10, tw + 8, 20);
-        ctx.fillStyle = '#22d3ee';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(label, mx, my + 1);
-      }
-      ctx.restore();
-    }
-  },
-
   _setInfo(text) {
     // Dimensions are shown in Scale widget only
+  },
+
+  _showPreviewProgress(show) {
+    const el = document.getElementById('previewProgress');
+    if (!el) return;
+    if (show) {
+      el.classList.remove('hidden');
+      document.getElementById('previewProgressBar').style.width = '0%';
+    } else {
+      el.classList.add('hidden');
+    }
   },
 };
 

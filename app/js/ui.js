@@ -4,7 +4,8 @@ const ui = {
     // Abrir G-code
     document.getElementById('fileInputGcode').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
-      e.target.value = ''; // permite reabrir o mesmo ficheiro
+      e.target.value = '';
+      ui.clearState(); // permite reabrir o mesmo ficheiro
       ui.setProgress(2, 'Reading file…');
       const text = await fileManager.readGcode(file);
       ui.setProgress(30, 'Parsing…');
@@ -20,14 +21,13 @@ const ui = {
       state.previewScale  = 1;
       state.previewOffX   = 0;
       state.previewOffY   = 0;
-      const origEditorText = isLarge ? '(original text too large for editor)' : truncateForEditor(text);
-      document.getElementById('editorOriginal').value = origEditorText;
-      ui._updateWorkingEditor(gcodeParser.serialize(state.workingCmds));
+      const editorText = isLarge ? '(original text too large for editor)' : truncateForEditor(text);
+      document.getElementById('editorOriginal').value = editorText;
+      document.getElementById('editorWorking').value = editorText;
       ui.setProgress(70, 'Applying syntax highlight…');
-      const origHLText = isLarge ? '' : text;
-      const workHLText = gcodeParser.serialize(state.workingCmds);
-      applyHighlight(document.getElementById('highlightOriginal'), origHLText);
-      applyHighlight(document.getElementById('highlightWorking'), workHLText);
+      const hlText = isLarge ? '' : text;
+      applyHighlight(document.getElementById('highlightOriginal'), hlText);
+      applyHighlight(document.getElementById('highlightWorking'), hlText);
       ui.setProgress(90, 'Rendering…');
       preview.resize(); // garante dimensÃµes do canvas e faz draw
       preview.fitView(); // centra e ajusta o toolpath Ã  vista (top-down)
@@ -42,7 +42,9 @@ const ui = {
       ui.setStatus(statusMsg);
       ui.syncModals();
       ui.updateFooterInfo();
-      recentFiles.add(file.name, 'G-code');
+      recentFiles.add(file.name, 'G-code', text);
+      const _rs = document.getElementById('recentFilesSelect');
+      if (_rs) recentFiles.populateSelect(_rs);
       document.getElementById('btnConvertSvg').disabled = true;
       document.getElementById('btnConvertDxf').disabled = true;
     });
@@ -60,17 +62,6 @@ const ui = {
     document.getElementById('btnPause').addEventListener('click',  () => preview.pause());
     document.getElementById('btnStop').addEventListener('click',   () => preview.stop());
     document.getElementById('btnZoomFit').addEventListener('click', () => preview.fitView());
-    document.getElementById('btnPick').addEventListener('click', () => {
-      pickMode = !pickMode;
-      if (!pickMode) { document.getElementById('btnPick').style.background = ''; ui.setStatus('Pick mode off.'); }
-      else { document.getElementById('btnPick').style.background = 'var(--accent2)'; ui.setStatus('Pick mode: click on preview to insert G1 X Y at cursor'); }
-    });
-    document.getElementById('btnMeasure').addEventListener('click', () => {
-      measureMode = !measureMode;
-      if (!measureMode) { measureStart = null; measureEnd = null; preview.draw(state.workingCmds); }
-      document.getElementById('btnMeasure').style.background = measureMode ? 'var(--accent2)' : '';
-      ui.setStatus(measureMode ? 'Measure mode: click start point on canvas' : 'Measure mode off.');
-    });
     document.getElementById('playProgress').addEventListener('input', function() {
       const cmds = state.workingCmds;
       const total = cmds ? cmds.length : 0;
@@ -96,6 +87,65 @@ const ui = {
       previewOpts.showMinimap = this.checked;
       preview.draw(state.workingCmds);
     });
+    document.getElementById('chkRapids').addEventListener('change', function() {
+      state.showRapids = this.checked;
+      preview.draw(state.workingCmds);
+    });
+    document.getElementById('scaleStep').addEventListener('change', function() {
+      const v = parseFloat(this.value);
+      document.getElementById('resizeW').step = v;
+      document.getElementById('resizeH').step = v;
+    });
+    document.getElementById('batchStep').addEventListener('change', function() {
+      const v = parseFloat(this.value);
+      document.getElementById('batchAxisVal').step = v;
+    });
+    document.getElementById('pointsStep').addEventListener('change', function() {
+      const v = parseFloat(this.value);
+      document.getElementById('pointsOffsetX').step = v;
+      document.getElementById('pointsOffsetY').step = v;
+    });
+    document.getElementById('originStep').addEventListener('change', function() {
+      const v = parseFloat(this.value);
+      ['X','Y','Z','A','B','C','E1'].forEach(a => {
+        document.getElementById('origin' + a).step = v;
+      });
+      document.getElementById('originOffX').step = v;
+      document.getElementById('originOffY').step = v;
+      document.getElementById('originOffZ').step = v;
+    });
+    // Apply default step values on init
+    const _initStep = (id, targets) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const v = parseFloat(sel.value);
+      targets.forEach(t => { const e = document.getElementById(t); if (e) e.step = v; });
+    };
+    _initStep('scaleStep', ['resizeW','resizeH']);
+    _initStep('batchStep', ['batchAxisVal']);
+    _initStep('pointsStep', ['pointsOffsetX','pointsOffsetY']);
+    _initStep('originStep', ['originX','originY','originZ','originA','originB','originC','originE1','originOffX','originOffY','originOffZ']);
+    // Recent files select
+    const _recentSel = document.getElementById('recentFilesSelect');
+    if (_recentSel) {
+      recentFiles.populateSelect(_recentSel);
+      _recentSel.addEventListener('change', function() {
+        const name = this.value;
+        if (!name) return;
+        const list = recentFiles.list();
+        const entry = list.find(f => f.name === name);
+        if (entry && entry.content) {
+          const file = new File([entry.content], entry.name, { type: 'text/plain' });
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          const input = document.getElementById('fileInputGcode');
+          if (input) { input.files = dt.files; input.dispatchEvent(new Event('change')); }
+        } else {
+          document.getElementById('fileInputGcode').click();
+        }
+        this.selectedIndex = 0;
+      });
+    }
     document.getElementById('chkHideOriginal').addEventListener('change', function() {
       const pane = document.getElementById('pane-original');
       const tab = document.querySelector('.editor-tab[data-tab="original"]');
@@ -110,6 +160,141 @@ const ui = {
     document.getElementById('mBtnPlay').addEventListener('click',  () => preview.play());
     document.getElementById('mBtnPause').addEventListener('click', () => preview.pause());
     document.getElementById('mBtnStop').addEventListener('click',  () => preview.stop());
+
+    // Modal find/replace
+    const modalFind = window.modalFind = {
+      _matches: [], _idx: -1,
+      get el() { return document.getElementById('editorWorkingModal'); },
+      get bar() { return document.getElementById('mFindReplaceBar'); },
+      open() {
+        const bar = this.bar; if (!bar) return;
+        bar.style.display = 'flex';
+        const inp = document.getElementById('mFindInput');
+        if (inp) { inp.focus(); inp.select(); }
+        const ta = this.el;
+        if (ta && ta.selectionStart !== ta.selectionEnd) {
+          inp.value = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+          this.search(inp.value);
+        }
+      },
+      close() { const b = this.bar; if (b) b.style.display = 'none'; this._matches = []; this._idx = -1; },
+      search(q) {
+        this._matches = []; this._idx = -1;
+        const cnt = document.getElementById('mFindCount');
+        if (!q) { cnt.textContent = '0/0'; return; }
+        const ta = this.el; if (!ta) return;
+        const text = ta.value; if (!text) { cnt.textContent = '0/0'; return; }
+        const isRegex = document.getElementById('mFindRegex').checked;
+        const isCase = document.getElementById('mFindCase').checked;
+        let pattern;
+        try {
+          const flags = 'g' + (isCase ? '' : 'i');
+          const src = isRegex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          pattern = new RegExp(src, flags);
+        } catch (_) { cnt.textContent = '0/0'; return; }
+        let m;
+        while ((m = pattern.exec(text)) !== null) { this._matches.push({ index: m.index, length: m[0].length }); if (this._matches.length > 10000) break; }
+        if (this._matches.length) this._idx = 0;
+        cnt.textContent = this._matches.length + '/' + this._matches.length;
+        this._scroll();
+      },
+      _scroll() {
+        if (this._idx < 0 || !this._matches.length) return;
+        const m = this._matches[this._idx];
+        const ta = this.el; if (!ta) return;
+        ta.focus();
+        ta.selectionStart = m.index; ta.selectionEnd = m.index + m.length;
+        const lines = ta.value.substring(0, m.index).split('\n');
+        const line = lines.length;
+        const lineH = 19.2;
+        ta.scrollTop = Math.max(0, (line - 5) * lineH);
+      },
+      findNext() {
+        if (!this._matches.length) return;
+        this._idx = (this._idx + 1) % this._matches.length;
+        document.getElementById('mFindCount').textContent = (this._idx + 1) + '/' + this._matches.length;
+        this._scroll();
+      },
+      findPrev() {
+        if (!this._matches.length) return;
+        this._idx = (this._idx - 1 + this._matches.length) % this._matches.length;
+        document.getElementById('mFindCount').textContent = (this._idx + 1) + '/' + this._matches.length;
+        this._scroll();
+      },
+      replace() {
+        if (this._idx < 0 || !this._matches.length) return;
+        const ta = this.el; if (!ta) return;
+        const m = this._matches[this._idx];
+        const rep = document.getElementById('mReplaceInput').value;
+        const before = ta.value.substring(0, m.index);
+        const after = ta.value.substring(m.index + m.length);
+        ta.value = before + rep + after;
+        this._matches.splice(this._idx, 1);
+        if (this._idx >= this._matches.length) this._idx = this._matches.length - 1;
+        document.getElementById('mFindCount').textContent = (this._idx + 1) + '/' + this._matches.length;
+      },
+      replaceAll() {
+        const ta = this.el; if (!ta) return;
+        const rep = document.getElementById('mReplaceInput').value;
+        for (let i = this._matches.length - 1; i >= 0; i--) {
+          const m = this._matches[i];
+          const before = ta.value.substring(0, m.index);
+          const after = ta.value.substring(m.index + m.length);
+          ta.value = before + rep + after;
+        }
+        this._matches = []; this._idx = -1;
+        document.getElementById('mFindCount').textContent = '0/0';
+      }
+    };
+    // Wire modal find buttons
+    const _m = (id, fn) => { const e = document.getElementById(id); if (e) e.addEventListener('click', () => fn()); };
+    _m('mBtnFindNext', () => modalFind.findNext());
+    _m('mBtnFindPrev', () => modalFind.findPrev());
+    _m('mBtnReplace', () => { modalFind.replace(); modalFind.search(document.getElementById('mFindInput').value); });
+    _m('mBtnReplaceAll', () => modalFind.replaceAll());
+    _m('mBtnFindClose', () => modalFind.close());
+    const mFindInp = document.getElementById('mFindInput');
+    if (mFindInp) {
+      mFindInp.addEventListener('input', function() { modalFind.search(this.value); });
+      mFindInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); modalFind.findNext(); } });
+    }
+    const mRepInp = document.getElementById('mReplaceInput');
+    if (mRepInp) mRepInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); modalFind.replace(); modalFind.search(document.getElementById('mFindInput').value); } });
+
+    // Widget maximize
+    document.querySelectorAll('.widget-maximize').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const widget = btn.closest('.widget');
+        if (!widget) return;
+        const title = widget.querySelector('.widget-title span')?.textContent || 'Widget';
+        const body = widget.querySelector('.widget-body');
+        if (!body) return;
+        document.getElementById('modalWidgetTitle').textContent = title;
+        const target = document.getElementById('modalWidgetBody');
+        target.innerHTML = '';
+        const clone = body.cloneNode(true);
+        // Remove the original step-corner (absolute positioned, not needed in modal)
+        const sc = clone.querySelector('.step-corner');
+        if (sc) sc.remove();
+        target.appendChild(clone);
+        openModal('modal-widget');
+      });
+    });
+    // Keyboard shortcut for modal find
+    document.addEventListener('keydown', e => {
+      const modal = document.getElementById('modal-working');
+      if (modal && modal.classList.contains('open') && (e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault(); modalFind.open();
+      }
+      if (modal && modal.classList.contains('open') && modalFind.bar && modalFind.bar.style.display !== 'none') {
+        if (e.key === 'F3') { e.preventDefault(); e.shiftKey ? modalFind.findPrev() : modalFind.findNext(); }
+        if (e.key === 'Enter') {
+          const active = document.activeElement;
+          if (active === document.getElementById('mFindInput')) { e.preventDefault(); modalFind.findNext(); }
+          if (active === document.getElementById('mReplaceInput')) { e.preventDefault(); modalFind.replace(); modalFind.search(document.getElementById('mFindInput').value); }
+        }
+      }
+    });
 
     // Abrir SVG
     document.getElementById('fileInputSvg').addEventListener('change', async e => {
@@ -160,7 +345,7 @@ const ui = {
         document.getElementById('resizeH').value = dimH.toFixed(3);
         preview.resize();
         ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} × H: ${dimH.toFixed(1)} — click "SVG → G-code" to convert`);
-        recentFiles.add(file.name, 'SVG');
+        recentFiles.add(file.name, 'SVG', text);
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
@@ -172,6 +357,11 @@ const ui = {
     // SVG view mode toggle (outlines / raster)
     const _syncSvgView = el => {
       state.svgPreviewMode = el.value;
+      if (el.value === 'raster') {
+        state.svgSegments = null;
+      } else {
+        state.svgImg = null;
+      }
       preview.draw(state.workingCmds);
     };
     document.getElementById('svgViewMode').addEventListener('change', e => {
@@ -240,9 +430,10 @@ const ui = {
         undoRedo.push(state.workingCmds);
         state.workingCmds = finalCmds;
         state.originalCmds = finalCmds.map(c => ({ ...c }));
-        state.originalText = gcode.length > 5 * 1024 * 1024 ? '' : text;
+        state.originalText = gcode.length > 5 * 1024 * 1024 ? '' : gcode;
         state.originalName = baseName;
         state.dirty = false;
+        state.mode = 'gcode';
         state.previewScale = 1;
         state.previewOffX = 0;
         state.previewOffY = 0;
@@ -378,8 +569,8 @@ const ui = {
       state._duringUndoRedo = false;
     });
     document.addEventListener('keydown', e => {
-      if (e.ctrlKey && !e.shiftKey && e.key === 'z') { document.getElementById('btnUndo').click(); }
-      if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { document.getElementById('btnRedo').click(); }
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { document.getElementById('btnUndo').click(); }
+      if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { document.getElementById('btnRedo').click(); }
       if (e.ctrlKey && e.key === 's') { e.preventDefault(); document.getElementById('btnSave').click(); }
     });
 
@@ -416,23 +607,24 @@ const ui = {
     document.getElementById('resizeW').addEventListener('change', _syncHfromW);
     document.getElementById('resizeH').addEventListener('change', _syncWfromH);
 
-    const _scaleFactor = factor => {
-      const b = _getBounds();
-      if (!b || !b.rangeX || !b.rangeY) { ui.setStatus('No G-code loaded.', 'error'); return; }
-      undoRedo.push(state.workingCmds);
-      state.workingCmds = gcodeParser.scaleCommands(state.workingCmds, factor);
-      ui.refreshWorking();
-      const newW = b.rangeX * factor;
-      const newH = b.rangeY * factor;
-      state.resizeBaseW = newW;
-      state.resizeBaseH = newH;
-      document.getElementById('resizeW').value = newW.toFixed(3);
-      document.getElementById('resizeH').value = newH.toFixed(3);
-      ui.setStatus(`Scaled ${factor >= 1 ? 'up' : 'down'} by ${Math.abs((factor - 1) * 100).toFixed(1)}% → ${newW.toFixed(3)} × ${newH.toFixed(3)} mm`);
-    };
-
-    document.getElementById('btnScaleUp').addEventListener('click', () => _scaleFactor(1.05));
-    document.getElementById('btnScaleDown').addEventListener('click', () => _scaleFactor(0.95));
+    const _btnScaleUp = document.getElementById('btnScaleUp');
+    if (_btnScaleUp) _btnScaleUp.addEventListener('click', () => {
+      const step = parseFloat(document.getElementById('scaleStep').value) || 1;
+      const w = parseFloat(document.getElementById('resizeW').value);
+      const h = parseFloat(document.getElementById('resizeH').value);
+      if (!w || !h) { ui.setStatus('No dimensions to adjust.', 'error'); return; }
+      document.getElementById('resizeW').value = (w + step).toFixed(3);
+      document.getElementById('resizeH').value = (h + step).toFixed(3);
+    });
+    const _btnScaleDown = document.getElementById('btnScaleDown');
+    if (_btnScaleDown) _btnScaleDown.addEventListener('click', () => {
+      const step = parseFloat(document.getElementById('scaleStep').value) || 1;
+      const w = parseFloat(document.getElementById('resizeW').value);
+      const h = parseFloat(document.getElementById('resizeH').value);
+      if (!w || !h) { ui.setStatus('No dimensions to adjust.', 'error'); return; }
+      document.getElementById('resizeW').value = Math.max(0.001, w - step).toFixed(3);
+      document.getElementById('resizeH').value = Math.max(0.001, h - step).toFixed(3);
+    });
 
     document.getElementById('btnApplyScale').addEventListener('click', () => {
       const tw = parseFloat(document.getElementById('resizeW').value);
@@ -445,7 +637,7 @@ const ui = {
         const ys = all.map(p => p.y);
         const m1 = safeMinMax(xs), m2 = safeMinMax(ys);
         const curW = m1.max - m1.min || 1, curH = m2.max - m2.min || 1;
-        state.svgScale = tw / curW;
+        state.svgScale = Math.min(tw / curW, th / curH);
         preview.draw(state.workingCmds);
         ui.setStatus(`SVG scaled: ${curW.toFixed(3)}×${curH.toFixed(3)} → ${tw.toFixed(3)}×${th.toFixed(3)} mm`);
         state.resizeBaseW = tw;
@@ -505,7 +697,6 @@ const ui = {
       if (!content) { ui.setStatus('Template not found.', 'error'); return; }
       undoRedo.push(state.workingCmds);
       state.workingCmds = gcodeParser.parse(content);
-      state.originalText = content;
       state.previewScale = 1;
       state.previewOffX = 0;
       state.previewOffY = 0;
@@ -607,16 +798,23 @@ const ui = {
     // â”€â”€ Origin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     document.getElementById('btnApplyOrigin').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
-      const ox = parseFloat(document.getElementById('originX').value) || 0;
-      const oy = parseFloat(document.getElementById('originY').value) || 0;
+      const axes = ['X','Y','Z','A','B','C'];
+      const offsets = {};
+      for (const a of axes) {
+        const v = parseFloat(document.getElementById('origin' + a).value);
+        if (v) offsets[a] = -v;
+      }
+      const e1 = parseFloat(document.getElementById('originE1').value);
+      if (e1) offsets.E1 = -e1;
       undoRedo.push(state.workingCmds);
-      state.workingCmds = gcodeParser.applyOffset(state.workingCmds, -ox, -oy);
+      state.workingCmds = gcodeParser.applyOffset(state.workingCmds, offsets);
       ui.refreshWorking();
       preview.originX = 0;
       preview.originY = 0;
-      document.getElementById('originX').value = '0';
-      document.getElementById('originY').value = '0';
-      ui.setStatus(`Origin offset applied: X${ox} Y${oy} → 0,0`);
+      for (const a of axes) document.getElementById('origin' + a).value = '0';
+      document.getElementById('originE1').value = '0';
+      const parts = Object.keys(offsets).map(k => `${k}${-offsets[k]}`).join(' ');
+      ui.setStatus(`Origin offset applied: ${parts} → 0`);
     });
 
     // Origin mark buttons (Left/Right)
@@ -646,40 +844,19 @@ const ui = {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       const dx = parseFloat(document.getElementById('originOffX').value) || 0;
       const dy = parseFloat(document.getElementById('originOffY').value) || 0;
-      if (!dx && !dy) { ui.setStatus('No offset to apply.', 'error'); return; }
+      const dz = parseFloat(document.getElementById('originOffZ').value) || 0;
+      if (!dx && !dy && !dz) { ui.setStatus('No offset to apply.', 'error'); return; }
       undoRedo.push(state.workingCmds);
-      state.workingCmds = gcodeParser.applyOffset(state.workingCmds, dx, dy);
+      state.workingCmds = gcodeParser.applyOffset(state.workingCmds, { X: dx, Y: dy, Z: dz });
       ui.refreshWorking();
       document.getElementById('originOffX').value = '0';
       document.getElementById('originOffY').value = '0';
-      ui.setStatus(`Fine offset applied: X${dx >= 0 ? '+' : ''}${dx} Y${dy >= 0 ? '+' : ''}${dy}`);
-    });
-
-    // â”€â”€ Feed & Power Apply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    document.getElementById('btnApplyFeedPower').addEventListener('click', () => {
-      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
-      const feed = parseFloat(document.getElementById('batchFeed').value);
-      const power = parseFloat(document.getElementById('batchPower').value);
-      const passes = parseInt(document.getElementById('batchPasses').value) || 1;
-      if (!feed || !power) { ui.setStatus('Invalid feed or power.', 'error'); return; }
-      if (passes < 1) { ui.setStatus('Passes must be >= 1.', 'error'); return; }
-      undoRedo.push(state.workingCmds);
-      let cmds = state.workingCmds.map(c => ({ ...c }));
-      cmds = gcodeParser.applyBatchParam(cmds, 'G1', 'F', feed);
-      cmds = gcodeParser.applyBatchParam(cmds, 'G1', 'S', power);
-      if (passes > 1) {
-        // Duplicate only the G1 cut moves (header/footer stay once)
-        const cutMoves = cmds.filter(c => c.type === 'G1' || c.type === 'G01');
-        const nonCut = cmds.filter(c => !(c.type === 'G1' || c.type === 'G01'));
-        const all = nonCut.slice();
-        for (let p = 0; p < passes; p++) {
-          cutMoves.forEach(c => all.push({ ...c, raw: '' }));
-        }
-        cmds = all;
-      }
-      state.workingCmds = cmds;
-      ui.refreshWorking();
-      ui.setStatus(`Applied F=${feed} S=${power}, ${passes} pass(es) to all G1 moves.`);
+      document.getElementById('originOffZ').value = '0';
+      let msg = 'Fine offset applied:';
+      if (dx) msg += ` X${dx >= 0 ? '+' : ''}${dx}`;
+      if (dy) msg += ` Y${dy >= 0 ? '+' : ''}${dy}`;
+      if (dz) msg += ` Z${dz >= 0 ? '+' : ''}${dz}`;
+      ui.setStatus(msg);
     });
 
     // â”€â”€ Generate Updated G-code â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -698,7 +875,6 @@ const ui = {
       }
       undoRedo.push(state.workingCmds);
       state.workingCmds = state.workingCmds.map((c, i) => {
-        const idx = from >= 0 && to >= 0 ? i : -1;
         const inRange = from < 0 || to < 0 || (i >= from && i <= to);
         if (!inRange) return c;
         if (c.params[axis] === undefined) return c;
@@ -723,7 +899,6 @@ const ui = {
       undoRedo.push(state.workingCmds);
       const newCmds = [];
       const sorted = [...state.selectedPoints].sort((a, b) => a - b);
-      const added = new Set();
       sorted.forEach((idx, si) => {
         const c = state.workingCmds[idx];
         newCmds.push(c);
@@ -732,16 +907,13 @@ const ui = {
         if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
         copy.raw = '';
         newCmds.push(copy);
-        added.add(idx + si + 1);
       });
       // rebuild with all original + new points inserted
       const result = [];
-      let addedIdx = 0;
       for (let i = 0; i < state.workingCmds.length; i++) {
         result.push(state.workingCmds[i]);
         if (sorted.includes(i)) {
           result.push(newCmds[sorted.indexOf(i) * 2 + 1]);
-          addedIdx++;
         }
       }
       state.workingCmds = result;
@@ -757,10 +929,11 @@ const ui = {
       if (!confirm(`Delete ${state.selectedPoints.size} selected point(s)?`)) return;
       undoRedo.push(state.workingCmds);
       const keep = state.workingCmds.filter((_, i) => !state.selectedPoints.has(i));
+      const deleted = state.workingCmds.length - keep.length;
       state.workingCmds = keep;
       state.selectedPoints.clear();
       ui.refreshWorking();
-      ui.setStatus(`Deleted ${state.workingCmds.length - keep.length} point(s).`);
+      ui.setStatus(`Deleted ${deleted} point(s).`);
     });
 
     // â”€â”€ Keyboard Shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -771,7 +944,7 @@ const ui = {
         document.getElementById('fileInputGcode').click();
       }
       // Ctrl+Shift+S — Save As
-      if (e.ctrlKey && e.shiftKey && e.key === 's') {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         document.getElementById('btnSaveAs').click();
       }
@@ -783,21 +956,7 @@ const ui = {
       }
       // Esc — Stop
       if (e.key === 'Escape' && e.target.tagName !== 'TEXTAREA') {
-        if (pickMode) {
-          pickMode = false;
-          const mb = document.getElementById('btnPick');
-          if (mb) mb.style.background = '';
-          preview.draw(state.workingCmds);
-          ui.setStatus('Pick cancelled.');
-        } else if (measureMode) {
-          measureMode = false; measureStart = null; measureEnd = null;
-          const mb = document.getElementById('btnMeasure');
-          if (mb) mb.style.background = '';
-          preview.draw(state.workingCmds);
-          ui.setStatus('Measure cancelled.');
-        } else {
-          preview.stop();
-        }
+        preview.stop();
       }
       // + / - — Zoom (only when not in input/textarea)
       if ((e.key === '+' || e.key === '=') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
@@ -838,8 +997,8 @@ const ui = {
     // â”€â”€ Sync editor scrolls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     setupScrollSync('editorOriginal', 'highlightOriginal', 'linesOriginal');
     setupScrollSync('editorWorking', 'highlightWorking', 'linesWorking');
-    setupScrollSync('editorOriginalModal', 'highlightOriginalModal');
-    setupScrollSync('editorWorkingModal', 'highlightWorkingModal');
+    setupScrollSync('editorOriginalModal', 'highlightOriginalModal', 'linesOriginalModal');
+    setupScrollSync('editorWorkingModal', 'highlightWorkingModal', 'linesWorkingModal');
 
     // â”€â”€ Editor tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function updateTabVisibility(tabName) {
@@ -870,35 +1029,8 @@ const ui = {
     }
 
     // â”€â”€ Widget drag & drop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const cols = ['col-left', 'col-right'];
-    cols.forEach(colId => {
-      const col = document.getElementById(colId);
-      if (!col) return;
-      col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drag-over'); });
-      col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
-      col.addEventListener('drop', e => {
-        e.preventDefault();
-        col.classList.remove('drag-over');
-        const id = e.dataTransfer.getData('text/widget');
-        if (!id) return;
-        const w = document.getElementById(id);
-        if (!w || w.parentElement === col) return;
-        col.appendChild(w);
-      });
-    });
-    document.querySelectorAll('.widget[draggable]').forEach(w => {
-      w.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/widget', w.id);
-        setTimeout(() => w.classList.add('dragging'), 0);
-      });
-      w.addEventListener('dragend', () => {
-        w.classList.remove('dragging');
-        _saveWidgetLayout();
-        if (typeof _buildWidgetLists === 'function') _buildWidgetLists();
-      });
-      if (!w.id) w.id = 'widget-' + (w.dataset.widget || Math.random().toString(36).slice(2, 7));
-    });
-
+    // Widget drag & drop (single column)
+    const colLeft = document.getElementById('col-left');
     // â”€â”€ Restore widget layout from cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const savedCols = localStorage.getItem('editgc_widget_cols');
     if (savedCols) {
@@ -915,7 +1047,7 @@ const ui = {
     function _saveWidgetLayout() {
       try {
         const map = {};
-        document.querySelectorAll('.widget[draggable]').forEach(w => {
+        document.querySelectorAll('.widget').forEach(w => {
           const col = w.closest('.app-col');
           if (col) map[w.dataset.widget] = col.id;
         });
@@ -971,72 +1103,25 @@ const ui = {
       try { if (localStorage.getItem('editgc_panel_open') === 'true') { openPanel(); } else { if (edgeHint) edgeHint.classList.remove('hidden'); } } catch (_) { if (edgeHint) edgeHint.classList.remove('hidden'); }
     }
 
-    // â”€â”€ Widget lock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const lockBtn = document.getElementById('lp-lock-btn');
-    let widgetsLocked = true;
-    try { widgetsLocked = localStorage.getItem('editgc_widgets_locked') === 'true'; } catch (_) {}
-    function _applyWidgetLock() {
-      document.querySelectorAll('.widget[draggable]').forEach(w => {
-        w.draggable = !widgetsLocked;
-        w.style.cursor = widgetsLocked ? 'default' : 'grab';
-      });
-      document.body.classList.toggle('widgets-locked', widgetsLocked);
-      if (lockBtn) lockBtn.textContent = widgetsLocked ? '[Locked] Widgets fixed' : '[Unlocked] Widgets (drag active)';
-    }
-    if (lockBtn) {
-      _applyWidgetLock();
-      lockBtn.addEventListener('click', () => {
-        widgetsLocked = !widgetsLocked;
-        _applyWidgetLock();
-        try { localStorage.setItem('editgc_widgets_locked', widgetsLocked); } catch (_) {}
-      });
-    }
-
-    // â”€â”€ Sidebar widget management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â”€â”€ Sidebar widget management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€”€â”€â”€â”€â”€â”€â”€
     function _widgetName(wid) {
-      const names = { scale:'Scale', template:'Template', origin:'Origin', feedpower:'Feed / Power', batch:'Shift Points', points:'Add points' };
+      const names = { scale:'Scale', template:'Template', origin:'Origin', batch:'Shift Points', points:'Add points' };
       return names[wid] || wid;
     }
     function _buildWidgetLists() {
-      const leftList = document.getElementById('lp-left-list');
-      const rightList = document.getElementById('lp-right-list');
-      const visList = document.getElementById('lp-visibility-list');
-      if (!leftList || !rightList) return;
-      leftList.innerHTML = ''; rightList.innerHTML = ''; visList.innerHTML = '';
-      const allWidgets = document.querySelectorAll('.widget[draggable]');
-      const leftWidgets = [], rightWidgets = [];
+      const list = document.getElementById('lp-widget-list');
+      if (!list) return;
+      list.innerHTML = '';
+      const allWidgets = document.querySelectorAll('.widget');
       allWidgets.forEach(w => {
-        const col = w.closest('.app-col');
-        if (col && col.id === 'col-left') leftWidgets.push(w);
-        else if (col && col.id === 'col-right') rightWidgets.push(w);
-      });
-      function _renderRow(w, list, side) {
         const wid = w.dataset.widget;
         const row = document.createElement('div');
         row.className = 'lp-widget-row';
         row.dataset.widget = wid;
-        // visibility checkbox
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = w.style.display !== 'none';
-        try {
-          const saved = localStorage.getItem('editgc_vis_widget-' + wid);
-          if (saved !== null) cb.checked = saved === 'true';
-        } catch (_) {}
-        w.style.display = cb.checked ? '' : 'none';
-        cb.addEventListener('change', () => {
-          w.style.display = cb.checked ? '' : 'none';
-          try { localStorage.setItem('editgc_vis_widget-' + wid, cb.checked); } catch (_) {}
-          // sync checkbox in other column's row if any
-          document.querySelectorAll(`.lp-widget-row[data-widget="${wid}"] input[type="checkbox"]`).forEach(c => { if (c !== cb) c.checked = cb.checked; });
-        });
-        row.appendChild(cb);
-        // name
         const name = document.createElement('span');
-        name.className = 'lp-widget-name' + (cb.checked ? '' : ' muted');
+        name.className = 'lp-widget-name';
         name.textContent = _widgetName(wid);
         row.appendChild(name);
-        cb.addEventListener('change', () => name.classList.toggle('muted', !cb.checked));
         // up button
         const upBtn = document.createElement('button');
         upBtn.className = 'lp-widget-btn';
@@ -1046,8 +1131,8 @@ const ui = {
           const prev = row.previousElementSibling;
           if (!prev) return;
           const widgetEl = document.querySelector(`.widget[data-widget="${wid}"]`);
-          const col = widgetEl.closest('.app-col');
-          const prevWidget = col.querySelector(`.widget[data-widget="${prev.dataset.widget}"]`);
+          const prevWidget = document.querySelector(`.widget[data-widget="${prev.dataset.widget}"]`);
+          const col = document.getElementById('col-left');
           if (col && prevWidget) { col.insertBefore(widgetEl, prevWidget); list.insertBefore(row, prev); _saveWidgetLayout(); }
         });
         row.appendChild(upBtn);
@@ -1060,81 +1145,12 @@ const ui = {
           const next = row.nextElementSibling;
           if (!next) return;
           const widgetEl = document.querySelector(`.widget[data-widget="${wid}"]`);
-          const col = widgetEl.closest('.app-col');
-          const nextWidget = col.querySelector(`.widget[data-widget="${next.dataset.widget}"]`);
+          const nextWidget = document.querySelector(`.widget[data-widget="${next.dataset.widget}"]`);
+          const col = document.getElementById('col-left');
           if (col && nextWidget) { col.insertBefore(widgetEl, nextWidget.nextSibling); list.insertBefore(row, next.nextSibling); _saveWidgetLayout(); }
         });
         row.appendChild(dnBtn);
-        // move button
-        const moveBtn = document.createElement('button');
-        moveBtn.className = 'lp-widget-btn move-btn';
-        const otherSide = side === 'left' ? 'right' : 'left';
-        moveBtn.textContent = side === 'left' ? 'right' : 'left';
-        moveBtn.title = `Move to ${otherSide} column`;
-        moveBtn.addEventListener('click', () => {
-          const targetCol = document.getElementById('col-' + otherSide);
-          if (!targetCol) return;
-          const widgetEl = document.querySelector(`.widget[data-widget="${wid}"]`);
-          if (!widgetEl) return;
-          targetCol.appendChild(widgetEl);
-          _buildWidgetLists();
-          _saveWidgetLayout();
-        });
-        row.appendChild(moveBtn);
         list.appendChild(row);
-      }
-      leftWidgets.forEach(w => _renderRow(w, leftList, 'left'));
-      rightWidgets.forEach(w => _renderRow(w, rightList, 'right'));
-      // visibility-only list (second occurrence rows hidden, just show checkboxes)
-      leftWidgets.forEach(w => {
-        const wid = w.dataset.widget;
-        const row = document.createElement('div');
-        row.className = 'lp-widget-row';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = w.style.display !== 'none';
-        try {
-          const saved = localStorage.getItem('editgc_vis_widget-' + wid);
-          if (saved !== null) cb.checked = saved === 'true';
-        } catch (_) {}
-        cb.addEventListener('change', () => {
-          w.style.display = cb.checked ? '' : 'none';
-          try { localStorage.setItem('editgc_vis_widget-' + wid, cb.checked); } catch (_) {}
-          document.querySelectorAll(`.lp-widget-row[data-widget="${wid}"] input[type="checkbox"]`).forEach(c => { if (c !== cb) c.checked = cb.checked; });
-        });
-        row.appendChild(cb);
-        const name = document.createElement('span');
-        name.className = 'lp-widget-name' + (cb.checked ? '' : ' muted');
-        name.textContent = _widgetName(wid);
-        row.appendChild(name);
-        const allCb = document.querySelectorAll(`.lp-widget-row[data-widget="${wid}"] input[type="checkbox"]`);
-        if (allCb.length > 0) cb.checked = allCb[0].checked;
-        cb.addEventListener('change', () => name.classList.toggle('muted', !cb.checked));
-        visList.appendChild(row);
-      });
-      rightWidgets.forEach(w => {
-        const wid = w.dataset.widget;
-        const row = document.createElement('div');
-        row.className = 'lp-widget-row';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = w.style.display !== 'none';
-        try {
-          const saved = localStorage.getItem('editgc_vis_widget-' + wid);
-          if (saved !== null) cb.checked = saved === 'true';
-        } catch (_) {}
-        cb.addEventListener('change', () => {
-          w.style.display = cb.checked ? '' : 'none';
-          try { localStorage.setItem('editgc_vis_widget-' + wid, cb.checked); } catch (_) {}
-          document.querySelectorAll(`.lp-widget-row[data-widget="${wid}"] input[type="checkbox"]`).forEach(c => { if (c !== cb) c.checked = cb.checked; });
-        });
-        row.appendChild(cb);
-        const name = document.createElement('span');
-        name.className = 'lp-widget-name' + (cb.checked ? '' : ' muted');
-        name.textContent = _widgetName(wid);
-        row.appendChild(name);
-        cb.addEventListener('change', () => name.classList.toggle('muted', !cb.checked));
-        visList.appendChild(row);
       });
     }
     _buildWidgetLists();
@@ -1159,6 +1175,32 @@ const ui = {
         e.returnValue = '';
       }
     });
+    ui.setStatus('Ready');
+  },
+
+  clearState() {
+    if (preview._rebuildTimer) { clearTimeout(preview._rebuildTimer); preview._rebuildTimer = null; }
+    preview._segVersion++;
+    preview._segBuilding = false;
+    preview._segments = null;
+    preview._points = null;
+    preview._segBounds = null;
+    preview._segCommands = null;
+    preview._segTruncated = false;
+    preview._origSegments = null;
+    preview._origPoints = null;
+    preview._origBounds = null;
+    preview._hlCmdIdx = -1;
+    state.mode = 'gcode';
+    state.svgText = '';
+    state.svgImg = null;
+    state.svgDims = null;
+    state.svgSegments = null;
+    state.dxfSegments = null;
+    state._boundsCache = null;
+    state.originMarkMode = null;
+    state.originMark = null;
+    state.showRapids = true;
   },
 
   _useVirtualEditor(text) {
@@ -1322,6 +1364,13 @@ const ui = {
   },
 
   _setupBackplot() {
+    document.getElementById('editorOriginal').addEventListener('click', function() {
+      const idx = this.selectionStart;
+      const lineNo = this.value.substring(0, idx).split('\n').length - 1;
+      if (lineNo >= 0 && lineNo < state.originalCmds.length) {
+        preview.highlightLine(lineNo);
+      }
+    });
     // Textarea click → backplot
     document.getElementById('editorWorking').addEventListener('click', function() {
       const idx = this.selectionStart;
@@ -1348,17 +1397,19 @@ const ui = {
 
   setStatus(msg, type) {
     const el = document.getElementById('statusMsg');
+    if (!el) return;
     el.textContent = msg;
     el.style.color = type === 'error' ? '#f66' : '#555';
   },
   setProgress(pct, label) {
-    const wrap = document.getElementById('progressWrap');
-    const bar  = document.getElementById('progressBar');
-    const lbl  = document.getElementById('progressLabel');
+    const wrap = document.getElementById('colStatus');
+    const track = document.getElementById('colStatusTrack');
+    const bar  = document.getElementById('colStatusBar');
+    const lbl  = document.getElementById('colStatusLabel');
     if (!wrap) return;
-    if (pct < 0) { wrap.classList.add('hidden'); return; }
-    wrap.classList.remove('hidden');
-    bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+    if (pct < 0) { if (track) track.classList.add('hidden'); if (lbl) lbl.textContent = ''; return; }
+    if (track) track.classList.remove('hidden');
+    if (bar) bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
     if (lbl) lbl.textContent = label || Math.round(pct) + '%';
   },
 };
