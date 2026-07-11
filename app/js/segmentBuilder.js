@@ -97,7 +97,10 @@ const segmentBuilder = {
       else if (t === 'G1' || t === 'G01') motionMode = 1;
       else if (t === 'G2' || t === 'G02') motionMode = 2;
       else if (t === 'G3' || t === 'G03') motionMode = 3;
-      else continue; // non-motion, skip
+      else if (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined) {
+        // Implicit motion — line with coordinates but no G command
+        // Use current motionMode (defaults to G1)
+      }
       // Compute next position
       let nx = x, ny = y, nz = z;
       const getV = (a) => c.params[a] !== undefined ? c.params[a] * unitToMm : null;
