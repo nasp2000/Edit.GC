@@ -155,7 +155,10 @@ class VirtualEditor {
     if (tokens.length > 0 && /^N\d+$/.test(tokens[0])) ti = 1;
     const cmd = ti < tokens.length ? tokens[ti] : '';
     let cmdColor = '#d97706';
-    if (/^G0(0)?$/.test(cmd)) cmdColor = '#888';
+    const isAxisWord = /^[XYZABC][-\d]/.test(cmd);
+    if (isAxisWord) {
+      cmdColor = '';
+    } else if (/^G0(0)?$/.test(cmd)) cmdColor = '#888';
     else if (/^G1(01)?$/.test(cmd)) cmdColor = '#2563eb';
     else if (/^G2(02)?$/.test(cmd) || /^G3(03)?$/.test(cmd)) cmdColor = '#7c3aed';
     else if (/^M\d+$/.test(cmd)) cmdColor = '#dc2626';
@@ -165,9 +168,10 @@ class VirtualEditor {
     if (ti > 0 && /^N\d+$/.test(tokens[0])) {
       result += `<span style="color:#999">${this._escape(tokens[0])}</span> `;
     }
-    if (cmd) result += `<span style="color:${cmdColor}">${this._escape(cmd)}</span>`;
-    for (let i = ti + 1; i < tokens.length; i++) {
-      const p = tokens[i];
+    const startIdx = isAxisWord ? ti : ti + 1;
+    if (cmd && !isAxisWord) result += `<span style="color:${cmdColor}">${this._escape(cmd)}</span>`;
+    for (let i = startIdx; i < tokens.length; i++) {
+      const p = isAxisWord && i === ti ? cmd : tokens[i];
       let pos = 0;
       p.replace(/([A-Z])([-\d.]+)/g, (_, letter, num, offset) => {
         if (offset > pos) result += `<span style="color:#d97706">${this._escape(p.slice(pos, offset))}</span>`;

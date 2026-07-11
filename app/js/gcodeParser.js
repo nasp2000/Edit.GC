@@ -23,8 +23,14 @@ const gcodeParser = {
       let firstIdx = 0;
       if (parts.length > 0 && /^N\d+$/.test(parts[0])) firstIdx = 1;
 
-      const type   = parts.length > firstIdx ? parts[firstIdx] : '';
       const params = {};
+      let type   = parts.length > firstIdx ? parts[firstIdx] : '';
+      // If first token is an axis word (X90 Y200), treat it as a param
+      const typeParam = type.match(/^([XYZABC])([-\d.]+)$/);
+      if (typeParam) {
+        params[typeParam[1]] = parseFloat(typeParam[2]);
+        type = '';
+      }
       for (let i = firstIdx + 1; i < parts.length; i++) {
         parts[i].replace(/([A-Z])([-\d.]+)/g, (_, l, n) => { params[l] = parseFloat(n); });
       }
@@ -74,7 +80,12 @@ const gcodeParser = {
 
       const cmd = ti < tokens.length ? tokens[ti] : '';
       let cmdClass = 'hl-unknown';
-      if (/^G0(0)?$/.test(cmd)) cmdClass = 'hl-g0';
+      // Check if first token is an axis word (implicit motion)
+      const isAxisWord = /^[XYZABC][-\d]/.test(cmd);
+      if (isAxisWord) {
+        // No explicit command — treat entire line as params
+        cmdClass = '';
+      } else if (/^G0(0)?$/.test(cmd)) cmdClass = 'hl-g0';
       else if (/^G1(01)?$/.test(cmd)) cmdClass = 'hl-g1';
       else if (/^G2(02)?$/.test(cmd) || /^G3(03)?$/.test(cmd)) cmdClass = 'hl-arc';
       else if (/^M\d+$/.test(cmd)) cmdClass = 'hl-mcode';
@@ -83,8 +94,11 @@ const gcodeParser = {
 
       let result = hlPrefix;
       if (isN) result += `<span class="hl-lineno">${this._escape(tokens[0])}</span> `;
-      if (cmd) result += `<span class="${cmdClass}">${this._escape(cmd)}</span>`;
-      for (let i = ti + 1; i < tokens.length; i++) {
+      const startIdx = isAxisWord ? ti : ti + 1;
+      if (cmd && !isAxisWord) result += `<span class="${cmdClass}">${this._escape(cmd)}</span>`;
+      for (let i = startIdx; i < tokens.length; i++) {
+        // If first token is axis word, include it in the param loop
+        const p = isAxisWord && i === ti ? cmd : tokens[i];
         const p = tokens[i];
         let pos = 0;
         p.replace(/([A-Z])([-\d.eE+]+)/g, (_, letter, num, offset) => {

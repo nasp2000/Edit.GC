@@ -787,7 +787,7 @@ const preview = {
     flushBatch();
 
     // Draw dots at each vertex (visible for point-to-point programs)
-    ctx.fillStyle = 'rgba(37,99,235,0.5)';
+    ctx.fillStyle = 'rgba(37,99,235,0.7)';
     const dotStep = Math.max(1, Math.floor(segsToDraw / 5000));
     for (let i = 0; i < segsToDraw; i += dotStep) {
       const s = segments[i];
@@ -795,7 +795,7 @@ const preview = {
       const cx = toCanvasX(s.b.x), cy = toCanvasY(s.b.y);
       if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
       ctx.beginPath();
-      ctx.arc(cx, cy, 1.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
       ctx.fill();
     }
 
