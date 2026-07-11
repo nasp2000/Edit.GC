@@ -99,7 +99,6 @@ const gcodeParser = {
       for (let i = startIdx; i < tokens.length; i++) {
         // If first token is axis word, include it in the param loop
         const p = isAxisWord && i === ti ? cmd : tokens[i];
-        const p = tokens[i];
         let pos = 0;
         p.replace(/([A-Z])([-\d.eE+]+)/g, (_, letter, num, offset) => {
           if (offset > pos) result += `<span class="hl-other">${this._escape(p.slice(pos, offset))}</span>`;
