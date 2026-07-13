@@ -9,7 +9,7 @@ function editorLineCount(text) {
   return text ? text.split('\n').length : 0;
 }
 
-// â”€â”€ syntaxHighlight â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ---- syntaxHighlight ----------------------------------------------------------------------------------------
 function applyHighlight(el, text) {
   if (!el) return;
   const skipHL = text && text.split('\n').length > CFG.HL_LIMIT;

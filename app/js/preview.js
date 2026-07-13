@@ -1,4 +1,4 @@
-const preview = {
+﻿const preview = {
   canvas: null,
   ctx: null,
   originX: 0,
@@ -91,9 +91,11 @@ const preview = {
     return { toCx, toCy };
   },
 
-  // â”€â”€ Segment-based G-code preview (2D) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ---- Segment-based G-code preview (2D) --------------------------------------------------
   buildOriginal() {
     if (this._origSegments || !state.originalCmds || !state.originalCmds.length) return;
+    // Skip compare mode for large files to save memory
+    if (state.originalCmds.length > 50000) return;
     const cmds = state.originalCmds;
     this._buildSegmentsAsync(cmds, (result) => {
       this._origSegments = result.segments;
@@ -275,7 +277,7 @@ const preview = {
       scheduleDraw();
     });
   },
-  // â”€â”€ Playback state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ---- Playback state ------------------------------------------------------------------------------------
   _pb: { rafId: null, idx: 0, paused: false, active: false },
 
   draw(commands) {
@@ -289,6 +291,11 @@ const preview = {
       this._segBuilding = false; // abort any stale build
       this._segVersion++;
     }
+    // Reset scrub bar to 100% (show all)
+    const slider = document.getElementById('playProgress');
+    if (slider) slider.value = 100;
+    const info = document.getElementById('scrubInfo');
+    if (info) info.textContent = `${n}/${n}`;
     if (state.mode === 'gcode' && !this._segments && !this._segBuilding && n > 0) {
       // Analyse bounds first so view is centered from the start
       const preBounds = this._getBounds(cmds);
@@ -310,6 +317,7 @@ const preview = {
           this.fitView();
           if (ui.updateResizePanel) ui.updateResizePanel();
           if (ui.updateFooterInfo) ui.updateFooterInfo();
+          if (ui._pointsPanelOpen && ui._updatePointsPanel) ui._updatePointsPanel();
         }, (pct) => {
           ui.setProgress(pct, 'Building preview…');
         });
@@ -365,22 +373,30 @@ const preview = {
     if (state.originMark) {
       const mx = toCanvasX(state.originMark.x);
       const my = toCanvasY(state.originMark.y);
-      const sz = 16;
+      const sz = 28;
       ctx.save();
-      ctx.shadowColor = 'rgba(255,0,0,0.5)';
-      ctx.shadowBlur = 8;
-      ctx.strokeStyle = '#ff0000';
-      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(mx, my, sz + 8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,0,0,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,0,0,0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.shadowColor = 'rgba(255,0,0,0.7)'; ctx.shadowBlur = 14;
+      ctx.strokeStyle = '#ff2222'; ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
+      ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
+      ctx.stroke(); ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
       ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
       ctx.stroke();
-      ctx.shadowBlur = 0;
       const dir = state.originMark.dir;
-      ctx.fillStyle = '#ff0000';
-      ctx.font = 'bold 18px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(dir === 'left' ? 'â—€' : '>', mx, my + sz + 18);
+      ctx.fillStyle = '#ff2222'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+      const arrowY = dir === 'left' ? -sz - 18 : sz + 10;
+      ctx.fillText(dir === 'left' ? '◀' : '▶', mx, my + arrowY);
       ctx.restore();
     }
     this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
@@ -394,15 +410,17 @@ const preview = {
     const commands = state.workingCmds;
     if (!commands || !commands.length) return;
     if (this._pb.paused) {
-      // resume
       this._pb.paused = false;
+      this._pb.lastTick = performance.now();
+      this._pb.accum = 0;
       this._tick();
       return;
     }
-    // fresh start
     this._pb.active = true;
     this._pb.paused = false;
-    this._pb.idx    = 0;
+    this._pb.idx = 0;
+    this._pb.lastTick = performance.now();
+    this._pb.accum = 0;
     this._tick();
   },
 
@@ -433,15 +451,24 @@ const preview = {
     const pct = total > 0 ? Math.round(idx / total * 100) : 0;
     const slider = document.getElementById('playProgress');
     if (slider) slider.value = pct;
+    const info = document.getElementById('scrubInfo');
+    if (info) info.textContent = `${idx}/${total}`;
   },
 
   _tick() {
     const commands = state.workingCmds;
     if (!this._pb.active || this._pb.paused || !commands) return;
-    const speed = parseInt(document.getElementById('playSpeed').value) || 30;
-    this._pb.idx = Math.min(this._pb.idx + speed, commands.length);
+    const speed = parseInt(document.getElementById('playSpeed').value) || 1;
+    const now = performance.now();
+    if (!this._pb.lastTick) this._pb.lastTick = now;
+    const dt = (now - this._pb.lastTick) / 1000;
+    this._pb.lastTick = now;
+    this._pb.accum = (this._pb.accum || 0) + speed * 20 * dt;
+    const step = Math.floor(this._pb.accum);
+    this._pb.accum -= step;
+    if (step < 1) { this._pb.rafId = requestAnimationFrame(() => this._tick()); return; }
+    this._pb.idx = Math.min(this._pb.idx + step, commands.length);
     this._drawCore(commands, this._pb.idx);
-    // draw cursor dot at head position
     this._drawHead(commands, this._pb.idx);
     this._updatePlayProgress();
     if (this._pb.idx < commands.length) {
@@ -533,14 +560,15 @@ const preview = {
     for (let y = oy5; y < h; y += gStep5) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
     ctx.stroke();
 
-    // â”€â”€ SVG mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- SVG mode --------------------------------------------------------------------------------------------
     if (state.mode === 'svg' && state.svgText) {
       if (state.svgPreviewMode === 'raster' && state.svgImg) {
         // Raster image with fills/engraving
         try {
           const s = state.svgScale;
-          const imgW = state.svgImg.naturalWidth || 1;
-          const imgH = state.svgImg.naturalHeight || 1;
+          const dim = state.svgDims || { width: 100, height: 100 };
+          const imgW = dim.width * s;
+          const imgH = dim.height * s;
           const rPad = 40;
           const baseFit = Math.min((w - rPad * 2) / (imgW * s), (h - rPad * 2) / (imgH * s));
           const drawW = imgW * s * baseFit * state.previewScale;
@@ -618,7 +646,7 @@ const preview = {
       return;
     }
 
-    // â”€â”€ DXF mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- DXF mode --------------------------------------------------------------------------------------------
     if (state.mode === 'dxf' && state.dxfSegments && state.dxfSegments.length) {
       try {
         const all = state.dxfSegments.flat();
@@ -636,8 +664,15 @@ const preview = {
         const toCy = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
         // Grid + axes for spatial reference
         this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit);
-        ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 1.5;
+        if (state.svgPreviewMode === 'raster') {
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 3;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+        } else {
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 1.5;
+        }
         ctx.setLineDash([]);
         state.dxfSegments.forEach(seg => {
           if (!seg || seg.length < 2) return;
@@ -653,7 +688,7 @@ const preview = {
       return;
     }
 
-    // â”€â”€ G-code mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- G-code mode --------------------------------------------------------------------------------------
     if (!commands || !commands.length) return;
 
     // Segment-based 2D preview
@@ -699,12 +734,33 @@ const preview = {
     for (let gx = startX; gx <= maxX; gx += step) ctx.fillText(String(Math.round(gx * 100) / 100), toCanvasX(gx), h - 6);
     ctx.restore();
 
-    // Work area border (bounding box)
-    if (previewOpts.showBounds) {
-      ctx.strokeStyle = 'rgba(59,130,246,0.6)';
-      ctx.lineWidth = Math.max(1.5, dpr);
-      ctx.strokeRect(toCanvasX(minX), toCanvasY(maxY), rangeX * baseFit * state.previewScale, rangeY * baseFit * state.previewScale);
+    // Work area background + border (like GRBL style)
+    ctx.save();
+    const waX = toCanvasX(minX), waY = toCanvasY(maxY);
+    const waW = rangeX * baseFit * state.previewScale;
+    const waH = rangeY * baseFit * state.previewScale;
+    // Background fill
+    ctx.fillStyle = 'rgba(15,23,42,0.35)';
+    ctx.fillRect(waX, waY, waW, waH);
+    // Border with glow
+    ctx.shadowColor = 'rgba(59,130,246,0.2)';
+    ctx.shadowBlur = 8 * dpr;
+    ctx.strokeStyle = 'rgba(59,130,246,0.7)';
+    ctx.lineWidth = Math.max(1.5, dpr);
+    ctx.strokeRect(waX, waY, waW, waH);
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    // Corner brackets
+    const brk = Math.max(8, Math.min(waW * 0.06, waH * 0.06));
+    if (brk > 4) {
+      ctx.strokeStyle = 'rgba(59,130,246,0.35)';
+      ctx.lineWidth = Math.max(1.2, dpr);
+      ctx.beginPath();
+      ctx.moveTo(waX + brk, waY); ctx.lineTo(waX, waY); ctx.lineTo(waX, waY + brk);
+      ctx.moveTo(waX + waW - brk, waY + waH); ctx.lineTo(waX + waW, waY + waH); ctx.lineTo(waX + waW, waY + waH - brk);
+      ctx.stroke();
     }
+    ctx.restore();
 
     // Original toolpath (compare mode)
     if (previewOpts.compareMode && this._origSegments && this._origSegments.length) {
@@ -746,27 +802,30 @@ const preview = {
       return;
     }
 
-    // Draw segments batched by style
+    // Draw segments batched by color (contoured: outer glow + inner line)
+    const isRaster = state.svgPreviewMode === 'raster';
     const segments = this._segments;
-    let batchPath = null, batchColor = null, batchDash = null, batchWidth = 1;
-    const flushBatch = () => {
-      if (!batchPath) return;
-      if (batchDash) ctx.setLineDash(batchDash);
-      ctx.strokeStyle = batchColor;
-      ctx.lineWidth = batchWidth;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      batchPath = null; batchColor = null; batchDash = null;
-    };
     const sMax = 1000;
     const feedMax = 8000;
     const segsToDraw = limit < commands.length ? Math.floor((limit / commands.length) * segments.length) : segments.length;
+    // Progressive erase: during playback, dim past segments
+    const pbActive = this._pb && this._pb.active;
+    const pbCmdIdx = pbActive ? (this._pb.idx || 0) : -1;
+    // Find the last cmdIdx drawn to highlight as "current"
+    let lastCmdIdx = -1;
+    // Collect coordinates per color for batch stroke
+    const colorBatches = {};
+    const rapidBatch = { ax: [], ay: [], bx: [], by: [] };
     for (let i = 0; i < segsToDraw; i++) {
       const s = segments[i];
       if (!state.showRapids && s.rapid) continue;
+      const ax = toCanvasX(s.a.x), ay = toCanvasY(s.a.y);
+      const bx = toCanvasX(s.b.x), by = toCanvasY(s.b.y);
+      lastCmdIdx = s.cmdIdx;
       if (s.rapid) {
-        if (batchColor !== 'rgba(170,170,170,0.65)') flushBatch();
-        batchColor = 'rgba(170,170,170,0.65)'; batchDash = [4, 6]; batchWidth = 1;
+        if (isRaster) continue;
+        rapidBatch.ax.push(ax); rapidBatch.ay.push(ay);
+        rapidBatch.bx.push(bx); rapidBatch.by.push(by);
       } else {
         const c = commands[s.cmdIdx];
         let ratio;
@@ -777,26 +836,145 @@ const preview = {
           const pow = c && c.params.S ? c.params.S : sMax;
           ratio = Math.min(1, pow / sMax);
         }
-        const color = `rgb(${Math.round(34 + 200 * ratio)},${Math.round(211 - 160 * ratio)},${Math.round(238 - 80 * ratio)})`;
-        if (batchColor !== color) flushBatch();
-        batchColor = color; batchDash = null; batchWidth = 1.5;
+        const color = isRaster
+          ? `rgb(${Math.round(20 + 100 * ratio)},${Math.round(20 + 100 * ratio)},${Math.round(20 + 100 * ratio)})`
+          : `rgb(${Math.round(34 + 200 * ratio)},${Math.round(211 - 160 * ratio)},${Math.round(238 - 80 * ratio)})`;
+        if (!colorBatches[color]) colorBatches[color] = { ax: [], ay: [], bx: [], by: [] };
+        const b = colorBatches[color];
+        b.ax.push(ax); b.ay.push(ay); b.bx.push(bx); b.by.push(by);
       }
-      if (!batchPath) { ctx.beginPath(); batchPath = true; ctx.moveTo(toCanvasX(s.a.x), toCanvasY(s.a.y)); }
-      ctx.lineTo(toCanvasX(s.b.x), toCanvasY(s.b.y));
     }
-    flushBatch();
+    // Draw all segments with progressive erase alpha
+    const eraseAlpha = pbActive ? 0.35 : 1;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const glowWidth = isRaster ? 5 : 3.5;
+    // Outer glow (always at full alpha for glow effect)
+    for (const color in colorBatches) {
+      const b = colorBatches[color];
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = 'rgba(8,30,60,0.85)';
+      ctx.lineWidth = glowWidth;
+      ctx.beginPath();
+      for (let j = 0; j < b.ax.length; j++) { ctx.moveTo(b.ax[j], b.ay[j]); ctx.lineTo(b.bx[j], b.by[j]); }
+      ctx.stroke();
+    }
+    // Inner colored pass with progressive erase alpha
+    for (const color in colorBatches) {
+      const b = colorBatches[color];
+      ctx.globalAlpha = eraseAlpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isRaster ? 3 : 1.5;
+      ctx.beginPath();
+      for (let j = 0; j < b.ax.length; j++) { ctx.moveTo(b.ax[j], b.ay[j]); ctx.lineTo(b.bx[j], b.by[j]); }
+      ctx.stroke();
+    }
+    ctx.restore();
+    // Highlight current playback segment
+    if (pbActive && pbCmdIdx > 0 && lastCmdIdx >= 0) {
+      ctx.save();
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = 'rgba(34,211,238,0.6)';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        if (s.rapid) continue;
+        if (s.cmdIdx === lastCmdIdx) {
+          ctx.moveTo(toCanvasX(s.a.x), toCanvasY(s.a.y));
+          ctx.lineTo(toCanvasX(s.b.x), toCanvasY(s.b.y));
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Draw rapids with dashed lines
+    if (rapidBatch.ax.length) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(170,170,170,0.65)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      for (let j = 0; j < rapidBatch.ax.length; j++) { ctx.moveTo(rapidBatch.ax[j], rapidBatch.ay[j]); ctx.lineTo(rapidBatch.bx[j], rapidBatch.by[j]); }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // Auto-detect point-to-point vs continuous (dots only for point-to-point)
+    const p2p = (() => {
+      if (state.mode !== 'gcode') return false;
+      // Heuristic 1: frequent laser on/off toggles (M5/M9) within the toolpath
+      let m5Count = 0, moveCount = 0;
+      for (let i = 0; i < commands.length; i++) {
+        const c = commands[i];
+        if (c.type === 'M5' || c.type === 'M9') m5Count++;
+        if (c.params.X !== undefined || c.params.Y !== undefined) moveCount++;
+      }
+      if (m5Count > 2 && moveCount > 0 && (m5Count / moveCount) > 0.05) return true;
+      // Heuristic 2: frequent S=0 between S>0
+      let sOnCount = 0, sOffCount = 0;
+      let lastMode = null, transitions = 0;
+      for (let i = 0; i < commands.length; i++) {
+        const s = commands[i].params.S;
+        if (s === 0) { sOffCount++; if (lastMode !== 'off') { transitions++; lastMode = 'off'; } }
+        else if (s > 0) { sOnCount++; if (lastMode !== 'on') { transitions++; lastMode = 'on'; } }
+      }
+      if (sOnCount > 0 && sOffCount > 0 && transitions > 2) return true;
+      // Heuristic 3: mostly short segments (<1mm) = dense point grid
+      let short = 0, total = 0;
+      for (let i = 0; i < segments.length && i < 5000; i++) {
+        const s = segments[i];
+        if (s.rapid) continue;
+        const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y;
+        if (Math.hypot(dx, dy) < 1) short++;
+        total++;
+      }
+      return total > 10 && (short / total) > 0.5;
+    })();
 
     // Draw dots at each vertex (visible for point-to-point programs)
-    ctx.fillStyle = 'rgba(37,99,235,0.7)';
-    const dotStep = Math.max(1, Math.floor(segsToDraw / 5000));
-    for (let i = 0; i < segsToDraw; i += dotStep) {
-      const s = segments[i];
-      if (!state.showRapids && s.rapid) continue;
-      const cx = toCanvasX(s.b.x), cy = toCanvasY(s.b.y);
-      if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-      ctx.fill();
+    if (p2p) {
+      ctx.fillStyle = 'rgba(37,99,235,0.7)';
+      const dotStep = Math.max(1, Math.floor(segsToDraw / 5000));
+      for (let i = 0; i < segsToDraw; i += dotStep) {
+        const s = segments[i];
+        if (!state.showRapids && s.rapid) continue;
+        const cx = toCanvasX(s.b.x), cy = toCanvasY(s.b.y);
+        if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Start marker (first cut point)
+    if (state.mode === 'gcode') {
+      let startSeg = null;
+      for (let i = 0; i < segments.length; i++) {
+        if (!segments[i].rapid) { startSeg = segments[i]; break; }
+      }
+      if (startSeg) {
+        const sx = toCanvasX(startSeg.a.x), sy = toCanvasY(startSeg.a.y);
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.beginPath();
+        ctx.arc(0, 0, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fill();
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = '#f59e0b';
+        ctx.textAlign = 'center';
+        ctx.fillText('START', 0, -14);
+        ctx.restore();
+      }
     }
 
     // Backplot highlight
@@ -840,16 +1018,33 @@ const preview = {
 
     if (state.originMark) {
       const mx = toCanvasX(state.originMark.x), my = toCanvasY(state.originMark.y);
-      const sz = 16;
+      const sz = 28;
       ctx.save();
-      ctx.shadowColor = 'rgba(255,0,0,0.5)'; ctx.shadowBlur = 8;
-      ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 4;
+      // Background circle
+      ctx.beginPath();
+      ctx.arc(mx, my, sz + 8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,0,0,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,0,0,0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // Cross glow
+      ctx.shadowColor = 'rgba(255,0,0,0.7)'; ctx.shadowBlur = 14;
+      ctx.strokeStyle = '#ff2222'; ctx.lineWidth = 5;
       ctx.beginPath();
       ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
       ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
       ctx.stroke(); ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ff0000'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(state.originMark.dir === 'left' ? 'â—€' : '>', mx, my + sz + 18);
+      // Inner cross (white)
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
+      ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
+      ctx.stroke();
+      // Direction arrow
+      ctx.fillStyle = '#ff2222'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+      const arrowY = state.originMark.dir === 'left' ? -sz - 18 : sz + 10;
+      ctx.fillText(state.originMark.dir === 'left' ? '◀' : '▶', mx, my + arrowY);
       ctx.restore();
     }
 
@@ -857,15 +1052,18 @@ const preview = {
     this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
   },
   // Click on canvas → set origin in world coordinates
-  _setOriginFromClick(e) {
+  _setOriginFromClick(e, canvas) {
     if (!state.workingCmds.length) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
+    canvas = canvas || this.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * sx;
+    const cy = (e.clientY - rect.top) * sy;
     const b = this._getBounds(state.workingCmds);
     if (!b) return;
     const { minX, minY, rangeX, rangeY } = b;
-    const w = this.canvas.width, h = this.canvas.height;
+    const w = canvas.width, h = canvas.height;
     const pad = 40;
     const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
     const worldX = (cx - pad - state.previewOffX) / (baseFit * state.previewScale) + minX;
@@ -897,20 +1095,21 @@ const preview = {
     return 10;
   },
 
-  _setMarkFromClick(e) {
+  _setMarkFromClick(e, canvas) {
     // If mark already exists, remove it (toggle)
     if (state.originMark) {
       state.originMark = null;
       originMarkMode = null;
-      document.getElementById('btnMarkLeft').style.background = '';
-      document.getElementById('btnMarkRight').style.background = '';
       this.draw(state.workingCmds);
       ui.setStatus('Mark removed.');
       return;
     }
-    const rect = this.canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
+    canvas = canvas || this.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * sx;
+    const cy = (e.clientY - rect.top) * sy;
     const b = this._getBounds(state.workingCmds);
     if (!b) {
       state.originMark = { x: cx, y: cy, dir: originMarkMode };
@@ -919,7 +1118,7 @@ const preview = {
       return;
     }
     const { minX, minY, rangeX, rangeY } = b;
-    const w = this.canvas.width, h = this.canvas.height;
+    const w = canvas.width, h = canvas.height;
     const pad = 40;
     const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
     let worldX = (cx - pad - state.previewOffX) / (baseFit * state.previewScale) + minX;
@@ -933,16 +1132,60 @@ const preview = {
     ui.setStatus(`Mark at X=${state.originMark.x} Y=${state.originMark.y}`);
   },
 
+  // Get absolute X,Y position at a given cmdIdx (handles G90/G91)
+  _getPosAt(cmdIdx) {
+    let x = 0, y = 0, isRel = false;
+    const cmds = state.workingCmds;
+    for (let i = 0; i <= cmdIdx && i < cmds.length; i++) {
+      const c = cmds[i];
+      if (c.type === 'G91') { isRel = true; continue; }
+      if (c.type === 'G90') { isRel = false; continue; }
+      if (c.params.X !== undefined) x = isRel ? x + c.params.X : c.params.X;
+      if (c.params.Y !== undefined) y = isRel ? y + c.params.Y : c.params.Y;
+    }
+    return { x, y };
+  },
+
+  _updatePointsInfo() {
+    const info = document.getElementById('pointsInfo');
+    const dist = document.getElementById('pointsDistance');
+    if (!state.selectedPoints.size) {
+      info.textContent = 'Select points on preview';
+      dist.style.display = 'none';
+      if (window.ui && ui._updatePointsPanel) ui._updatePointsPanel();
+      return;
+    }
+    const sorted = [...state.selectedPoints].sort((a, b) => a - b);
+    if (sorted.length >= 2) {
+      const p1 = this._getPosAt(sorted[0]);
+      const p2 = this._getPosAt(sorted[1]);
+      const dx = Math.abs(p2.x - p1.x);
+      const dy = Math.abs(p2.y - p1.y);
+      const d = Math.hypot(dx, dy);
+      info.textContent = `${sorted.length} point(s) selected`;
+      dist.style.display = 'block';
+      dist.textContent = `ΔX=${dx.toFixed(3)} ΔY=${dy.toFixed(3)}  D=${d.toFixed(3)}`;
+    } else {
+      info.textContent = '1 point selected';
+      dist.style.display = 'none';
+    }
+    if (window.ui && ui._updatePointsPanel) ui._updatePointsPanel();
+  },
+
   // Click to select/deselect point
-  _selectPointFromClick(e) {
+  _selectPointFromClick(e, canvas) {
     if (!state.workingCmds.length) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
+    canvas = canvas || this.canvas;
+    const rect = canvas.getBoundingClientRect();
+    // Scale click coords from CSS pixels to canvas physical pixels (HiDPI)
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * sx;
+    const cy = (e.clientY - rect.top) * sy;
     const b = this._getBounds(state.workingCmds);
     if (!b) return;
     const { minX, minY, rangeX, rangeY } = b;
-    const w = this.canvas.width, h = this.canvas.height;
+    const w = canvas.width, h = canvas.height;
     const pad = 40;
     const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
     const toCanvasX = x => pad + (x - minX) * baseFit * state.previewScale + state.previewOffX;
@@ -989,26 +1232,36 @@ const preview = {
       return;
     }
     if (bestCmdIdx < 0 || bestDist > 15) return;
-    if (state.selectedPoints.has(bestCmdIdx)) {
-      state.selectedPoints.delete(bestCmdIdx);
-    } else {
-      state.selectedPoints.add(bestCmdIdx);
+    state.selectedPoints.clear();
+    state.selectedPoints.add(bestCmdIdx);
+    this._updatePointsInfo();
+    document.getElementById('pointsOffsetX').value = '0';
+    document.getElementById('pointsOffsetY').value = '0';
+    document.getElementById('pointsOffsetZ').value = '0';
+    // Sync points panel focus
+    if (window.ui && ui._pointsList) {
+      const fpi = ui._pointsList.findIndex(p => p.idx === bestCmdIdx);
+      if (fpi >= 0) ui._focusedPointPos = fpi;
     }
-    document.getElementById('pointsInfo').textContent = state.selectedPoints.size
-      ? `${state.selectedPoints.size} point(s) selected`
-      : 'Select points on preview';
-    const c = state.workingCmds[bestCmdIdx];
-    if (c && c.lineIndex >= 0) {
+    if (window.ui && ui._updatePointsPanel) ui._updatePointsPanel();
+    // Jump to line in working editor + backplot highlight
+    const veWrap = document.getElementById('virtualEditorWrap');
+    const isVirtual = veWrap && veWrap.style.display !== 'none' && window.ui && window.ui._ve;
+    if (isVirtual) {
+      window.ui._ve.scrollToLine(bestCmdIdx);
+    } else {
       const ta = document.getElementById('editorWorking');
       const lines = ta.value.split('\n');
       let charPos = 0;
-      for (let i = 0; i < c.lineIndex && i < lines.length; i++) charPos += lines[i].length + 1;
+      for (let i = 0; i < bestCmdIdx && i < lines.length; i++) charPos += lines[i].length + 1;
       const lineH = parseFloat(getComputedStyle(ta).lineHeight) || 20;
-      ta.focus();
-      ta.scrollTop = c.lineIndex * lineH - ta.clientHeight / 3;
+      ta.scrollTop = bestCmdIdx * lineH - ta.clientHeight / 3;
       ta.setSelectionRange(charPos, charPos);
     }
-    this.draw(state.workingCmds);
+    this.highlightLine(bestCmdIdx);
+    // Reset Points widget offsets to zero (relative to selected point)
+    document.getElementById('pointsOffsetX').value = '0';
+    document.getElementById('pointsOffsetY').value = '0';
   },
 
   _drawMinimap(ctx, w, h, b, baseFit) {

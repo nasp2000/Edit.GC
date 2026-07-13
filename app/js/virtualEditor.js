@@ -1,4 +1,4 @@
-// ── Virtual Editor: renders only visible lines ─────────────
+﻿// ── Virtual Editor: renders only visible lines ─────────────
 class VirtualEditor {
   constructor(container, opts) {
     this._container = container;

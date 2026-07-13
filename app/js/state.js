@@ -1,10 +1,11 @@
-﻿// â”€â”€ Estado global â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+﻿// ---- Estado global ------------------------------------------------------------------------------------------
 const state = {
   originalText:  '',
   originalCmds:  [],       // parsed original commands (for Reset)
   originalName:  '',      // nome do ficheiro aberto
   workingCmds:   [],
   template:      null,    // template activo
+  templateMeta:  null,    // { ext, lineEnd, originalName } from template
   undoStack:     [],
   redoStack:     [],
     previewScale: 1,

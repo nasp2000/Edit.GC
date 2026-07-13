@@ -1,4 +1,4 @@
-﻿// â”€â”€ Modais â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+﻿// ---- Modais --------------------------------------------------------------------------------------------------------
 function openModal(id) {
   const m = document.getElementById(id);
   if (!m) return;
@@ -41,9 +41,9 @@ function openModal(id) {
         mc.addEventListener('click', e => {
           if (e.clientX !== lastX || e.clientY !== lastY) return;
           if (originMarkMode) {
-            preview._setMarkFromClick(e);
+            preview._setMarkFromClick(e, mc);
           } else if (state.mode === 'gcode') {
-            preview._selectPointFromClick(e);
+            preview._selectPointFromClick(e, mc);
           }
         });
         const onMouseUp = () => { dragging = false; };

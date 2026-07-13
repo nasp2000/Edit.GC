@@ -1,4 +1,4 @@
-// ── Pure segment builder (no canvas dependency) ──────────────
+﻿// ── Pure segment builder (no canvas dependency) ──────────────
 const segmentBuilder = {
   build(commands, maxSegs, initialState) {
     maxSegs = maxSegs || CFG.MAX_SEGMENTS;

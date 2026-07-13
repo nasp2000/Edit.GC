@@ -1,9 +1,14 @@
-// â”€â”€ gcodeParser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+﻿// ---- gcodeParser ----------------------------------------------------------------------------------------------
 const gcodeParser = {
   parse(text) {
     if (typeof text !== 'string') return [];
     text = text.replace(/\r/g, '');
-    return text.split('\n').map((raw, lineIndex) => {
+    const lines = text.split('\n');
+    if (lines.length > CFG.MAX_COMMANDS) {
+      // Too large — return empty to prevent OOM
+      return [];
+    }
+    return lines.map((raw, lineIndex) => {
       // Strip comments
       const stripped = raw.replace(/\(.*?\)/g, '').replace(/;.*$/, '').trim();
       const commentMatch = raw.match(/;(.*)$/) || raw.match(/\(([^)]*)\)/);

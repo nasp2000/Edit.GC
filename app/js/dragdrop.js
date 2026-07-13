@@ -1,4 +1,4 @@
-﻿// â”€â”€ Drag & Drop handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+﻿// ---- Drag & Drop handler ----------------------------------------------------------------------------------
 async function handleDroppedFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (['gcode','gc','nc','cnc','tap','mpf','iso','min','eia','ncc','pnc','plt','hpgl','spf','din','g','ngc','prg','txt'].includes(ext)) {
@@ -6,10 +6,15 @@ async function handleDroppedFile(file) {
     ui.clearState();
     const text = await fileManager.readGcode(file);
     state.originalCmds  = gcodeParser.parse(text);
-    const isLarge = text.length > 5 * 1024 * 1024;
+    if (!state.originalCmds.length && text.length > 100000) {
+      ui.setStatus('File too large — showing lightweight preview.', 'error');
+    }
+    const isLarge = text.length > 5 * 1024 * 1024 || state.originalCmds.length > 50000;
     state.originalText  = isLarge ? '' : text;
     state.originalName  = file.name;
     state.workingCmds   = state.originalCmds.map(c => ({ ...c }));
+    // Free original commands for large files to save memory
+    if (state.originalCmds.length > 50000) state.originalCmds = [];
     state.dirty         = false;
     state.previewScale  = 1;
     state.previewOffX   = 0;

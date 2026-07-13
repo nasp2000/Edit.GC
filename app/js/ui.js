@@ -1,4 +1,4 @@
-// â”€â”€ uiController â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+﻿// ---- uiController --------------------------------------------------------------------------------------------
 const ui = {
   init() {
     // Abrir G-code
@@ -11,11 +11,12 @@ const ui = {
       ui.setProgress(30, 'Parsing…');
       state.originalCmds  = gcodeParser.parse(text);
       ui.setProgress(50, 'Preparing editor…');
-      const isLarge = text.length > 5 * 1024 * 1024
+      const isLarge = text.length > 5 * 1024 * 1024 || state.originalCmds.length > 50000;
       const isHuge = text.length > 50 * 1024 * 1024;
       state.originalText  = isLarge ? '' : text;
       state.originalName  = file.name;
       state.workingCmds   = state.originalCmds.map(c => ({ ...c }));
+      if (state.originalCmds.length > 50000) state.originalCmds = [];
       state.dirty         = false;
       // reset zoom/pan para auto-fit ao novo ficheiro
       state.previewScale  = 1;
@@ -49,14 +50,29 @@ const ui = {
       document.getElementById('btnConvertDxf').disabled = true;
     });
 
-    // â”€â”€ Preview playback buttons (main + modal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const _syncSpeed = src => {
-      const v = src.value;
-      document.getElementById('playSpeed').value  = v;
-      document.getElementById('mPlaySpeed').value = v;
+    // ---- Preview playback buttons (main + modal) ----
+    const _speedSteps = [1, 2, 5, 10, 20, 50, 100];
+    let _speedIdx = 0;
+    const _updateSpeedUI = () => {
+      const v = _speedSteps[_speedIdx];
+      document.getElementById('playSpeed').value       = v;
+      document.getElementById('mPlaySpeed').value       = v;
+      document.getElementById('playSpeedLabel').textContent  = v + 'x';
+      document.getElementById('mPlaySpeedLabel').textContent = v + 'x';
     };
-    document.getElementById('playSpeed').addEventListener('input',  e => _syncSpeed(e.target));
-    document.getElementById('mPlaySpeed').addEventListener('input', e => _syncSpeed(e.target));
+    document.getElementById('btnSpeedDown').addEventListener('click', () => {
+      if (_speedIdx > 0) { _speedIdx--; _updateSpeedUI(); }
+    });
+    document.getElementById('btnSpeedUp').addEventListener('click', () => {
+      if (_speedIdx < _speedSteps.length - 1) { _speedIdx++; _updateSpeedUI(); }
+    });
+    document.getElementById('mBtnSpeedDown').addEventListener('click', () => {
+      if (_speedIdx > 0) { _speedIdx--; _updateSpeedUI(); }
+    });
+    document.getElementById('mBtnSpeedUp').addEventListener('click', () => {
+      if (_speedIdx < _speedSteps.length - 1) { _speedIdx++; _updateSpeedUI(); }
+    });
+    _updateSpeedUI();
 
     document.getElementById('btnPlay').addEventListener('click',   () => preview.play());
     document.getElementById('btnPause').addEventListener('click',  () => preview.pause());
@@ -69,6 +85,7 @@ const ui = {
       if (preview._pb.active) preview.stop();
       preview._drawCore(cmds, idx);
       preview._drawHead(cmds, idx);
+      document.getElementById('scrubInfo').textContent = `${idx}/${total}`;
     });
     document.getElementById('chkBounds').addEventListener('change', function() {
       previewOpts.showBounds = this.checked;
@@ -99,11 +116,6 @@ const ui = {
     document.getElementById('batchStep').addEventListener('change', function() {
       const v = parseFloat(this.value);
       document.getElementById('batchAxisVal').step = v;
-    });
-    document.getElementById('pointsStep').addEventListener('change', function() {
-      const v = parseFloat(this.value);
-      document.getElementById('pointsOffsetX').step = v;
-      document.getElementById('pointsOffsetY').step = v;
     });
     document.getElementById('originStep').addEventListener('change', function() {
       const v = parseFloat(this.value);
@@ -357,13 +369,12 @@ const ui = {
     // SVG view mode toggle (outlines / raster)
     const _syncSvgView = el => {
       state.svgPreviewMode = el.value;
-      if (el.value === 'raster') {
-        state.svgSegments = null;
-      } else {
-        state.svgImg = null;
-      }
       preview.draw(state.workingCmds);
     };
+    const _syncSvgViewEnabled = () => {
+      // Always enabled — works for G-code, SVG, DXF
+    };
+    _syncSvgViewEnabled();
     document.getElementById('svgViewMode').addEventListener('change', e => {
       document.getElementById('svgViewModeModal').value = e.target.value;
       _syncSvgView(e.target);
@@ -520,22 +531,28 @@ const ui = {
     // Salvar
     document.getElementById('btnSave').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('Nothing to save.', 'error'); return; }
-      const ext  = state.originalName ? state.originalName.split('.').pop() : 'gcode';
+      const ext  = (state.templateMeta && state.templateMeta.ext)
+        ? state.templateMeta.ext
+        : (state.originalName ? state.originalName.split('.').pop() : 'gcode');
       const base = state.originalName ? state.originalName.replace(/\.[^.]+$/, '') : 'output';
-      fileManager.downloadGcode(gcodeParser.serialize(state.workingCmds), `${base}.${ext}`);
+      const cmds = _getSaveCommands();
+      fileManager.downloadGcode(gcodeParser.serialize(cmds), `${base}.${ext}`);
       state.dirty = false;
-      ui.setStatus(`Saved: ${base}.${ext}`);
+      ui.setStatus(`Saved: ${base}.${ext}${cmds !== state.workingCmds ? ' (mark applied)' : ''}`);
     });
 
     // Salvar como (nativo)
     document.getElementById('btnSaveAs').addEventListener('click', async () => {
       if (!state.workingCmds.length) { ui.setStatus('Nothing to save.', 'error'); return; }
+      const ext  = (state.templateMeta && state.templateMeta.ext)
+        ? state.templateMeta.ext
+        : 'gcode';
       const defaultName = state.originalName ? state.originalName.replace(/\.[^.]+$/, '') : 'output';
       const content = gcodeParser.serialize(state.workingCmds);
       // File System Access API (nativo)
       try {
         const handle = await window.showSaveFilePicker({
-          suggestedName: defaultName + '.gcode',
+          suggestedName: defaultName + '.' + ext,
           types: [{
             description: 'G-code files',
             accept: { 'text/plain': ['.gcode','.nc','.gc','.cnc','.tap','.txt'] }
@@ -549,10 +566,22 @@ const ui = {
       } catch (err) {
         if (err.name === 'AbortError') return; // user cancelled
         // fallback: download simple
-        fileManager.downloadGcode(content, defaultName + '.gcode');
+        fileManager.downloadGcode(content, defaultName + '.' + ext);
         state.dirty = false;
-        ui.setStatus(`Saved: ${defaultName}.gcode`);
+        ui.setStatus(`Saved: ${defaultName}.${ext}`);
       }
+    });
+
+    // Export G-code → SVG / DXF
+    document.getElementById('btnExportSvg').addEventListener('click', () => {
+      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
+      exportTools.exportSvg(state.workingCmds);
+      ui.setStatus('Exported SVG.');
+    });
+    document.getElementById('btnExportDxf').addEventListener('click', () => {
+      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
+      exportTools.exportDxf(state.workingCmds);
+      ui.setStatus('Exported DXF.');
     });
 
     // Undo / Redo
@@ -588,7 +617,7 @@ const ui = {
       ui.setStatus('Reset to original.');
     });
 
-    // â”€â”€ Scale widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Scale widget ------------------------------------------------------------------------------------
     const _getBounds = () => preview._getBounds(state.workingCmds);
 
     const _syncHfromW = () => {
@@ -660,119 +689,140 @@ const ui = {
       ui.refreshWorking();
     });
 
-    // â”€â”€ Template Widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Template Widget ----------------------------------------------------------------------------------
     const templateSelector = document.getElementById('templateSelect');
     const btnImportTemplate = document.getElementById('btnImportTemplate');
     const fileInputTemplate = document.getElementById('fileInputTemplate');
 
-    // Extract template (strip coordinates)
-    document.getElementById('btnExtractTemplate').addEventListener('click', () => {
+    // Extract template from loaded G-code
+    document.getElementById('btnExtractTemplate').addEventListener('click', async () => {
       if (!state.workingCmds.length) { ui.setStatus('Open a G-code file first.', 'error'); return; }
-      const name = prompt('Template name:', 'pattern');
-      if (!name) return;
-      const content = templateManager.extractFromCommands(state.workingCmds);
-      templateManager.save(name, content);
-      templateManager.downloadTemplate(name, content);
-      ui.refreshTemplateList();
-      ui.setStatus(`Template "${name}" extracted and saved.`);
-    });
-
-    // Save current working gcode as template
-    document.getElementById('btnSaveTemplate').addEventListener('click', () => {
-      if (!state.workingCmds.length) { ui.setStatus('No G-code to save.', 'error'); return; }
       const name = prompt('Template name:', state.originalName ? state.originalName.replace(/\.[^.]+$/, '') : 'template');
       if (!name) return;
-      const content = gcodeParser.serialize(state.workingCmds);
-      templateManager.save(name, content);
-      templateManager.downloadTemplate(name, content);
-      ui.refreshTemplateList();
-      ui.setStatus(`Template "${name}" saved.`);
+      const data = templateManager.extractFromCommands(state.workingCmds, state.originalText, state.originalName);
+      data.name = name;
+      const ok = await templateManager.saveTemplate(name, data);
+      if (ok) {
+        ui.refreshTemplateList();
+        templateSelector.value = name;
+        templateManager.setActive(name);
+        ui.updateTemplateIndicator();
+        ui.setStatus(`Template "${name}" extracted. Custom: ${data.customCommands.join(', ') || 'none'}. Laser: ${data.laserOnCmd || '?'}/${data.laserOffCmd || '?'}.`);
+      } else {
+        ui.setStatus('Error saving template. Open a templates folder first.', 'error');
+      }
     });
 
-    // Apply: load selected template into working editor
+    // Apply: set active template (affects save/refresh/export)
     document.getElementById('btnApplyTemplate').addEventListener('click', () => {
       const name = templateSelector.value;
       if (!name) { ui.setStatus('Select a template first.', 'error'); return; }
-      const content = templateManager.load(name);
-      if (!content) { ui.setStatus('Template not found.', 'error'); return; }
-      undoRedo.push(state.workingCmds);
-      state.workingCmds = gcodeParser.parse(content);
-      state.previewScale = 1;
-      state.previewOffX = 0;
-      state.previewOffY = 0;
-      ui.refreshWorking();
-      ui.setStatus(`Template "${name}" loaded.`);
+      const tpl = templateManager.getTemplate(name);
+      if (!tpl) { ui.setStatus('Template not found.', 'error'); return; }
+      templateManager.setActive(name);
+      state.templateMeta = { ext: tpl.data.ext, lineEnd: tpl.data.lineEnd };
+      ui.updateTemplateIndicator();
+      const t = tpl.data;
+      ui.setStatus(`Template "${name}" active. Ext: .${t.ext}, Laser: ${t.laserOnCmd || '?'}/${t.laserOffCmd || '?'}, Tools: ${t.toolCodes.join(', ') || 'none'}.`);
     });
 
-    // Template select
+    // Template select change
     templateSelector.addEventListener('change', e => {
       const name = e.target.value;
-      ui.setStatus(name ? `Selected template: ${name}` : 'No template selected.');
+      if (name) {
+        templateManager.setActive(name);
+        const tpl = templateManager.getTemplate(name);
+        if (tpl) state.templateMeta = { ext: tpl.data.ext, lineEnd: tpl.data.lineEnd };
+      } else {
+        templateManager.setActive(null);
+        state.templateMeta = null;
+      }
       ui.updateTemplateIndicator();
     });
 
-    // Import template from file
+    // Import template from file(s) outside the templates folder
     if (btnImportTemplate && fileInputTemplate) {
-      btnImportTemplate.addEventListener('click', () => fileInputTemplate.click());
-      fileInputTemplate.addEventListener('change', async e => {
-        const file = e.target.files[0];
-        if (!file) return;
-        e.target.value = '';
-        try {
-          const text = await fileManager.readGcode(file);
-          const name = file.name.replace(/\.[^.]+$/, '');
-          templateManager.save(name, text);
-          ui.refreshTemplateList();
-          templateSelector.value = name;
-          ui.setStatus(`Template imported: ${name}`);
-        } catch (err) {
-          ui.setStatus(`Import error: ${err.message}`, 'error');
+      btnImportTemplate.addEventListener('click', async () => {
+        if (!templateManager._dirHandle) {
+          await templateManager._ensureDir();
         }
+        fileInputTemplate.click();
+      });
+      fileInputTemplate.addEventListener('change', async e => {
+        const files = [...e.target.files];
+        e.target.value = '';
+        if (!files.length) return;
+        if (!templateManager._dirHandle) {
+          const ok = await templateManager._ensureDir();
+          if (!ok) { ui.setStatus('Open a templates folder first to save imported templates.', 'error'); return; }
+        }
+        let count = 0;
+        for (const file of files) {
+          try {
+            await templateManager.importFromFile(file);
+            count++;
+          } catch (_) {}
+        }
+        await templateManager.scan();
+        ui.refreshTemplateList();
+        ui.setStatus(`Imported ${count} template(s) into templates folder.`);
       });
     }
 
-    // Open templates folder (File System Access API if supported)
+    // Open templates folder in system explorer
     document.getElementById('btnOpenTemplatesFolder').addEventListener('click', async () => {
-      try {
-        if (!window.showDirectoryPicker) {
-          ui.setStatus('File System Access API not supported in this browser.', 'error');
-          return;
-        }
-        const dirHandle = await window.showDirectoryPicker({ id: 'editgc-templates', mode: 'read' });
-        const names = [];
-        for await (const [name, handle] of dirHandle) {
-          if (handle.kind === 'file' && (name.endsWith('.gcode') || name.endsWith('.txt'))) {
-            const file = await handle.getFile();
-            const text = await file.text();
-            const tplName = name.replace(/\.[^.]+$/, '');
-            templateManager.save(tplName, text);
-            names.push(tplName);
-          }
-        }
-        ui.refreshTemplateList();
-        ui.setStatus(`Loaded ${names.length} template(s) from folder.`);
-      } catch (err) {
-        if (err.name !== 'AbortError' && err.name !== 'SecurityError') {
-          ui.setStatus('Error opening folder.', 'error');
-        }
+      if (templateManager._dirHandle) {
+        try {
+          const root = await templateManager._dirHandle.getDirectoryHandle('..');
+          const iter = root.values();
+          const first = await iter.next();
+        } catch (_) {}
       }
+      await templateManager.openFolder();
     });
 
     // Working editor → sync state (debounced)
     let _editTimer = null;
-    const _onWorkingInput = (text) => {
+    ui._isRefreshing = false;
+    const _onWorkingInput = (rawText) => {
+      if (ui._isRefreshing) return;
       if (_editTimer) clearTimeout(_editTimer);
       _editTimer = setTimeout(() => {
         if (!state._duringUndoRedo) {
           undoRedo.push(state.workingCmds);
         }
-        state.workingCmds = gcodeParser.parse(text);
+        state.workingCmds = gcodeParser.parse(rawText);
         state._boundsCache = null;
         state.dirty = true;
         preview.draw(state.workingCmds);
         ui.syncModals();
         ui.updateFooterInfo();
         ui.updateResizePanel();
+        if (document.getElementById('chkTagEdits').checked && state.originalCmds && state.originalCmds.length) {
+          const ta = document.getElementById('editorWorking');
+          if (ta && ta.style.display !== 'none') {
+            const curLines = rawText.split('\n');
+            const origLines = state.originalText ? state.originalText.split('\n') : [];
+            let changed = false;
+            const tagged = curLines.map((line, i) => {
+              const clean = line.replace(/\s*;edit\.gc\s*$/, '');
+              const orig = i < origLines.length ? origLines[i] : undefined;
+              if (orig === undefined || clean.trim() !== orig.trim()) {
+                if (!line.includes(';edit.gc')) { changed = true; return clean.trimEnd() + '  ;edit.gc'; }
+              }
+              return line;
+            });
+            if (changed) {
+              const pos = ta.selectionStart;
+              const oldLen = rawText.length;
+              ui._isRefreshing = true;
+              ta.value = tagged.join('\n');
+              ta.selectionStart = ta.selectionEnd = pos + (ta.value.length - oldLen);
+              ui._isRefreshing = false;
+              applyHighlight(document.getElementById('highlightWorking'), ta.value);
+            }
+          }
+        }
       }, 300);
     };
     document.getElementById('editorWorking').addEventListener('input', e => {
@@ -792,10 +842,10 @@ const ui = {
       ui.updateResizePanel();
     });
 
-    // â”€â”€ Recent Files â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Recent Files ----------------------------------------------------------------------------------------
     // (recent files tracking kept for history; UI removed)
 
-    // â”€â”€ Origin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Origin ----------------------------------------------------------------------------------------------------
     document.getElementById('btnApplyOrigin').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       const axes = ['X','Y','Z','A','B','C'];
@@ -815,28 +865,6 @@ const ui = {
       document.getElementById('originE1').value = '0';
       const parts = Object.keys(offsets).map(k => `${k}${-offsets[k]}`).join(' ');
       ui.setStatus(`Origin offset applied: ${parts} → 0`);
-    });
-
-    // Origin mark buttons (Left/Right)
-    document.getElementById('btnMarkLeft').addEventListener('click', () => {
-      originMarkMode = originMarkMode === 'left' ? null : 'left';
-      document.getElementById('btnMarkLeft').style.background = originMarkMode === 'left' ? 'var(--accent2)' : '';
-      document.getElementById('btnMarkRight').style.background = '';
-      ui.setStatus(originMarkMode === 'left' ? 'Click on preview to mark LEFT start point' : 'Mark cancelled.');
-    });
-    document.getElementById('btnMarkRight').addEventListener('click', () => {
-      originMarkMode = originMarkMode === 'right' ? null : 'right';
-      document.getElementById('btnMarkRight').style.background = originMarkMode === 'right' ? 'var(--accent2)' : '';
-      document.getElementById('btnMarkLeft').style.background = '';
-      ui.setStatus(originMarkMode === 'right' ? 'Click on preview to mark RIGHT start point' : 'Mark cancelled.');
-    });
-    document.getElementById('btnClearMark').addEventListener('click', () => {
-      originMarkMode = null;
-      document.getElementById('btnMarkLeft').style.background = '';
-      document.getElementById('btnMarkRight').style.background = '';
-      state.originMark = null;
-      preview.draw(state.workingCmds);
-      ui.setStatus('Mark cleared.');
     });
 
     // Fine offset buttons
@@ -859,7 +887,11 @@ const ui = {
       ui.setStatus(msg);
     });
 
-    // â”€â”€ Generate Updated G-code â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const _getSaveCommands = () => {
+      return state.workingCmds;
+    };
+
+    // ---- Generate Updated G-code ----------------------------------------------------------------------
     
     document.getElementById('btnBatchApply').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
@@ -886,40 +918,143 @@ const ui = {
       ui.setStatus(`Batch: ${axis} ${val >= 0 ? '-' : '+'}${Math.abs(val)} applied${from >= 0 ? ` to lines ${from}–${to}` : ''}.`);
     });
 
-    // â”€â”€ Points widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    state.selectedPoints.clear();
+    // ---- Points Panel (second sidebar) -----------------------------------------------------------
+    ui._pointsPanelOpen = false;
+    ui._markStartIdx = 0;
+    ui._pointsSide = null;
+    ui._pointsList = [];
+    ui._focusedPointPos = -1; // index in _pointsList
 
-    document.getElementById('btnPointsGenerate').addEventListener('click', () => {
-      if (!state.workingCmds.length || !state.selectedPoints.size) {
-        ui.setStatus('Select points on preview first.', 'error'); return;
-      }
-      const dx = parseFloat(document.getElementById('pointsOffsetX').value) || 0;
-      const dy = parseFloat(document.getElementById('pointsOffsetY').value) || 0;
-      if (!dx && !dy) { ui.setStatus('Set X or Y offset.', 'error'); return; }
-      undoRedo.push(state.workingCmds);
-      const newCmds = [];
-      const sorted = [...state.selectedPoints].sort((a, b) => a - b);
-      sorted.forEach((idx, si) => {
-        const c = state.workingCmds[idx];
-        newCmds.push(c);
-        const copy = JSON.parse(JSON.stringify(c));
-        if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
-        if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
-        copy.raw = '';
-        newCmds.push(copy);
-      });
-      // rebuild with all original + new points inserted
-      const result = [];
-      for (let i = 0; i < state.workingCmds.length; i++) {
-        result.push(state.workingCmds[i]);
-        if (sorted.includes(i)) {
-          result.push(newCmds[sorted.indexOf(i) * 2 + 1]);
-        }
-      }
-      state.workingCmds = result;
+    ui._focusPoint = (pos) => {
+      const list = ui._pointsList;
+      if (!list.length) return;
+      if (pos < 0) pos = 0;
+      if (pos >= list.length) pos = list.length - 1;
+      ui._focusedPointPos = pos;
+      const p = list[pos];
       state.selectedPoints.clear();
-      ui.refreshWorking();
-      ui.setStatus(`Generated ${sorted.length} additional point(s) (X:${dx} Y:${dy}).`);
+      state.selectedPoints.add(p.idx);
+      document.getElementById('pointsOffsetX').value = '0';
+      document.getElementById('pointsOffsetY').value = '0';
+      document.getElementById('pointsOffsetZ').value = '0';
+      preview.draw(state.workingCmds);
+      ui._updatePointsPanel();
+      preview.highlightLine(p.idx);
+    };
+
+    ui._buildPointsList = () => {
+      const cmds = state.workingCmds;
+      const segs = preview._segments;
+      let points = [];
+      if (segs && segs.length) {
+        const visited = new Set();
+        for (let i = 0; i < segs.length; i++) {
+          const s = segs[i];
+          if (visited.has(s.cmdIdx)) continue;
+          visited.add(s.cmdIdx);
+          points.push({ idx: s.cmdIdx, x: s.b.x, y: s.b.y, z: s.b.z || 0 });
+        }
+      } else {
+        let cx = 0, cy = 0, cz = 0, isRel = false;
+        cmds.forEach((c, i) => {
+          if (c.type === 'G91') { isRel = true; return; }
+          if (c.type === 'G90') { isRel = false; return; }
+          if (c.params.X !== undefined) cx = isRel ? cx + c.params.X : c.params.X;
+          if (c.params.Y !== undefined) cy = isRel ? cy + c.params.Y : c.params.Y;
+          if (c.params.Z !== undefined) cz = isRel ? cz + c.params.Z : c.params.Z;
+          if (c.params.X === undefined && c.params.Y === undefined && c.params.Z === undefined) return;
+          points.push({ idx: i, x: cx, y: cy, z: cz });
+        });
+      }
+      // Filter: keep first point always, then only points that moved from previous
+      const filtered = [];
+      let prevX = null, prevY = null, prevZ = null;
+      points.forEach((p) => {
+        if (prevX === null) {
+          filtered.push(p);
+          prevX = p.x; prevY = p.y; prevZ = p.z;
+          return;
+        }
+        if (p.x !== prevX || p.y !== prevY || p.z !== prevZ) {
+          filtered.push(p);
+          prevX = p.x; prevY = p.y; prevZ = p.z;
+        }
+      });
+      return filtered;
+    };
+
+    ui._updatePointsPanel = () => {
+      if (!ui._pointsPanelOpen) return;
+      const tbody = document.getElementById('pointsTableBody');
+      const count = document.getElementById('pointsPanelCount');
+      const points = ui._buildPointsList();
+      ui._pointsList = points;
+      if (!points.length) {
+        tbody.innerHTML = '';
+        count.textContent = '0 points';
+        return;
+      }
+      count.textContent = `${points.length} points`;
+      const frag = document.createDocumentFragment();
+      points.forEach((p, pi) => {
+        const tr = document.createElement('tr');
+        const isFocused = pi === ui._focusedPointPos;
+        const isMarkStart = p.idx === ui._markStartIdx;
+        if (isFocused) tr.className = 'selected';
+        tr.style.cursor = 'pointer';
+        tr.dataset.pos = pi;
+        let dist = '';
+        if (pi > 0) {
+          const prev = points[pi - 1];
+          dist = Math.hypot(p.x - prev.x, p.y - prev.y).toFixed(3);
+        }
+        tr.innerHTML = `<td style="text-align:center${isMarkStart ? ';color:var(--accent2);font-weight:700' : ''}">${p.idx + 1}</td><td style="text-align:right">${p.x.toFixed(3)}</td><td style="text-align:right">${p.y.toFixed(3)}</td><td style="text-align:right">${p.z.toFixed(3)}</td><td style="text-align:right;color:var(--text-dim)">${dist}</td>`;
+        tr.addEventListener('click', () => {
+          ui._focusPoint(pi);
+        });
+        frag.appendChild(tr);
+      });
+      tbody.innerHTML = '';
+      tbody.appendChild(frag);
+      // re-highlight focused row
+      if (ui._focusedPointPos >= 0 && ui._focusedPointPos < points.length) {
+        const row = tbody.children[ui._focusedPointPos];
+        if (row) { row.className = 'selected'; row.scrollIntoView({ block: 'nearest' }); }
+      }
+    };
+
+    document.getElementById('btnMarkStart').addEventListener('click', () => {
+      if (!state.selectedPoints.size) { ui.setStatus('Select a point first.', 'error'); return; }
+      const idx = [...state.selectedPoints][0];
+      ui._markStartIdx = idx;
+      ui._updatePointsPanel();
+      ui.setStatus(`Mark Start set to point ${idx + 1}`);
+    });
+
+    document.getElementById('btnLeftSide').addEventListener('click', () => {
+      ui._pointsSide = ui._pointsSide === 'left' ? null : 'left';
+      document.getElementById('btnLeftSide').style.background = ui._pointsSide === 'left' ? 'var(--accent2)' : '';
+      document.getElementById('btnRightSide').style.background = '';
+      ui.setStatus(ui._pointsSide === 'left' ? 'Left Side selected' : 'Side cleared');
+    });
+    document.getElementById('btnRightSide').addEventListener('click', () => {
+      ui._pointsSide = ui._pointsSide === 'right' ? null : 'right';
+      document.getElementById('btnRightSide').style.background = ui._pointsSide === 'right' ? 'var(--accent2)' : '';
+      document.getElementById('btnLeftSide').style.background = '';
+      ui.setStatus(ui._pointsSide === 'right' ? 'Right Side selected' : 'Side cleared');
+    });
+
+    document.getElementById('pointsStep').addEventListener('change', function() {
+      const v = parseFloat(this.value);
+      ['pointsOffsetX', 'pointsOffsetY', 'pointsOffsetZ'].forEach(id => {
+        document.getElementById(id).step = v;
+      });
+    });
+
+    document.getElementById('btnPointsRefresh').addEventListener('click', () => {
+      preview.draw(state.workingCmds);
+      ui._updatePointsPanel();
+      ui.setStatus('Preview refreshed.');
     });
 
     document.getElementById('btnPointsDelete').addEventListener('click', () => {
@@ -932,11 +1067,75 @@ const ui = {
       const deleted = state.workingCmds.length - keep.length;
       state.workingCmds = keep;
       state.selectedPoints.clear();
+      preview._updatePointsInfo();
       ui.refreshWorking();
+      ui._updatePointsPanel();
       ui.setStatus(`Deleted ${deleted} point(s).`);
     });
 
-    // â”€â”€ Keyboard Shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    document.getElementById('chkStartStop').addEventListener('change', e => {
+      document.getElementById('toggleStartStopLabel').textContent = e.target.checked ? 'Start/Stop' : 'Continuous';
+    });
+
+    document.getElementById('btnPointsGenerate').addEventListener('click', () => {
+      if (!state.workingCmds.length || !state.selectedPoints.size) {
+        ui.setStatus('Select points on preview first.', 'error'); return;
+      }
+      const dx = parseFloat(document.getElementById('pointsOffsetX').value) || 0;
+      const dy = parseFloat(document.getElementById('pointsOffsetY').value) || 0;
+      const dz = parseFloat(document.getElementById('pointsOffsetZ').value) || 0;
+      const isStartStop = document.getElementById('chkStartStop').checked;
+      undoRedo.push(state.workingCmds);
+      const sorted = [...state.selectedPoints].sort((a, b) => a - b);
+      const result = [];
+      for (let i = 0; i < state.workingCmds.length; i++) {
+        result.push(state.workingCmds[i]);
+        if (sorted.includes(i)) {
+          const c = state.workingCmds[i];
+          const copy = JSON.parse(JSON.stringify(c));
+          if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
+          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
+          if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+          copy.raw = '';
+          if (isStartStop) {
+            const pat = ui._detectLaserPatterns();
+            result.push({ lineIndex: -1, raw: pat.on, type: pat.on, params: {}, comment: '', isBlank: false, isComment: false });
+            result.push(copy);
+            result.push({ lineIndex: -1, raw: pat.off, type: pat.off, params: {}, comment: '', isBlank: false, isComment: false });
+          } else {
+            result.push(copy);
+          }
+        }
+      }
+      state.workingCmds = result;
+      state.selectedPoints.clear();
+      preview._updatePointsInfo();
+      ui.refreshWorking();
+      ui._updatePointsPanel();
+      ui.setStatus(`Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz}${isStartStop ? ' (Start/Stop)' : ''}.`);
+    });
+
+    document.getElementById('btnTogglePointsPanel').addEventListener('click', () => {
+      ui._pointsPanelOpen = !ui._pointsPanelOpen;
+      const panel = document.getElementById('col-points');
+      const btn = document.getElementById('btnTogglePointsPanel');
+      if (ui._pointsPanelOpen) {
+        panel.classList.add('open');
+        btn.textContent = '\u25C0';
+        ui._updatePointsPanel();
+      } else {
+        panel.classList.remove('open');
+        btn.textContent = '\u25B6';
+      }
+    });
+
+    document.getElementById('btnClosePointsPanel').addEventListener('click', () => {
+      ui._pointsPanelOpen = false;
+      document.getElementById('col-points').classList.remove('open');
+      document.getElementById('btnTogglePointsPanel').textContent = '\u25B6';
+    });
+
+    // ---- Keyboard Shortcuts --------------------------------------------------------------------------
     document.addEventListener('keydown', e => {
       // Ctrl+O — Open G-code
       if (e.ctrlKey && !e.shiftKey && e.key === 'o') {
@@ -967,25 +1166,53 @@ const ui = {
         state.previewScale *= 0.85;
         preview.draw(state.workingCmds);
       }
-      // Arrow keys — pan
+      // Arrow keys / WASD — pan (skip arrows when points panel is open)
       if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         const panStep = 20 / state.previewScale;
-        if (e.key === 'ArrowLeft')  { state.previewOffX -= panStep; e.preventDefault(); preview.draw(state.workingCmds); }
-        if (e.key === 'ArrowRight') { state.previewOffX += panStep; e.preventDefault(); preview.draw(state.workingCmds); }
-        if (e.key === 'ArrowUp')    { state.previewOffY -= panStep; e.preventDefault(); preview.draw(state.workingCmds); }
-        if (e.key === 'ArrowDown')  { state.previewOffY += panStep; e.preventDefault(); preview.draw(state.workingCmds); }
+        const key = e.key;
+        const skipPan = (key === 'ArrowUp' || key === 'ArrowDown') && ui._pointsPanelOpen;
+        if (!skipPan) {
+          if (key === 'ArrowLeft'  || key === 'a' || key === 'A') { state.previewOffX -= panStep; e.preventDefault(); preview.draw(state.workingCmds); }
+          if (key === 'ArrowRight' || key === 'd' || key === 'D') { state.previewOffX += panStep; e.preventDefault(); preview.draw(state.workingCmds); }
+        }
+        if (!skipPan) {
+          if (key === 'ArrowUp'    || key === 'w' || key === 'W') { state.previewOffY -= panStep; e.preventDefault(); preview.draw(state.workingCmds); }
+          if (key === 'ArrowDown'  || key === 's' || key === 'S') { state.previewOffY += panStep; e.preventDefault(); preview.draw(state.workingCmds); }
+        }
       }
       // Home — Fit view
       if (e.key === 'Home' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         preview.fitView();
       }
+      // Tab / Shift+Tab — navigate points in table
+      if (e.key === 'Tab' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        const list = ui._pointsList;
+        if (!list.length) return;
+        if (ui._focusedPointPos < 0) {
+          ui._focusPoint(e.shiftKey ? list.length - 1 : 0);
+        } else {
+          ui._focusPoint(e.shiftKey ? ui._focusedPointPos - 1 : ui._focusedPointPos + 1);
+        }
+      }
+      // Arrow Up/Down — navigate points in table
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && ui._pointsPanelOpen && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        const list = ui._pointsList;
+        if (!list.length) return;
+        if (e.key === 'ArrowUp') {
+          ui._focusPoint(ui._focusedPointPos <= 0 ? 0 : ui._focusedPointPos - 1);
+        } else {
+          ui._focusPoint(ui._focusedPointPos >= list.length - 1 ? list.length - 1 : ui._focusedPointPos + 1);
+        }
+      }
     });
 
-    // â”€â”€ Drag & Drop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Drag & Drop ----------------------------------------------------------------------------------------
     setupDragDrop(document.getElementById('preview-area'));
 
-    // â”€â”€ Init UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Init UI --------------------------------------------------------------------------------------------------
     ui.refreshTemplateList();
     ui.updateTemplateIndicator();
     preview.init(document.getElementById('previewCanvas'));
@@ -994,13 +1221,13 @@ const ui = {
     if (btnFind) btnFind.addEventListener('click', () => findReplace.open());
     ui._setupBackplot();
 
-    // â”€â”€ Sync editor scrolls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Sync editor scrolls ----------------------------------------------------------------------
     setupScrollSync('editorOriginal', 'highlightOriginal', 'linesOriginal');
     setupScrollSync('editorWorking', 'highlightWorking', 'linesWorking');
     setupScrollSync('editorOriginalModal', 'highlightOriginalModal', 'linesOriginalModal');
     setupScrollSync('editorWorkingModal', 'highlightWorkingModal', 'linesWorkingModal');
 
-    // â”€â”€ Editor tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Editor tabs ------------------------------------------------------------------------------------
     function updateTabVisibility(tabName) {
       document.querySelectorAll('#editor-tabs [data-tab-vis]').forEach(el => {
         const vis = el.dataset.tabVis;
@@ -1028,10 +1255,10 @@ const ui = {
       updateTabVisibility('original');
     }
 
-    // â”€â”€ Widget drag & drop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Widget drag & drop ----------------------------------------------------------------------
     // Widget drag & drop (single column)
     const colLeft = document.getElementById('col-left');
-    // â”€â”€ Restore widget layout from cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Restore widget layout from cache ----------------------------------------
     const savedCols = localStorage.getItem('editgc_widget_cols');
     if (savedCols) {
       try {
@@ -1055,7 +1282,7 @@ const ui = {
       } catch (_) {}
     }
 
-    // â”€â”€ Left panel: edge hover toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Left panel: edge hover toggle ----------------------------------------------------
     const panel = document.getElementById('left-panel');
     const panelClose = document.getElementById('lp-close');
     const edgeHint = document.getElementById('edge-hint');
@@ -1103,7 +1330,7 @@ const ui = {
       try { if (localStorage.getItem('editgc_panel_open') === 'true') { openPanel(); } else { if (edgeHint) edgeHint.classList.remove('hidden'); } } catch (_) { if (edgeHint) edgeHint.classList.remove('hidden'); }
     }
 
-    // â”€â”€ Sidebar widget management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€”€â”€â”€â”€â”€â”€â”€
+    // ---- Sidebar widget management ------------------------------------------”€------------
     function _widgetName(wid) {
       const names = { scale:'Scale', template:'Template', origin:'Origin', batch:'Shift Points', points:'Add points' };
       return names[wid] || wid;
@@ -1155,7 +1382,7 @@ const ui = {
     }
     _buildWidgetLists();
 
-    // â”€â”€ Theme selector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Theme selector --------------------------------------------------------------------------------
     const themeSelect = document.getElementById('themeSelect');
     if (themeSelect) {
       let savedTheme = 'default';
@@ -1168,7 +1395,7 @@ const ui = {
       });
     }
 
-    // â”€â”€ Unsaved changes warning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ---- Unsaved changes warning --------------------------------------------------------------
     window.addEventListener('beforeunload', e => {
       if (state.dirty) {
         e.preventDefault();
@@ -1201,6 +1428,46 @@ const ui = {
     state.originMarkMode = null;
     state.originMark = null;
     state.showRapids = true;
+    state.templateMeta = null;
+    state.workingCmds = [];
+    state.originalCmds = [];
+    state.originalText = '';
+  },
+
+  _detectLaserPatterns() {
+    const cmds = state.originalCmds.length ? state.originalCmds : state.workingCmds;
+    const text = state.originalText || gcodeParser.serialize(cmds);
+    if (!text) return { on: 'SM3', off: 'RM3' };
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+    const isMove = (t) => /^(G0|G00|G1|G01|G2|G02|G3|G03)$/i.test(t);
+    const isCoord = (l) => !l.startsWith(';') && !l.startsWith('(') && /[XYZ]/.test(l);
+    const beforeMove = {};
+    const afterMove = {};
+    for (let i = 0; i < lines.length; i++) {
+      const first = lines[i].split(/\s+/)[0].toUpperCase();
+      const isLineMove = isMove(first) || (isCoord(lines[i]) && !first.match(/^[A-Z]/));
+      if (!isLineMove) continue;
+      if (i > 0) {
+        const pLine = lines[i - 1];
+        const pFirst = pLine.split(/\s+/)[0].toUpperCase();
+        if (pFirst && !pLine.startsWith(';') && !pLine.startsWith('(')) {
+          beforeMove[pFirst] = { count: (beforeMove[pFirst]?.count || 0) + 1, full: pLine.split(';')[0].trim() };
+        }
+      }
+      if (i + 1 < lines.length) {
+        const nLine = lines[i + 1];
+        const nFirst = nLine.split(/\s+/)[0].toUpperCase();
+        if (nFirst && !nLine.startsWith(';') && !nLine.startsWith('(')) {
+          afterMove[nFirst] = { count: (afterMove[nFirst]?.count || 0) + 1, full: nLine.split(';')[0].trim() };
+        }
+      }
+    }
+    const bestOn  = Object.values(beforeMove).sort((a, b) => b.count - a.count)[0];
+    const bestOff = Object.values(afterMove).sort((a, b) => b.count - a.count)[0];
+    return {
+      on:  bestOn  ? bestOn.full  : 'M3 S1000',
+      off: bestOff ? bestOff.full : 'M5'
+    };
   },
 
   _useVirtualEditor(text) {
@@ -1237,11 +1504,32 @@ const ui = {
 
   refreshWorking() {
     state._boundsCache = null;
-    const text = gcodeParser.serialize(state.workingCmds);
+    let text = gcodeParser.serialize(state.workingCmds);
+    if (document.getElementById('chkTagEdits').checked && state.originalCmds && state.originalCmds.length) {
+      const lines = text.split('\n');
+      state.workingCmds.forEach((cmd, i) => {
+        if (i >= lines.length) return;
+        let edited = false;
+        if (i >= state.originalCmds.length) {
+          edited = true;
+        } else {
+          const orig = state.originalCmds[i];
+          const cmdP = { ...cmd.params }; delete cmdP.N;
+          const origP = { ...orig.params }; delete origP.N;
+          edited = JSON.stringify(cmdP) !== JSON.stringify(origP) || cmd.type !== orig.type;
+        }
+        if (edited) {
+          lines[i] = lines[i].replace(/\s*;edit\.gc/g, '').trimEnd() + '  ;edit.gc';
+        }
+      });
+      text = lines.join('\n');
+    }
+    this._isRefreshing = true;
     this._updateWorkingEditor(text);
     applyHighlight(document.getElementById('highlightWorking'), text);
     const wm = document.getElementById('editorWorkingModal');
     if (wm) wm.value = text;
+    this._isRefreshing = false;
     preview.draw(state.workingCmds);
     ui.syncModals();
     if (ui.updateResizePanel) ui.updateResizePanel();

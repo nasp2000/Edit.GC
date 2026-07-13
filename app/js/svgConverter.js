@@ -1,4 +1,4 @@
-﻿// â”€â”€ svgConverter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+﻿// ---- svgConverter ----------------------------------------------------------------------------------------------
 const svgConverter = {
   PX_TO_MM: 25.4 / 96,
 
@@ -171,7 +171,7 @@ const svgConverter = {
     return seg.map(pt => { const [x, y] = tfm(pt.x, pt.y); return { ...pt, x, y }; });
   },
 
-  // â”€â”€ SVG <path> d-attribute parser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ---- SVG <path> d-attribute parser --------------------------------------------------
   _parsePath(d, scale, vb) {
     const pts    = [];
     const tokens = this._tokenizePath(d);
@@ -353,7 +353,7 @@ const svgConverter = {
     }
   },
 
-  // â”€â”€ Primitive shapes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ---- Primitive shapes ----------------------------------------------------------------------------
   _parseRect(el, scale, vb) {
     const x = (parseFloat(el.getAttribute('x') || 0)) - vb.minX;
     const y = (parseFloat(el.getAttribute('y') || 0)) - vb.minY;
