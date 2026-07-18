@@ -2,6 +2,8 @@
 
 A browser-based G-code editor for laser and CNC. Edit lines and points, convert SVG/DXF to toolpaths, and visualize G-code — all local, no installation or server required.
 
+![Edit.GC](app/image/home.png)
+
 ## Features
 
 - **G-code editing** — syntax-highlighted working/original editors with undo/redo. Virtual editor for files >15k lines.
