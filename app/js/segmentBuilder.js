@@ -167,7 +167,9 @@ const segmentBuilder = {
           pushPt(prev, next, false, i);
         }
       } else {
-        pushPt(prev, next, motionMode === 0, i);
+        if (nx !== x || ny !== y || nz !== z) {
+          pushPt(prev, next, motionMode === 0, i);
+        }
       }
       x = nx; y = ny; z = nz;
     }
