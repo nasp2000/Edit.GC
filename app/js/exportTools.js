@@ -97,7 +97,7 @@ const exportTools = {
     if (!points.length) return;
     const b = this._getPointsBounds(points);
     const pad = 5;
-    const r = 0.3;
+    const r = 0.001;
     const vb = `${b.minX - pad} ${-(b.maxY + pad)} ${b.w + pad * 2} ${b.h + pad * 2}`;
     const lines = [];
     lines.push(`<?xml version="1.0" encoding="UTF-8"?>`);
@@ -124,7 +124,7 @@ const exportTools = {
     };
     lines.push('0', 'SECTION', '2', 'ENTITIES');
     for (const p of points) {
-      dxfCircle(p.x, p.y, 0.3, p.laser ? 'LASER_ON' : 'LASER_OFF');
+      dxfCircle(p.x, p.y, 0.001, p.laser ? 'LASER_ON' : 'LASER_OFF');
     }
     lines.push('0', 'ENDSEC', '0', 'EOF');
     const content = '0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n3\n0\nLAYER\n2\nLASER_ON\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nLAYER\n2\nLASER_OFF\n70\n0\n62\n3\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n' + lines.join('\n') + '\n';
