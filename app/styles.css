@@ -2,20 +2,20 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:          #1a1d23;
-  --bg2:         #21252b;
-  --bg3:         #282c34;
-  --bg4:         #2c313a;
-  --border:      #3e4452;
-  --border2:     #4a5060;
-  --border3:     #5a6070;
-  --accent:      #569cd6;
-  --accent2:     #4fc1ff;
-  --accent-bg:   #2a3d54;
-  --text:        #d4d8de;
-  --text-dim:    #9aa0aa;
+  --bg:          #dce4ec;
+  --bg2:         #e8eef5;
+  --bg3:         #d0dae6;
+  --bg4:         #f0f5fa;
+  --border:      #b0c0d0;
+  --border2:     #9aabb8;
+  --border3:     #8090a0;
+  --accent:      #2563eb;
+  --accent2:     #3b82f6;
+  --accent-bg:   #dbeafe;
+  --text:        #1a1a2e;
+  --text-dim:    #4a5a70;
   --text-bright: #ffffff;
-  --bar-bg:      #282c34;
+  --bar-bg:      #f0f5fa;
   --bar-h:       28px;
   --footer-h:    24px;
   --banner-h:    32px;
@@ -251,9 +251,9 @@ body {
 }
 .editor-tab.active {
   color: var(--accent);
-  background: var(--bg4);
-  border-bottom-color: var(--bg4);
-  border-bottom: 2px solid var(--bg4);
+  background: #fff;
+  border-bottom-color: #fff;
+  border-bottom: 2px solid #fff;
   position: relative;
   z-index: 1;
 }
@@ -395,7 +395,7 @@ body {
 }
 .cinput {
   height: 20px;
-  background: var(--bg4);
+  background: #fff;
   color: var(--text);
   border: 1px solid var(--border2);
   border-radius: 3px;
@@ -663,7 +663,7 @@ input[type=number] { -moz-appearance: textfield; }
   flex: 1 1 0;
   min-height: 0;
   width: 100%;
-  background: var(--bg4);
+  background: #fff;
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -673,8 +673,8 @@ input[type=number] { -moz-appearance: textfield; }
   padding: 6px 10px 6px 50px;
   outline: none;
 }
-.gcode-editor:focus { background: var(--bg2); outline: none; }
-.gcode-editor[readonly] { background: var(--bg3); color: var(--text-dim); cursor: default; }
+.gcode-editor:focus { background: #fff; outline: none; }
+.gcode-editor[readonly] { background: #f5f7fa; color: var(--text-dim); cursor: default; }
 
 .btn-icon {
   height: 20px;
@@ -793,8 +793,8 @@ input[type=number] { -moz-appearance: textfield; }
 .hl-arc { color: #569CD6; }
 .hl-mcode { color: #F48771; font-weight: 600; }
 .hl-comment { color: #6A9955; font-style: italic; }
-.hl-param { color: #c586c0; }
-.hl-value { color: #4fc1ff; }
+.hl-param { color: #8810A0; }
+.hl-value { color: #1050A0; }
 .hl-other { color: var(--text); }
 .hl-unknown { color: #d97706; }
 .hl-blockdel { color: #F48771; font-weight: 700; }

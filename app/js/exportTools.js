@@ -104,7 +104,7 @@ const exportTools = {
     lines.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" width="${(b.w + pad * 2).toFixed(2)}mm" height="${(b.h + pad * 2).toFixed(2)}mm">`);
     for (const p of points) {
       const color = p.laser ? '#ff0000' : '#00aa00';
-      lines.push(`  <circle cx="${p.x.toFixed(4)}" cy="${(-p.y).toFixed(4)}" r="${r}" fill="${color}" stroke="none"/>`);
+      lines.push(`  <rect x="${p.x.toFixed(4)}" y="${(-p.y - r).toFixed(4)}" width="${r}" height="${r}" fill="${color}" stroke="none"/>`);
     }
     lines.push('</svg>');
     const blob = new Blob([lines.join('\n')], { type: 'image/svg+xml' });

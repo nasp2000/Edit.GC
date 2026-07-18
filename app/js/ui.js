@@ -533,12 +533,14 @@ const ui = {
     });
 
     // Export G-code → SVG / DXF
-    document.getElementById('btnExportSvg').addEventListener('click', () => {
+    const btnExportSvg = document.getElementById('btnExportSvg');
+    if (btnExportSvg) btnExportSvg.addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       exportTools.exportSvg(state.workingCmds);
       ui.setStatus('Exported SVG.');
     });
-    document.getElementById('btnExportDxf').addEventListener('click', () => {
+    const btnExportDxf = document.getElementById('btnExportDxf');
+    if (btnExportDxf) btnExportDxf.addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       exportTools.exportDxf(state.workingCmds);
       ui.setStatus('Exported DXF.');
