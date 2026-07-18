@@ -1288,8 +1288,10 @@ const ui = {
 
     // ---- Init UI --------------------------------------------------------------------------------------------------
     templateManager.loadBuiltin();
+    preview.init(document.getElementById('previewCanvas'));
     ui.refreshTemplateList();
     settings.applyAll();
+    ui._populateMachineOptions();
     ui._populateMachineOptions();
     ui.updateTemplateIndicator();
     preview.init(document.getElementById('previewCanvas'));

@@ -965,13 +965,22 @@
     const feedBatches = {};
     let hasToolOn = false, hasToolOff = false;
     const fileHasToolOn = segments.slice(0, segsToDraw).some(s => s.toolOn);
+    // Pre-scan: find average cut feed for SM300-style travel detection
+    let cutFeed = 0; let feedCount = 0;
+    for (let i = 0; i < segsToDraw; i++) {
+      const s = segments[i];
+      if (!s.rapid && s.toolOn && s.feed > 0) { cutFeed += s.feed; feedCount++; }
+    }
+    if (feedCount > 0) cutFeed /= feedCount;
+    const isTravel = (s) => s.rapid || (s.toolOn && s.feed > cutFeed * 3 && cutFeed > 0);
+
     for (let i = 0; i < segsToDraw; i++) {
       const s = segments[i];
       if (!state.showRapids && (s.rapid || (!s.toolOn && fileHasToolOn))) continue;
       const ax = toCanvasX(s.a.x), ay = toCanvasY(s.a.y);
       const bx = toCanvasX(s.b.x), by = toCanvasY(s.b.y);
       lastCmdIdx = s.cmdIdx;
-      if (s.rapid) {
+      if (isTravel(s)) {
         if (isRaster) continue;
         rapidBatch.ax.push(ax); rapidBatch.ay.push(ay);
         rapidBatch.bx.push(bx); rapidBatch.by.push(by);
@@ -999,7 +1008,7 @@
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     const glowWidth = isRaster ? 5 : 3.5;
-    // Feed rate coloring
+    // Feed rate coloring (tool-on segments)
     if (previewOpts.colorByFeed && Object.keys(feedBatches).length) {
       const feedColors = { slow: '#3B82F6', med: '#F59E0B', fast: '#EF4444' };
       const feedLabels = { slow: 'Slow', med: 'Medium', fast: 'Fast' };
@@ -1017,9 +1026,9 @@
         for (let j = 0; j < batch.ax.length; j++) { ctx.moveTo(batch.ax[j], batch.ay[j]); ctx.lineTo(batch.bx[j], batch.by[j]); }
         ctx.stroke();
       }
-    } else {
-      // Tool ON — purple glow + line
-      if (toolOnBatch.ax.length) {
+    }
+    // Tool ON (when not using feed coloring) — purple
+    if (!previewOpts.colorByFeed && toolOnBatch.ax.length) {
         ctx.globalAlpha = 1;
         ctx.strokeStyle = 'rgba(120,30,120,0.85)';
         ctx.lineWidth = glowWidth;
@@ -1048,7 +1057,6 @@
         for (let j = 0; j < toolOffBatch.ax.length; j++) { ctx.moveTo(toolOffBatch.ax[j], toolOffBatch.ay[j]); ctx.lineTo(toolOffBatch.bx[j], toolOffBatch.by[j]); }
         ctx.stroke();
       }
-    }
     ctx.restore();
     } // end if (!isPoints) — skip line batches in points mode
     // Highlight current playback segment
