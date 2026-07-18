@@ -48,7 +48,7 @@
         feedCut: 3000, feedTravel: 6000, sMax: 1000
       },
        {
-        name: "SM300", programName: "SM300",
+         name: "SM Motion Control (SM300)", programName: "SM300",
         ext: "cnc", lineEnd: "\r\n",
         customCommands: ["G22$L_READY$01", "G22$L_TEST$01", "G48%=0005", "G98$SPROG$", "G99", "RA3", "RA4", "RLAD", "RM12", "RM3", "RRBM", "SA3", "SM12", "SM3", "G26H", "M14", "G04T", "G04TR", "G60", "G62", "RAIN", "ROUT", "RTST", "RAOT", "RMUL", "RSUB", "RADD"],
         commandComments: {
@@ -294,7 +294,7 @@
       { id: 'passes', label: 'Passes', type: 'select', values: [1,2,3,4,5,6,8,10], default: 1, unit: '' },
     ]};
     const opts = {
-      SM300: [
+      "SM Motion Control (SM300)": [
         passesOpt,
         { section: 'Laser Program', options: [
           { id: 'laserProgram', label: 'Program (RLAD)', type: 'select', values: [44, 45, 50, 55, 60, 65, 70], default: 55, unit: '' },

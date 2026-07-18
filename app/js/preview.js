@@ -1134,12 +1134,20 @@
 
     // Start/End markers
     if (state.mode === 'gcode') {
+      // Pre-scan: find typical cut feed (skip outlier high feeds like SM300 travel F5000 vs cut F400)
+      let cutFeed = 0;
+      let feedCount = 0;
+      for (const s of segments) {
+        if (!s.rapid && s.toolOn && s.feed > 0) { cutFeed += s.feed; feedCount++; }
+      }
+      if (feedCount > 0) cutFeed /= feedCount; // average feed for tool-on non-rapid segments
+      const isTravel = (s) => s.rapid || (s.toolOn && s.feed > cutFeed * 3 && cutFeed > 0);
+
       let startSeg = null;
       for (let i = 0; i < segments.length; i++) {
         const s = segments[i];
         if (fileHasToolOn ? s.toolOn : !s.rapid) {
-          // Skip rapid tool-on moves (e.g. G0 with M4 before it) — find first actual cut
-          if (s.rapid) continue;
+          if (isTravel(s)) continue;
           startSeg = s; break;
         }
       }
@@ -1149,7 +1157,7 @@
       for (let i = segments.length - 1; i >= 0; i--) {
         const s = segments[i];
         if (fileHasToolOn ? s.toolOn : !s.rapid) {
-          if (s.rapid) continue;
+          if (isTravel(s)) continue;
           endSeg = s; break;
         }
       }
