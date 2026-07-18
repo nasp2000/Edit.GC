@@ -4,23 +4,23 @@ A browser-based G-code editor for laser and CNC. Edit lines and points, convert 
 
 ## Features
 
-- **G-code editing** — syntax-highlighted working/original editors with undo/redo. Virtual editor for files >15k lines (DOM virtualization, syntax highlight, line numbers, Ctrl+Z).
-- **Canvas preview** — segment‑based 2D preview with pan/zoom/fit, playback progress bar, measure tool, minimap, feed‑rate or power coloring, bounding‑box toggle, backplotting. Lightweight preview for huge files.
+- **G-code editing** — syntax-highlighted working/original editors with undo/redo. Virtual editor for files >15k lines.
+- **Canvas preview** — segment‑based 2D preview with pan/zoom/fit, playback, minimap, feed‑rate coloring, bounding‑box, backplot. Lightweight for huge files.
 - **Find & Replace** — regex support, case toggle, Replace All (Ctrl+F / Ctrl+H / F3).
-- **Interactive Pick (🎯)** — click the preview canvas to insert `G1 X Y` at the editor cursor.
 - **Compare view** — overlay original toolpath (dashed) behind the working path.
-- **SVG/DXF import** — convert vector files to G-code with configurable dimensions.
-- **Gcode Info widget** — units, mode, line counts, distances, estimated time, warnings.
-- **Templates** — save/load G-code header/footer patterns.
-- **Scale, Resize, Offset, Feed/Power, Passes** — full editing toolbox.
-- **Mark start point** — place/remove a red X mark with direction for origin calculation.
-- **Origin & Offsets** — set machine origin, fine offset, and apply coordinate shifts
-- **Feed/Power control** — batch-set feed rate, laser power, and multi-pass with Z micro-step
-- **Point selection** — select points on preview, generate duplicates, or delete
-- **Shift Points** — subtract/add axis values across line ranges
-- **Templates** — extract coordinate-stripped patterns, save/load/import to localStorage
-- **Batch operations** — all modifications push to undo stack
-- **Large file support** — optimized for 20-30 MB files on low-memory machines
+- **SVG/DXF import** — convert vector files to G-code with configurable dimensions and multi-pass.
+- **Templates** — built-in (GRBL 1.1h, Smoothieware, Marlin, SM300) + user templates with Machine Options per template.
+- **Machine Options** — Passes, feed rates, laser power/mode, gas, safety, homing, focus — per template with localStorage persistence and Custom value input.
+- **SM300 support** — implicit motion (no G0/G1), RLAD/RRBM laser programs, gas commands, safety relays.
+- **Scale** — single W input with aspect ratio locked, step up/down arrows, reset to original.
+- **Mark Start + Set Side** — reorder/reverse G-code motion commands so the selected point becomes the cutting start. Visual arrow on preview.
+- **Origin & Offsets** — set machine origin (G92), fine offset, apply coordinate shifts.
+- **Add Points** — duplicate selected points with X/Y/Z offset and optional laser on/off wrapping.
+- **Shift Points** — batch subtract axis values (X/Y/Z) from all/selected/range of lines.
+- **Batch operations** — all modifications push to undo stack (50 levels).
+- **Rotate 90°** — clockwise rotation of all coordinates.
+- **Export** — G-code → SVG/DXF for toolpath visualization.
+- **Large file support** — optimized for 20-30 MB files on low-memory machines.
 
 ## Quick start
 
