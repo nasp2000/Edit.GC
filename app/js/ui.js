@@ -1135,7 +1135,9 @@ const ui = {
       const isStartStop = document.getElementById('chkStartStop').checked;
       undoRedo.push(state.workingCmds);
       const sorted = [...state.selectedPoints].sort((a, b) => a - b);
+      const pat = isStartStop ? ui._detectLaserPatterns() : null;
       const result = [];
+      let addedOn = false;
       for (let i = 0; i < state.workingCmds.length; i++) {
         result.push(state.workingCmds[i]);
         if (sorted.includes(i)) {
@@ -1145,15 +1147,21 @@ const ui = {
           if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
           if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
           copy.raw = '';
-          if (isStartStop) {
-            const pat = ui._detectLaserPatterns();
-            result.push({ lineIndex: -1, raw: pat.on, type: pat.on, params: {}, comment: '', isBlank: false, isComment: false });
+          if (isStartStop && pat) {
+            // Add laser ON before first selected point (only if not already added)
+            if (!addedOn) {
+              result.push({ lineIndex: -1, raw: pat.on, type: pat.on, params: {}, comment: '', isBlank: false, isComment: false });
+              addedOn = true;
+            }
             result.push(copy);
-            result.push({ lineIndex: -1, raw: pat.off, type: pat.off, params: {}, comment: '', isBlank: false, isComment: false });
           } else {
             result.push(copy);
           }
         }
+      }
+      // Add laser OFF after the last selected point (in Start/Stop mode)
+      if (isStartStop && pat && addedOn) {
+        result.push({ lineIndex: -1, raw: pat.off, type: pat.off, params: {}, comment: '', isBlank: false, isComment: false });
       }
       state.workingCmds = result;
       state.selectedPoints.clear();
