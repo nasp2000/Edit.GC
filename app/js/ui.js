@@ -1162,8 +1162,25 @@ const ui = {
           if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
           copy.raw = '';
           if (isStartStop && pat) {
-            // Add laser ON before first selected point (only if not already added)
+            // Add travel move + laser ON before first selected point
             if (!addedOn) {
+              // Build a travel (rapid) command to the same position, laser OFF
+              const travel = JSON.parse(JSON.stringify(copy));
+              const tpl = templateManager.getActive();
+              const td = tpl?.data || tpl;
+              const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
+              // Set travel feed (G0 or SM300 implicit with travel feed)
+              if (isSM300) {
+                travel.type = '';
+                travel.params.F = td?.feedTravel || 5000;
+              } else {
+                travel.type = 'G0';
+                travel.params.F = td?.feedTravel || 8000;
+              }
+              travel.raw = '';
+              // Clear S param on travel (no laser power during rapid)
+              if (travel.params.S !== undefined) delete travel.params.S;
+              result.push(travel);
               result.push({ lineIndex: -1, raw: pat.on, type: pat.on, params: {}, comment: '', isBlank: false, isComment: false });
               addedOn = true;
             }
