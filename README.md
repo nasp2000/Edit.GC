@@ -40,7 +40,7 @@ Select a **Template** for your machine, adjust options, and click **Convert** to
 - **Custom value** input — type any value beyond the dropdown presets
 - Settings saved per template in localStorage
 
-### SM300 Support
+### SM Motion Control (SM300) Support
 - Implicit motion (`X90 Y200` without G0/G1)
 - Laser programs (RLAD/RRBM), gas commands (SM12/RM12), safety (SA3/RA3/RA4)
 - No S‑parameter (power set on machine control panel)
