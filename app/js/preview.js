@@ -1137,13 +1137,23 @@
       let startSeg = null;
       for (let i = 0; i < segments.length; i++) {
         const s = segments[i];
-        if (fileHasToolOn ? s.toolOn : !s.rapid) { startSeg = s; break; }
+        if (fileHasToolOn ? s.toolOn : !s.rapid) {
+          // Skip rapid tool-on moves (e.g. G0 with M4 before it) — find first actual cut
+          if (s.rapid) continue;
+          startSeg = s; break;
+        }
       }
+      // Fallback: if no non-rapid tool-on found, use first segment
+      if (!startSeg) { startSeg = segments[0] || null; }
       let endSeg = null;
       for (let i = segments.length - 1; i >= 0; i--) {
         const s = segments[i];
-        if (fileHasToolOn ? s.toolOn : !s.rapid) { endSeg = s; break; }
+        if (fileHasToolOn ? s.toolOn : !s.rapid) {
+          if (s.rapid) continue;
+          endSeg = s; break;
+        }
       }
+      if (!endSeg) { endSeg = segments[segments.length - 1] || null; }
       if (startSeg || endSeg) {
         const sx = startSeg ? toCanvasX(startSeg.a.x) : 0, sy = startSeg ? toCanvasY(startSeg.a.y) : 0;
         const ex = endSeg ? toCanvasX(endSeg.b.x) : 0, ey = endSeg ? toCanvasY(endSeg.b.y) : 0;
