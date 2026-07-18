@@ -138,8 +138,18 @@
       const end = Math.min(start + CHUNK, total);
       const tpl = templateManager.getActive();
       const tplData = tpl?.data || tpl;
-      const tplToolOn  = tplData?.laserOnCmd  || 'M3,M4';
-      const tplToolOff = tplData?.laserOffCmd || 'M5';
+      let tplToolOn  = tplData?.laserOnCmd  || 'M3,M4';
+      let tplToolOff = tplData?.laserOffCmd || 'M5';
+      // Auto-detect tool-on/off commands from G-code (SM300, M3/M4, etc.)
+      if (state2 === undefined) {
+        const knownOn  = ['M3','M4','SM3'];
+        const knownOff = ['M5','RM3'];
+        for (let i = 0; i < Math.min(100, commands.length); i++) {
+          const t = (commands[i].type || '').toUpperCase();
+          if (knownOn.includes(t)) tplToolOn = t;
+          if (knownOff.includes(t)) tplToolOff = t;
+        }
+      }
       const res = segmentBuilder.build(commands, CFG.MAX_SEGMENTS, state2 ? {
         x: state2.x, y: state2.y, z: state2.z, isRel: state2.isRel,
         unitToMm: state2.unitToMm, planeMode: state2.planeMode,
@@ -414,6 +424,12 @@
   draw(commands) {
     const cmds = commands;
     const n = cmds ? cmds.length : 0;
+    // Clear canvas immediately, no cache between draws
+    const canvas = document.getElementById('previewCanvas');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
     if (this._pb.active && !this._pb.paused) {
       this._drawCore(cmds, this._pb.idx || 0);
       this._drawHead(cmds, this._pb.idx || 0);
