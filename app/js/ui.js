@@ -1144,7 +1144,12 @@ const ui = {
       const isStartStop = document.getElementById('chkStartStop').checked;
       undoRedo.push(state.workingCmds);
       const sorted = [...state.selectedPoints].sort((a, b) => a - b);
-      const pat = isStartStop ? ui._detectLaserPatterns() : null;
+      const pat = isStartStop ? (() => {
+        const tpl = templateManager.getActive();
+        const td = tpl?.data || tpl;
+        if (td?.laserOnCmd && td?.laserOffCmd) return { on: td.laserOnCmd, off: td.laserOffCmd };
+        return ui._detectLaserPatterns();
+      })() : null;
       const result = [];
       let addedOn = false;
       for (let i = 0; i < state.workingCmds.length; i++) {
