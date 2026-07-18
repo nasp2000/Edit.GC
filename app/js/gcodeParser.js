@@ -267,7 +267,9 @@ const gcodeParser = {
     const steps = ((angleDeg % 360) + 360) % 360;
     // Use exact integer rotations for 90° multiples to avoid floating-point drift
     return commands.map(c => {
-      if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
+      const isMotion = /^G[0-3]$|^G0[0-3]$/i.test(c.type);
+      const isImplicit = (c.type === '' || c.type === undefined) && (c.params?.X !== undefined || c.params?.Y !== undefined);
+      if (!isMotion && !isImplicit) return c;
       const p = { ...c.params };
       if (p.X !== undefined || p.Y !== undefined) {
         let x = p.X || 0, y = p.Y || 0;

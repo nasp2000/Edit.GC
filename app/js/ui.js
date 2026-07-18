@@ -557,6 +557,13 @@ const ui = {
       if (next) { state.workingCmds = next; ui.refreshWorking(); }
       state._duringUndoRedo = false;
     });
+    document.getElementById('btnRotate90').addEventListener('click', () => {
+      if (!state.workingCmds.length) { ui.setStatus('No G-code to rotate.', 'error'); return; }
+      undoRedo.push(state.workingCmds);
+      state.workingCmds = gcodeParser.rotate(state.workingCmds, 90);
+      ui.refreshWorking();
+      ui.setStatus('Rotated 90° clockwise.');
+    });
     document.addEventListener('keydown', e => {
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { document.getElementById('btnUndo').click(); }
       if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { document.getElementById('btnRedo').click(); }
