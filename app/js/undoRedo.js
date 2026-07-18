@@ -5,8 +5,8 @@
   // JSON strings. The arrays are already allocated by the editor/parser, so this
   // avoids duplicating potentially megabytes of text 50× over. Dedupe by identity.
   push(cmds) {
-    if (state.undoStack.length > 0 && state.undoStack[state.undoStack.length - 1] === cmds) return;
-    state.undoStack.push(cmds);
+    const clone = cmds.map(c => ({ ...c, params: { ...c.params } }));
+    state.undoStack.push(clone);
     if (state.undoStack.length > this.MAX) state.undoStack.shift();
     state.redoStack = [];
   },

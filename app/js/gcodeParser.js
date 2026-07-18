@@ -8,7 +8,7 @@ const gcodeParser = {
       // Too large — return empty to prevent OOM
       return [];
     }
-    return lines.map((raw, lineIndex) => {
+    const results = lines.map((raw, lineIndex) => {
       // Strip comments
       const stripped = raw.replace(/\(.*?\)/g, '').replace(/;.*$/, '').trim();
       const commentMatch = raw.match(/;(.*)$/) || raw.match(/\(([^)]*)\)/);
@@ -33,29 +33,32 @@ const gcodeParser = {
       // If first token is an axis word (X90 Y200), treat it as a param
       const typeParam = type.match(/^([XYZABC])([-\d.]+)$/);
       if (typeParam) {
-        params[typeParam[1]] = parseFloat(typeParam[2]);
-        type = '';
+        const v = parseFloat(typeParam[2]);
+        if (!isNaN(v)) { params[typeParam[1]] = v; type = ''; }
       }
       for (let i = firstIdx + 1; i < parts.length; i++) {
-        parts[i].replace(/([A-Z])([-\d.]+)/g, (_, l, n) => { params[l] = parseFloat(n); });
+        parts[i].replace(/([A-Z])([-\d.]+)/g, (_, l, n) => { const v = parseFloat(n); if (!isNaN(v)) params[l] = v; });
       }
       return { lineIndex, raw, type, params, comment, isBlank: false, isComment: false, blockDelete };
     });
+    return results.length === 1 && results[0].isBlank && !results[0].raw.trim() ? [] : results;
   },
 
   serialize(commands) {
+    const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
+    const lineEnd = (tpl && tpl.data && tpl.data.lineEnd) || '\n';
     return commands.map(c => {
       if (c.isBlank || c.isComment || c.type === 'UNKNOWN') return c.raw;
       let line = '';
       if (c.blockDelete) line += '/';
       line += c.type;
       for (const [k, v] of Object.entries(c.params)) {
-        if (k === 'N') continue; // skip line number on output
+        if (k === 'N') continue;
         line += ` ${k}${Number.isInteger(v) ? v : parseFloat(v.toFixed(4))}`;
       }
       if (c.comment) line += ` ; ${c.comment}`;
       return line;
-    }).join('\n');
+    }).join(lineEnd);
   },
 
   highlight(text) {
@@ -134,7 +137,10 @@ const gcodeParser = {
     const feedsCut    = commands.filter(c => (c.type === 'G1' || c.type === 'G01') && c.params.F && (c.params.S ?? 0) > 0).map(c => c.params.F);
     const feedsTravel = commands.filter(c => (c.type === 'G0' || c.type === 'G00') && c.params.F).map(c => c.params.F);
     const sValues     = commands.map(c => c.params.S ?? 0).filter(s => s > 0);
-    const laserOnCmds = commands.filter(c => c.type === 'M3' || c.type === 'M4').map(c => c.type);
+    const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
+    const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
+    const onTypes = (tpl && tpl.data ? (tpl.data.laserOnCmd || 'M3,M4') : 'M3,M4').split(',').map(baseCmd);
+    const laserOnCmds = commands.filter(c => onTypes.includes((c.type || '').toUpperCase())).map(c => c.type);
 
     return {
       header,
@@ -142,7 +148,7 @@ const gcodeParser = {
       feedCut:    feedsCut.length    ? Math.round(feedsCut.reduce((a, b) => a + b) / feedsCut.length) : 3000,
       feedTravel: feedsTravel.length ? Math.round(feedsTravel.reduce((a, b) => a + b) / feedsTravel.length) : 8000,
       sMax:       sValues.length     ? safeMax(sValues) : 1000,
-              laserCmd:   laserOnCmds[0] || 'M4',
+      laserCmd:   laserOnCmds[0] || (tpl && tpl.data ? baseCmd(tpl.data.laserOnCmd) : 'M4'),
     };
   },
 
@@ -171,6 +177,7 @@ const gcodeParser = {
         if (!isKnown) unknownCmds.push(c.type);
       }
       if (['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) moveLines++;
+      else if (!c.type && !c.isBlank && !c.isComment && (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined)) moveLines++;
     });
 
     return {
@@ -257,20 +264,28 @@ const gcodeParser = {
   },
 
   rotate(commands, angleDeg) {
-    const rad = angleDeg * Math.PI / 180;
-    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const steps = ((angleDeg % 360) + 360) % 360;
+    // Use exact integer rotations for 90° multiples to avoid floating-point drift
     return commands.map(c => {
       if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
       const p = { ...c.params };
       if (p.X !== undefined || p.Y !== undefined) {
-        const x = p.X || 0, y = p.Y || 0;
-        p.X = parseFloat((x * cos - y * sin).toFixed(4));
-        p.Y = parseFloat((x * sin + y * cos).toFixed(4));
+        let x = p.X || 0, y = p.Y || 0;
+        for (let r = 0; r < steps / 90; r++) {
+          const nx = -y, ny = x; // 90° CW: (x, y) → (-y, x)
+          x = nx; y = ny;
+        }
+        p.X = parseFloat(x.toFixed(4));
+        p.Y = parseFloat(y.toFixed(4));
       }
       if (p.I !== undefined || p.J !== undefined) {
-        const i = p.I || 0, j = p.J || 0;
-        p.I = parseFloat((i * cos - j * sin).toFixed(4));
-        p.J = parseFloat((i * sin + j * cos).toFixed(4));
+        let i = p.I || 0, j = p.J || 0;
+        for (let r = 0; r < steps / 90; r++) {
+          const ni = -j, nj = i;
+          i = ni; j = nj;
+        }
+        p.I = parseFloat(i.toFixed(4));
+        p.J = parseFloat(j.toFixed(4));
       }
       return { ...c, params: p, raw: '' };
     });

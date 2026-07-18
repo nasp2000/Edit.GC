@@ -46,8 +46,7 @@ const ui = {
       recentFiles.add(file.name, 'G-code', text);
       const _rs = document.getElementById('recentFilesSelect');
       if (_rs) recentFiles.populateSelect(_rs);
-      document.getElementById('btnConvertSvg').disabled = true;
-      document.getElementById('btnConvertDxf').disabled = true;
+      document.getElementById('btnSlice').disabled = true;
     });
 
     // ---- Preview playback buttons (main + modal) ----
@@ -111,7 +110,6 @@ const ui = {
     document.getElementById('scaleStep').addEventListener('change', function() {
       const v = parseFloat(this.value);
       document.getElementById('resizeW').step = v;
-      document.getElementById('resizeH').step = v;
     });
     document.getElementById('batchStep').addEventListener('change', function() {
       const v = parseFloat(this.value);
@@ -133,7 +131,7 @@ const ui = {
       const v = parseFloat(sel.value);
       targets.forEach(t => { const e = document.getElementById(t); if (e) e.step = v; });
     };
-    _initStep('scaleStep', ['resizeW','resizeH']);
+    _initStep('scaleStep', ['resizeW']);
     _initStep('batchStep', ['batchAxisVal']);
     _initStep('pointsStep', ['pointsOffsetX','pointsOffsetY']);
     _initStep('originStep', ['originX','originY','originZ','originA','originB','originC','originE1','originOffX','originOffY','originOffZ']);
@@ -158,7 +156,8 @@ const ui = {
         this.selectedIndex = 0;
       });
     }
-    document.getElementById('chkHideOriginal').addEventListener('change', function() {
+    const _chkHideOrig = document.getElementById('chkHideOriginal');
+    if (_chkHideOrig) _chkHideOrig.addEventListener('change', function() {
       const pane = document.getElementById('pane-original');
       const tab = document.querySelector('.editor-tab[data-tab="original"]');
       if (this.checked) {
@@ -348,15 +347,14 @@ const ui = {
         state.previewScale = 1;
         state.previewOffX  = 0;
         state.previewOffY  = 0;
-        document.getElementById('btnConvertSvg').disabled = false;
-        document.getElementById('btnConvertDxf').disabled = true;
+        document.getElementById('btnSlice').disabled = false;
         // populate resize panel with SVG dimensions
         state.resizeBaseW = dimW;
         state.resizeBaseH = dimH;
         document.getElementById('resizeW').value = dimW.toFixed(3);
-        document.getElementById('resizeH').value = dimH.toFixed(3);
+        const hEl1 = document.getElementById('resizeHDisplay'); if (hEl1) hEl1.textContent = dimH.toFixed(3);
         preview.resize();
-        ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} × H: ${dimH.toFixed(1)} — click "SVG → G-code" to convert`);
+        ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} × H: ${dimH.toFixed(1)} — click "Convert" to generate G-code`);
         recentFiles.add(file.name, 'SVG', text);
       };
       img.onerror = () => {
@@ -407,121 +405,83 @@ const ui = {
       state.resizeBaseW = w;
       state.resizeBaseH = h;
       document.getElementById('resizeW').value = w.toFixed(3);
-      document.getElementById('resizeH').value = h.toFixed(3);
-      document.getElementById('btnConvertDxf').disabled = false;
-      document.getElementById('btnConvertSvg').disabled = true;
+      const hEl2 = document.getElementById('resizeHDisplay'); if (hEl2) hEl2.textContent = h.toFixed(3);
+      document.getElementById('btnSlice').disabled = false;
       preview.draw();
       ui.setStatus(`DXF: ${file.name} — ${segments.length} segments, ${all.length} points`);
     });
 
-    // Convert DXF → G-code
-    document.getElementById('btnConvertDxf').addEventListener('click', () => {
-      if (!state.dxfSegments || !state.dxfSegments.length) { ui.setStatus('No DXF loaded.', 'error'); return; }
+    // Convert button — single entry point for SVG/DXF → G-code generation
+    document.getElementById('btnSlice').addEventListener('click', () => {
+      const hasSvg = !!state.svgText;
+      const hasDxf = !!(state.dxfSegments?.length);
+      if (!hasSvg && !hasDxf) { ui.setStatus('Load an SVG or DXF file first.', 'error'); return; }
       try {
-        ui.setStatus('Converting DXF…');
-        ui.setProgress(5, 'Converting DXF…');
-        const cmds = svgConverter.segmentsToGcode(state.dxfSegments, state.template);
-        const tw = parseFloat(document.getElementById('resizeW').value);
-        const th = parseFloat(document.getElementById('resizeH').value);
-        const all = state.dxfSegments.flat();
-        const xs = all.map(p => p.x);
-        const ys = all.map(p => p.y);
-        const mmX5 = safeMinMax(xs), mmY5 = safeMinMax(ys);
-        const curW = mmX5.max - mmX5.min || 1;
-        const curH = mmY5.max - mmY5.min || 1;
-        let finalCmds = cmds;
-        if (tw && th && (Math.abs(tw - curW) > 0.001 || Math.abs(th - curH) > 0.001)) {
-          const fx = tw / curW, fy = th / curH;
-          finalCmds = Math.abs(fx - fy) < 0.0001
-            ? gcodeParser.scaleCommands(cmds, fx)
-            : gcodeParser.scaleCommandsXY(cmds, fx, fy);
+        ui.setStatus('Converting...');
+        ui.setProgress(5, 'Converting...');
+        const processed = ui._buildProcessedTemplate() || state.template;
+        let cmds, baseName;
+        if (hasSvg) {
+          cmds = svgConverter.convert(state.svgText, processed);
+          baseName = (state.originalName || 'output').replace(/\.svg$/i, '') + '.gcode';
+        } else {
+          cmds = svgConverter.segmentsToGcode(state.dxfSegments, processed);
+          baseName = (state.dxfName || 'output').replace(/\.dxf$/i, '') + '.gcode';
         }
-        const gcode = gcodeParser.serialize(finalCmds);
-        const baseName = (state.dxfName || 'output').replace(/\.dxf$/i, '') + '.gcode';
-        undoRedo.push(state.workingCmds);
-        state.workingCmds = finalCmds;
-        state.originalCmds = finalCmds.map(c => ({ ...c }));
-        state.originalText = gcode.length > 5 * 1024 * 1024 ? '' : gcode;
-        state.originalName = baseName;
-        state.dirty = false;
-        state.mode = 'gcode';
-        state.previewScale = 1;
-        state.previewOffX = 0;
-        state.previewOffY = 0;
-        document.getElementById('editorOriginal').value = gcode;
-        ui._updateWorkingEditor(gcode);
-        applyHighlight(document.getElementById('highlightOriginal'), gcode);
-        applyHighlight(document.getElementById('highlightWorking'), gcode);
-        ui.setProgress(90, 'Rendering…');
-        preview.draw(state.workingCmds);
-        ui.syncModals();
-        ui.updateFooterInfo();
-        const cutLines = finalCmds.filter(c => c.type === 'G1' || c.type === 'G01').length;
-        ui.setProgress(100, 'Done');
-        setTimeout(() => ui.setProgress(-1), 1200);
-        ui.setStatus(`DXF converted: ${cutLines} cut moves Â· ${finalCmds.length} lines Â· "${baseName}"`);
-      } catch (err) {
-        ui.setProgress(-1);
-        ui.setStatus(`DXF conversion error: ${err.message}`, 'error');
-      }
-    });
-
-    // Convert SVG → G-code
-    document.getElementById('btnConvertSvg').addEventListener('click', () => {
-      if (!state.svgText) { ui.setStatus('No SVG loaded.', 'error'); return; }
-      try {
-        ui.setStatus('Converting SVG…');
-        ui.setProgress(5, 'Parsing SVG…');
-        const cmds    = svgConverter.convert(state.svgText, state.template);
-        ui.setProgress(70, 'Applying resize…');
-        // apply resize if different from original SVG dims
+        ui.setProgress(60, 'Applying scale...');
         const tw = parseFloat(document.getElementById('resizeW').value);
-        const th = parseFloat(document.getElementById('resizeH').value);
-        const svgW = state.svgDims?.width  || 0;
-        const svgH = state.svgDims?.height || 0;
-        let finalCmds = cmds;
-        if (svgW && svgH && tw && th) {
-          const fx = tw / svgW, fy = th / svgH;
-          if (Math.abs(fx - 1) > 0.0001 || Math.abs(fy - 1) > 0.0001) {
-            finalCmds = (Math.abs(fx - fy) < 0.0001)
+        if (tw > 0) {
+          let baseRatio;
+          if (hasSvg && state.svgDims?.width && state.svgDims?.height) {
+            baseRatio = state.svgDims.height / state.svgDims.width;
+          } else if (hasDxf) {
+            const all = state.dxfSegments.flat();
+            const xs = all.map(p => p.x), ys = all.map(p => p.y);
+            const m1 = safeMinMax(xs), m2 = safeMinMax(ys);
+            const curW = m1.max - m1.min || 1, curH = m2.max - m2.min || 1;
+            baseRatio = curH / curW;
+          } else {
+            baseRatio = 1;
+          }
+          const th = tw * baseRatio;
+          if (hasSvg && state.svgDims?.width) {
+            const fx = tw / state.svgDims.width, fy = th / state.svgDims.height;
+            cmds = (Math.abs(fx - fy) < 0.0001)
+              ? gcodeParser.scaleCommands(cmds, fx)
+              : gcodeParser.scaleCommandsXY(cmds, fx, fy);
+          } else if (hasDxf) {
+            const all = state.dxfSegments.flat();
+            const xs = all.map(p => p.x), ys = all.map(p => p.y);
+            const m1 = safeMinMax(xs), m2 = safeMinMax(ys);
+            const curW = m1.max - m1.min || 1, curH = m2.max - m2.min || 1;
+            const fx = tw / curW, fy = th / curH;
+            cmds = (Math.abs(fx - fy) < 0.0001)
               ? gcodeParser.scaleCommands(cmds, fx)
               : gcodeParser.scaleCommandsXY(cmds, fx, fy);
           }
         }
-        const gcode = gcodeParser.serialize(finalCmds);
-        const baseName = (state.originalName || 'output').replace(/\.svg$/i, '') + '.gcode';
-
+        const gcode = gcodeParser.serialize(cmds);
         undoRedo.push(state.workingCmds);
-        state.workingCmds  = finalCmds;
-        state.originalCmds = finalCmds.map(c => ({ ...c }));
+        state.workingCmds = cmds;
+        state.originalCmds = cmds.map(c => ({ ...c }));
         state.originalText = gcode.length > 5 * 1024 * 1024 ? '' : gcode;
         state.originalName = baseName;
-        state.dirty        = false;
-        state.mode         = 'gcode';
-        state.svgImg       = null;
-        state.previewScale = 1;
-        state.previewOffX  = 0;
-        state.previewOffY  = 0;
-
+        state.dirty = false;
+        state.mode = 'gcode';
+        state.svgImg = null;
         document.getElementById('editorOriginal').value = gcode;
         ui._updateWorkingEditor(gcode);
         applyHighlight(document.getElementById('highlightOriginal'), gcode);
         applyHighlight(document.getElementById('highlightWorking'), gcode);
-    document.getElementById('btnConvertSvg').disabled = true;
-    document.getElementById('btnConvertDxf').disabled = true;
-
-        const cutLines = cmds.filter(c => c.type === 'G1' || c.type === 'G01').length;
-        const analysis = gcodeParser.analyzeFull(finalCmds);
-        let statusMsg = `Converted: ${cutLines} cut moves Â· ${cmds.length} lines Â· "${baseName}"`;
-        if (analysis.unknownCmds.length) {
-          statusMsg += `   !  Unknown: ${analysis.unknownCmds.join(', ')}`;
-        }
-        ui.setProgress(90, 'Rendering…');
+        ui.setProgress(90, 'Rendering...');
         preview.resize();
         ui.syncModals();
+        ui.updateFooterInfo();
         ui.setProgress(100, 'Done');
         setTimeout(() => ui.setProgress(-1), 1200);
-        ui.setStatus(statusMsg);
+        const passes = processed?.laser?.passes || 1;
+        const cutLines = cmds.filter(c => c.type === 'G1' || c.type === 'G01').length;
+        ui.setStatus(`Converted: ${cutLines} cut moves · ${cmds.length} lines · ${passes} pass(es) · "${baseName}"`);
       } catch (err) {
         ui.setProgress(-1);
         ui.setStatus(`Conversion error: ${err.message}`, 'error');
@@ -617,76 +577,90 @@ const ui = {
       ui.setStatus('Reset to original.');
     });
 
-    // ---- Scale widget ------------------------------------------------------------------------------------
+    // ---- Scale widget — single W input, aspect ratio locked ----
     const _getBounds = () => preview._getBounds(state.workingCmds);
 
-    const _syncHfromW = () => {
+    const _updateScaleFromW = () => {
       const w = parseFloat(document.getElementById('resizeW').value);
       if (!w || !state.resizeBaseW) return;
       const ratio = state.resizeBaseH / state.resizeBaseW;
-      document.getElementById('resizeH').value = (w * ratio).toFixed(3);
-    };
-    const _syncWfromH = () => {
-      const h = parseFloat(document.getElementById('resizeH').value);
-      if (!h || !state.resizeBaseH) return;
-      const ratio = state.resizeBaseW / state.resizeBaseH;
-      document.getElementById('resizeW').value = (h * ratio).toFixed(3);
+      const h = w * ratio;
+      const hEl = document.getElementById('resizeHDisplay');
+      if (hEl) hEl.textContent = h.toFixed(3);
     };
 
-    document.getElementById('resizeW').addEventListener('change', _syncHfromW);
-    document.getElementById('resizeH').addEventListener('change', _syncWfromH);
-
-    const _btnScaleUp = document.getElementById('btnScaleUp');
-    if (_btnScaleUp) _btnScaleUp.addEventListener('click', () => {
+    const _scaleStepUp = () => {
       const step = parseFloat(document.getElementById('scaleStep').value) || 1;
-      const w = parseFloat(document.getElementById('resizeW').value);
-      const h = parseFloat(document.getElementById('resizeH').value);
-      if (!w || !h) { ui.setStatus('No dimensions to adjust.', 'error'); return; }
-      document.getElementById('resizeW').value = (w + step).toFixed(3);
-      document.getElementById('resizeH').value = (h + step).toFixed(3);
-    });
-    const _btnScaleDown = document.getElementById('btnScaleDown');
-    if (_btnScaleDown) _btnScaleDown.addEventListener('click', () => {
+      const inp = document.getElementById('resizeW');
+      const w = parseFloat(inp.value) || 0;
+      inp.value = (w + step).toFixed(3);
+      inp.dispatchEvent(new Event('input'));
+      inp.dispatchEvent(new Event('change'));
+    };
+    const _scaleStepDown = () => {
       const step = parseFloat(document.getElementById('scaleStep').value) || 1;
-      const w = parseFloat(document.getElementById('resizeW').value);
-      const h = parseFloat(document.getElementById('resizeH').value);
-      if (!w || !h) { ui.setStatus('No dimensions to adjust.', 'error'); return; }
-      document.getElementById('resizeW').value = Math.max(0.001, w - step).toFixed(3);
-      document.getElementById('resizeH').value = Math.max(0.001, h - step).toFixed(3);
-    });
+      const inp = document.getElementById('resizeW');
+      const w = parseFloat(inp.value) || 0;
+      inp.value = Math.max(0.001, w - step).toFixed(3);
+      inp.dispatchEvent(new Event('input'));
+      inp.dispatchEvent(new Event('change'));
+    };
+    document.getElementById('btnScaleUp').addEventListener('click', _scaleStepUp);
+    document.getElementById('btnScaleDown').addEventListener('click', _scaleStepDown);
 
-    document.getElementById('btnApplyScale').addEventListener('click', () => {
+    document.getElementById('resizeW').addEventListener('input', () => {
+      _updateScaleFromW();
+      if (state.mode === 'gcode') return;
+      // Live preview update for SVG/DXF modes only
       const tw = parseFloat(document.getElementById('resizeW').value);
-      const th = parseFloat(document.getElementById('resizeH').value);
-      if (!tw || !th) { ui.setStatus('Invalid dimensions.', 'error'); return; }
-      // SVG mode: apply scale to preview
+      if (!tw || !state.resizeBaseW) return;
+      const ratio = state.resizeBaseH / state.resizeBaseW;
+      const th = tw * ratio;
       if (state.mode === 'svg' && state.svgSegments) {
         const all = state.svgSegments.flat();
-        const xs = all.map(p => p.x);
-        const ys = all.map(p => p.y);
+        const xs = all.map(p => p.x), ys = all.map(p => p.y);
         const m1 = safeMinMax(xs), m2 = safeMinMax(ys);
         const curW = m1.max - m1.min || 1, curH = m2.max - m2.min || 1;
         state.svgScale = Math.min(tw / curW, th / curH);
-        preview.draw(state.workingCmds);
-        ui.setStatus(`SVG scaled: ${curW.toFixed(3)}×${curH.toFixed(3)} → ${tw.toFixed(3)}×${th.toFixed(3)} mm`);
         state.resizeBaseW = tw;
         state.resizeBaseH = th;
-        return;
+      } else if (state.mode === 'dxf' && state.dxfSegments) {
+        const all = state.dxfSegments.flat();
+        const xs = all.map(p => p.x), ys = all.map(p => p.y);
+        const m1 = safeMinMax(xs), m2 = safeMinMax(ys);
+        const curW = m1.max - m1.min || 1, curH = m2.max - m2.min || 1;
+        state.dxfScale = Math.min(tw / curW, th / curH);
+        state.resizeBaseW = tw;
+        state.resizeBaseH = th;
       }
-      const b = _getBounds();
-      if (!b || !b.rangeX || !b.rangeY) { ui.setStatus('No G-code loaded.', 'error'); return; }
-      const fx = tw / b.rangeX, fy = th / b.rangeY;
-      undoRedo.push(state.workingCmds);
-      if (Math.abs(fx - fy) < 0.0001) {
-        state.workingCmds = gcodeParser.scaleCommands(state.workingCmds, fx);
-        ui.setStatus(`Resized: ${b.rangeX.toFixed(3)}×${b.rangeY.toFixed(3)} → ${tw.toFixed(3)}×${th.toFixed(3)} mm`);
-      } else {
-        state.workingCmds = gcodeParser.scaleCommandsXY(state.workingCmds, fx, fy);
-        ui.setStatus(`Resized (non-uniform): W×${fx.toFixed(3)} H×${fy.toFixed(3)}`);
-      }
+      preview.draw();
+    });
+    document.getElementById('resizeW').addEventListener('change', () => {
+      _updateScaleFromW();
+      const tw = parseFloat(document.getElementById('resizeW').value);
+      if (!tw || !state.resizeBaseW) return;
+      const ratio = state.resizeBaseH / state.resizeBaseW;
       state.resizeBaseW = tw;
-      state.resizeBaseH = th;
-      ui.refreshWorking();
+      state.resizeBaseH = tw * ratio;
+      if (state.mode === 'svg' || state.mode === 'dxf') {
+        ui._regenerateFromSource();
+      }
+    });
+
+    document.getElementById('btnApplyScale').addEventListener('click', () => {
+      const hasSource = state.svgText || state.dxfSegments?.length;
+      if (!state.originalCmds.length && !hasSource) { ui.setStatus('No original data to reset.', 'error'); return; }
+      state.resizeBaseW = state.originalW;
+      state.resizeBaseH = state.originalH;
+      document.getElementById('resizeW').value = state.originalW.toFixed(3);
+      _updateScaleFromW();
+      if (hasSource) {
+        ui._regenerateFromSource();
+      } else {
+        state.workingCmds = state.originalCmds.map(c => ({...c}));
+        ui.refreshWorking();
+      }
+      ui.setStatus('Reset to original dimensions.');
     });
 
     // ---- Template Widget ----------------------------------------------------------------------------------
@@ -737,7 +711,10 @@ const ui = {
         templateManager.setActive(null);
         state.templateMeta = null;
       }
+      settings.set('templateName', name);
       ui.updateTemplateIndicator();
+      ui._populateMachineOptions();
+      if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
     });
 
     // Import template from file(s) outside the templates folder
@@ -770,7 +747,8 @@ const ui = {
     }
 
     // Open templates folder in system explorer
-    document.getElementById('btnOpenTemplatesFolder').addEventListener('click', async () => {
+    const _btnOpenTF = document.getElementById('btnOpenTemplatesFolder');
+    if (_btnOpenTF) _btnOpenTF.addEventListener('click', async () => {
       if (templateManager._dirHandle) {
         try {
           const root = await templateManager._dirHandle.getDirectoryHandle('..');
@@ -851,18 +829,23 @@ const ui = {
       const axes = ['X','Y','Z','A','B','C'];
       const offsets = {};
       for (const a of axes) {
-        const v = parseFloat(document.getElementById('origin' + a).value);
+        const el = document.getElementById('origin' + a);
+        const v = el ? parseFloat(el.value) : 0;
         if (v) offsets[a] = -v;
       }
-      const e1 = parseFloat(document.getElementById('originE1').value);
+      const e1El = document.getElementById('originE1');
+      const e1 = e1El ? parseFloat(e1El.value) : 0;
       if (e1) offsets.E1 = -e1;
+      const e1Reset = document.getElementById('originE1');
+      if (e1Reset) e1Reset.value = '0';
       undoRedo.push(state.workingCmds);
       state.workingCmds = gcodeParser.applyOffset(state.workingCmds, offsets);
       ui.refreshWorking();
       preview.originX = 0;
       preview.originY = 0;
-      for (const a of axes) document.getElementById('origin' + a).value = '0';
-      document.getElementById('originE1').value = '0';
+      for (const a of axes) { const el = document.getElementById('origin' + a); if (el) el.value = '0'; }
+      const e1Reset2 = document.getElementById('originE1');
+      if (e1Reset2) e1Reset2.value = '0';
       const parts = Object.keys(offsets).map(k => `${k}${-offsets[k]}`).join(' ');
       ui.setStatus(`Origin offset applied: ${parts} → 0`);
     });
@@ -893,6 +876,11 @@ const ui = {
 
     // ---- Generate Updated G-code ----------------------------------------------------------------------
     
+    document.getElementById('batchTarget').addEventListener('change', function() {
+      const el = document.getElementById('batchRangeInputs');
+      if (el) el.style.display = this.value === 'range' ? 'flex' : 'none';
+    });
+
     document.getElementById('btnBatchApply').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       const axis = document.getElementById('batchAxis').value;
@@ -1023,25 +1011,85 @@ const ui = {
       }
     };
 
+    ui._reorderFromMark = () => {
+      const cmds = state.workingCmds;
+      if (!cmds || !cmds.length) return false;
+      // Motion: standard G0-G3 OR implicit (SM300: type='' with X/Y params)
+      const isMotion = t => /^G[0-3]$|^G0[0-3]$/i.test(t) || (t === '' || t === undefined);
+      const motionIdxs = [];
+      cmds.forEach((c, i) => { if (isMotion(c.type) && c.params && (c.params.X !== undefined || c.params.Y !== undefined)) motionIdxs.push(i); });
+      if (motionIdxs.length < 2) return false;
+
+      let newCmds = cmds.map(c => ({ ...c, params: c.params ? { ...c.params } : {} }));
+      let changed = false;
+
+      // Mark Start: rotate motion commands so marked point is first
+      if (ui._markStartIdx != null && ui._markStartIdx >= 0) {
+        const markPos = motionIdxs.findIndex(i => i >= ui._markStartIdx);
+        if (markPos > 0) {
+          const motionCmds = motionIdxs.map(i => newCmds[i]);
+          const rotated = motionCmds.slice(markPos).concat(motionCmds.slice(0, markPos));
+          motionIdxs.forEach((i, idx) => { newCmds[i] = rotated[idx]; });
+          changed = true;
+        }
+      }
+
+      // Set Side: reverse motion commands and swap G2↔G3
+      if (ui._pointsSide) {
+        const motionCmds = motionIdxs.map(i => newCmds[i]);
+        const reversed = motionCmds.reverse().map(c => {
+          if (/^G2/i.test(c.type)) return { ...c, type: 'G3', raw: c.raw.replace(/^G2/i, 'G3') };
+          if (/^G3/i.test(c.type)) return { ...c, type: 'G2', raw: c.raw.replace(/^G3/i, 'G2') };
+          return c;
+        });
+        motionIdxs.forEach((i, idx) => { newCmds[i] = reversed[idx]; });
+        changed = true;
+      }
+
+      if (!changed) return false;
+      undoRedo.push(state.workingCmds);
+      state.workingCmds = newCmds;
+      // Force immediate preview rebuild (skip debounce)
+      if (preview._rebuildTimer) { clearTimeout(preview._rebuildTimer); preview._rebuildTimer = null; }
+      preview._segments = null;
+      preview._segBuilding = false;
+      ui._updatePointsPanel();
+      ui.refreshWorking();
+      return true;
+    };
+
+    // Step buttons for Points Editor inputs (data-step-for + data-step-sel + data-down)
+    document.querySelectorAll('[data-step-for]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inp = document.getElementById(btn.dataset.stepFor);
+        const sel = document.getElementById(btn.dataset.stepSel);
+        const step = parseFloat(sel?.value) || 1;
+        const cur = parseFloat(inp?.value) || 0;
+        if (inp) inp.value = btn.dataset.down ? Math.max(-999999, cur - step).toFixed(3) : (cur + step).toFixed(3);
+      });
+    });
+
     document.getElementById('btnMarkStart').addEventListener('click', () => {
       if (!state.selectedPoints.size) { ui.setStatus('Select a point first.', 'error'); return; }
       const idx = [...state.selectedPoints][0];
       ui._markStartIdx = idx;
-      ui._updatePointsPanel();
-      ui.setStatus(`Mark Start set to point ${idx + 1}`);
+      const ok = ui._reorderFromMark();
+      if (ok) {
+        ui.setStatus(`Mark Start: point ${idx + 1} is now the cutting start`);
+      } else {
+        ui.setStatus(`Mark Start set to point ${idx + 1} (already at start)`, 'error');
+      }
     });
 
-    document.getElementById('btnLeftSide').addEventListener('click', () => {
-      ui._pointsSide = ui._pointsSide === 'left' ? null : 'left';
-      document.getElementById('btnLeftSide').style.background = ui._pointsSide === 'left' ? 'var(--accent2)' : '';
-      document.getElementById('btnRightSide').style.background = '';
-      ui.setStatus(ui._pointsSide === 'left' ? 'Left Side selected' : 'Side cleared');
-    });
-    document.getElementById('btnRightSide').addEventListener('click', () => {
-      ui._pointsSide = ui._pointsSide === 'right' ? null : 'right';
-      document.getElementById('btnRightSide').style.background = ui._pointsSide === 'right' ? 'var(--accent2)' : '';
-      document.getElementById('btnLeftSide').style.background = '';
-      ui.setStatus(ui._pointsSide === 'right' ? 'Right Side selected' : 'Side cleared');
+    document.getElementById('btnSetSide').addEventListener('click', () => {
+      const cur = ui._pointsSide;
+      ui._pointsSide = cur === 'left' ? 'right' : cur === 'right' ? null : 'left';
+      const btn = document.getElementById('btnSetSide');
+      if (ui._pointsSide === 'left') { btn.textContent = '← Set Side'; btn.style.background = 'var(--accent2)'; }
+      else if (ui._pointsSide === 'right') { btn.textContent = 'Set Side →'; btn.style.background = 'var(--accent2)'; }
+      else { btn.textContent = 'Set Side →'; btn.style.background = ''; }
+      const ok = ui._reorderFromMark();
+      ui.setStatus(ui._pointsSide ? `Side: ${ui._pointsSide}${ok ? ' — G-code reordered' : ' — already reversed'}` : 'Side cleared');
     });
 
     document.getElementById('pointsStep').addEventListener('change', function() {
@@ -1135,6 +1183,24 @@ const ui = {
       document.getElementById('btnTogglePointsPanel').textContent = '\u25B6';
     });
 
+    // Machine Options toggle
+    document.getElementById('btnToggleMachineOptions').addEventListener('click', () => {
+      const body = document.getElementById('machineOptionsBody');
+      const btn = document.getElementById('btnToggleMachineOptions');
+      const open = body.classList.toggle('collapsed');
+      btn.textContent = open ? '\u25B6' : '\u25BE';
+      if (!open) ui._populateMachineOptions();
+    });
+
+    // Gcode Info toggle
+    document.getElementById('btnToggleGcodeInfo').addEventListener('click', () => {
+      const body = document.getElementById('gcodeInfoBody');
+      const btn = document.getElementById('btnToggleGcodeInfo');
+      const open = body.classList.toggle('collapsed');
+      btn.textContent = open ? '\u25B6' : '\u25BE';
+      if (!open) ui.updateFooterInfo();
+    });
+
     // ---- Keyboard Shortcuts --------------------------------------------------------------------------
     document.addEventListener('keydown', e => {
       // Ctrl+O — Open G-code
@@ -1213,7 +1279,10 @@ const ui = {
     setupDragDrop(document.getElementById('preview-area'));
 
     // ---- Init UI --------------------------------------------------------------------------------------------------
+    templateManager.loadBuiltin();
     ui.refreshTemplateList();
+    settings.applyAll();
+    ui._populateMachineOptions();
     ui.updateTemplateIndicator();
     preview.init(document.getElementById('previewCanvas'));
     findReplace.init();
@@ -1539,12 +1608,12 @@ const ui = {
 
   updateResizePanel() {
     const b = preview._getBounds(state.workingCmds);
-    if (!b) { state.resizeBaseW = 0; state.resizeBaseH = 0; return; }
+    if (!b) return;
     const w = b.rangeX, h = b.rangeY;
     state.resizeBaseW = w;
     state.resizeBaseH = h;
     document.getElementById('resizeW').value = w.toFixed(3);
-    document.getElementById('resizeH').value = h.toFixed(3);
+    const hEl = document.getElementById('resizeHDisplay'); if (hEl) hEl.textContent = h.toFixed(3);
   },
 
   syncModals() {
@@ -1687,7 +1756,7 @@ const ui = {
     const el = document.getElementById('statusMsg');
     if (!el) return;
     el.textContent = msg;
-    el.style.color = type === 'error' ? '#f66' : '#555';
+    el.style.color = type === 'error' ? '#c00' : '#000';
   },
   setProgress(pct, label) {
     const wrap = document.getElementById('colStatus');
@@ -1700,5 +1769,150 @@ const ui = {
     if (bar) bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
     if (lbl) lbl.textContent = label || Math.round(pct) + '%';
   },
+
+  // ---- Machine Options -----------------------------------------------------------------------
+  _getMachineOptsKey() {
+    const name = document.getElementById('templateSelect')?.value || 'default';
+    return 'machineOpts_' + name;
+  },
+
+  _loadMachineOpts() {
+    try { return JSON.parse(localStorage.getItem(this._getMachineOptsKey())) || {}; } catch (_) { return {}; }
+  },
+
+  _saveMachineOpts(opts) {
+    try { localStorage.setItem(this._getMachineOptsKey(), JSON.stringify(opts)); } catch (_) {}
+  },
+
+  _getSelectedMachineOpts() {
+    const body = document.getElementById('machineOptionsBody');
+    if (!body) return {};
+    const opts = {};
+    body.querySelectorAll('select[data-opt-id]').forEach(sel => {
+      if (sel.value === '__custom__') {
+        const container = sel.closest('.mo-container');
+        const inp = container?.querySelector('.mo-custom-input');
+        opts[sel.dataset.optId] = inp ? inp.value : sel.value;
+      } else {
+        opts[sel.dataset.optId] = sel.value;
+      }
+    });
+    body.querySelectorAll('.mo-custom-input:not(.mo-hidden)').forEach(inp => {
+      const id = inp.dataset.optId;
+      if (id && !opts[id]) opts[id] = inp.value;
+    });
+    return opts;
+  },
+
+  _populateMachineOptions() {
+    const body = document.getElementById('machineOptionsBody');
+    if (!body) return;
+    const name = document.getElementById('templateSelect')?.value;
+    const optDefs = templateManager.getTemplateOptions(name);
+    const saved = this._loadMachineOpts();
+    if (!optDefs.length) {
+      body.innerHTML = '<span class="clabel">No options for this template</span>';
+      return;
+    }
+    let html = '';
+    optDefs.forEach(group => {
+      html += `<span class="clabel" style="width:100%;font-weight:600;margin-top:4px">${group.section}</span>`;
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;width:100%">';
+      group.options.forEach(opt => {
+        const val = saved[opt.id] != null ? saved[opt.id] : opt.default;
+        const isCustom = !opt.values.some(v => String(v) === String(val));
+        html += `<label class="clabel mo-container" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap">${opt.label}`;
+        html += `<select class="bselect" data-opt-id="${opt.id}" style="width:auto;min-width:0;max-width:100px;height:18px;font-size:10px">`;
+        opt.values.forEach(v => {
+          const sel = String(v) === String(val) ? ' selected' : '';
+          html += `<option value="${v}"${sel}>${v}${opt.unit ? ' ' + opt.unit : ''}</option>`;
+        });
+        html += `<option value="__custom__"${isCustom ? ' selected' : ''}>Custom...</option>`;
+        html += '</select>';
+        const hiddenClass = isCustom ? '' : ' mo-hidden';
+        html += `<input type="number" class="mo-custom-input${hiddenClass}" data-opt-id="${opt.id}" value="${isCustom ? val : ''}" style="width:70px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
+        html += '</label>';
+      });
+      html += '</div>';
+    });
+    body.innerHTML = html;
+    body.querySelectorAll('select[data-opt-id]').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const container = sel.closest('.mo-container');
+        const inp = container?.querySelector('.mo-custom-input');
+        if (!inp) return;
+        if (sel.value === '__custom__') {
+          inp.classList.remove('mo-hidden');
+          inp.focus();
+        } else {
+          inp.classList.add('mo-hidden');
+        }
+        this._saveMachineOpts(this._getSelectedMachineOpts());
+      });
+    });
+    body.querySelectorAll('.mo-custom-input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        this._saveMachineOpts(this._getSelectedMachineOpts());
+      });
+      inp.addEventListener('change', () => {
+        this._saveMachineOpts(this._getSelectedMachineOpts());
+      });
+    });
+  },
+
+  _buildProcessedTemplate() {
+    const tpl = templateManager.getActive();
+    if (!tpl) return null;
+    const opts = this._loadMachineOpts();
+    return templateManager.applyToSvgConverter(tpl, opts);
+  },
+
+  _regenerateFromSource() {
+    const processed = this._buildProcessedTemplate();
+    if (!processed) return;
+    const feedCut = processed.laser?.feedCut || 3000;
+    const feedTravel = processed.laser?.feedTravel || 8000;
+    let cmds;
+    if (state.mode === 'svg' && state.svgSegments && state.svgSegments.length) {
+      const hMm = state.svgDims?.height || 0;
+      cmds = svgConverter.segmentsToGcode(state.svgSegments, processed, hMm || undefined);
+    } else if (state.mode === 'dxf' && state.dxfSegments && state.dxfSegments.length) {
+      cmds = svgConverter.segmentsToGcode(state.dxfSegments, processed);
+    } else {
+      return;
+    }
+    if (!cmds || !cmds.length) return;
+    const tw = parseFloat(document.getElementById('resizeW').value);
+    if (tw && state.resizeBaseW) {
+      const ratio = state.resizeBaseH / state.resizeBaseW;
+      const th = tw * ratio;
+      if (state.mode === 'svg' && state.svgDims?.width) {
+        const fx = tw / state.svgDims.width, fy = th / state.svgDims.height;
+        cmds = (Math.abs(fx - fy) < 0.0001)
+          ? gcodeParser.scaleCommands(cmds, fx)
+          : gcodeParser.scaleCommandsXY(cmds, fx, fy);
+      } else if (state.mode === 'dxf' && state.dxfSegments) {
+        const all = state.dxfSegments.flat();
+        const xs = all.map(p => p.x), ys = all.map(p => p.y);
+        const m1 = safeMinMax(xs), m2 = safeMinMax(ys);
+        const curW = m1.max - m1.min || 1, curH = m2.max - m2.min || 1;
+        const fx = tw / curW, fy = th / curH;
+        cmds = (Math.abs(fx - fy) < 0.0001)
+          ? gcodeParser.scaleCommands(cmds, fx)
+          : gcodeParser.scaleCommandsXY(cmds, fx, fy);
+      }
+    }
+    const gcode = gcodeParser.serialize(cmds);
+    state.workingCmds = cmds;
+    state.originalCmds = cmds.map(c => ({ ...c }));
+    state.originalText = gcode;
+    document.getElementById('editorOriginal').value = gcode;
+    ui._updateWorkingEditor(gcode);
+    applyHighlight(document.getElementById('highlightOriginal'), gcode);
+    applyHighlight(document.getElementById('highlightWorking'), gcode);
+    ui.syncModals();
+    preview.resize();
+  },
 };
 
+window.ui = ui;

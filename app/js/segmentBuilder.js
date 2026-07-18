@@ -10,6 +10,11 @@ const segmentBuilder = {
     let unitToMm = initialState?.unitToMm ?? 1;
     let planeMode = initialState?.planeMode ?? 17;
     let motionMode = 1;
+    let toolOn = false;
+    let feed = 0;
+    const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
+    const toolOnType  = (initialState?.toolOnType  || 'M3,M4').split(',').map(baseCmd);
+    const toolOffType = (initialState?.toolOffType || 'M5').split(',').map(baseCmd);
     // Always seed the starting point. On resume this equals the last point of the
     // previous chunk, so the caller skips index 0 to avoid duplication.
     const points = [{ x, y, z }];
@@ -19,7 +24,7 @@ const segmentBuilder = {
     const pushPt = (prev, next, rapid, cmdIdx) => {
       if (points.length >= maxSegs) { truncated = true; return; }
       points.push(next);
-      segments.push({ a: prev, b: next, rapid, arc: false, cmdIdx });
+      segments.push({ a: prev, b: next, rapid, arc: false, cmdIdx, toolOn, feed });
     };
 
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -92,15 +97,23 @@ const segmentBuilder = {
       if (t === 'G17') { planeMode = 17; continue; }
       if (t === 'G18') { planeMode = 18; continue; }
       if (t === 'G19') { planeMode = 19; continue; }
+      if (t === 'G92') { continue; } // coordinate offset, not motion
+      // Tool/laser state
+      if (t) {
+        const tUp = t.toUpperCase();
+        if (toolOnType.includes(tUp))  toolOn = true;
+        if (toolOffType.includes(tUp)) toolOn = false;
+      }
+      if (c.params.F !== undefined) feed = c.params.F;
       // Motion command
       if (t === 'G0' || t === 'G00') motionMode = 0;
       else if (t === 'G1' || t === 'G01') motionMode = 1;
       else if (t === 'G2' || t === 'G02') motionMode = 2;
       else if (t === 'G3' || t === 'G03') motionMode = 3;
-      else if (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined) {
-        // Implicit motion — line with coordinates but no G command
+      // Implicit motion — line with coordinates but no G command
         // Use current motionMode (defaults to G1)
-      }
+        else if (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined) {
+        }
       // Compute next position
       let nx = x, ny = y, nz = z;
       const getV = (a) => c.params[a] !== undefined ? c.params[a] * unitToMm : null;
@@ -158,7 +171,7 @@ const segmentBuilder = {
       }
       x = nx; y = ny; z = nz;
     }
-    return { points, segments, truncated, isRel, unitToMm, planeMode, idx: commands.length };
+    return { points, segments, truncated, isRel, unitToMm, planeMode, toolOn, x, y, z, toolOnType: initialState?.toolOnType, toolOffType: initialState?.toolOffType, idx: commands.length };
   },
 
   computeBounds(points) {

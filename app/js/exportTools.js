@@ -12,7 +12,7 @@ const exportTools = {
       if (t === 'G0' || t === 'G00') {
         segments.push({ x1: x, y1: y, z1: z, x2: nx, y2: ny, z2: nz, rapid: true });
         x = nx; y = ny; z = nz;
-      } else if (t === 'G1' || t === 'G01' || t === '' || (!t.startsWith('G') && !t.startsWith('M') && !t.startsWith('S') && !t.startsWith('R'))) {
+      } else if (t === 'G1' || t === 'G01' || t === '') {
         if (nx !== x || ny !== y) {
           segments.push({ x1: x, y1: y, z1: z, x2: nx, y2: ny, z2: nz, rapid: false });
         }
@@ -37,10 +37,14 @@ const exportTools = {
     const points = [];
     let x = 0, y = 0, z = 0;
     let laserOn = false;
+    const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
+    const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
+    const tplOnList  = (tpl && tpl.data ? (tpl.data.laserOnCmd  || 'M3,M4') : 'M3,M4').split(',').map(baseCmd);
+    const tplOffList = (tpl && tpl.data ? (tpl.data.laserOffCmd || 'M5') : 'M5').split(',').map(baseCmd);
     const isLaserOn = (c) => {
       const t = (c.type || '').toUpperCase();
-      if (t === 'M3' || t === 'M4' || t === 'SM3' || t === 'SM4') return true;
-      if (t === 'M5' || t === 'RM3' || t === 'RM4') return false;
+      if (tplOnList.includes(t))  return true;
+      if (tplOffList.includes(t)) return false;
       return laserOn;
     };
     for (const c of commands) {

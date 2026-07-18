@@ -1,8 +1,6 @@
 ﻿const preview = {
   canvas: null,
   ctx: null,
-  originX: 0,
-  originY: 0,
   _segVersion: 0,
   _segBuilding: false,
   _segments: null,
@@ -25,7 +23,11 @@
     if (!commands || !commands.length) return null;
     const len = commands.length;
     const mid = Math.floor(len / 2);
-    const hash = len + '|' +
+    let hasRel = false;
+    for (let i = 0; i < len; i++) {
+      if (commands[i].type === 'G90' || commands[i].type === 'G91') { hasRel = true; break; }
+    }
+    const hash = len + '|' + (hasRel ? '1' : '0') + '|' +
       (commands[0]?.params?.X ?? '') + '|' + (commands[0]?.params?.Y ?? '') + '|' +
       (commands[mid]?.params?.X ?? '') + '|' + (commands[mid]?.params?.Y ?? '') + '|' +
       (commands[len-1]?.params?.X ?? '') + '|' + (commands[len-1]?.params?.Y ?? '');
@@ -35,6 +37,7 @@
     commands.forEach(c => {
       if (c.type === 'G91') { isRel = true; return; }
       if (c.type === 'G90') { isRel = false; return; }
+      if (c.type === 'G92') { return; } // coordinate offset, not motion
       if (c.params.X !== undefined) { const ax = isRel ? curX + c.params.X : c.params.X; xs.push(ax); curX = ax; }
       if (c.params.Y !== undefined) { const ay = isRel ? curY + c.params.Y : c.params.Y; ys.push(ay); curY = ay; }
     });
@@ -51,7 +54,7 @@
   },
 
   // ── Shared grid + axes for SVG/DXF modes ──────────────────────────
-  _drawGridAxesSVG(ctx, w, h, b, baseFit) {
+  _drawGridAxesSVG(ctx, w, h, b, baseFit, invertY) {
     const { minX, maxX, minY, maxY, rangeX, rangeY } = b;
     const dpr = window.devicePixelRatio || 1;
     const pad = 40;
@@ -60,7 +63,9 @@
     const cx = (w - pad * 2 - rangeX * baseFit) / 2;
     const cy = (h - pad * 2 - rangeY * baseFit) / 2;
     const toCx = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCy = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    const toCy = invertY
+      ? y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY
+      : y => pad + cy + (y - minY) * baseFit * state.previewScale + state.previewOffY;
     ctx.save();
     ctx.lineWidth = 1;
     const mmPerPx = 1 / (baseFit * state.previewScale);
@@ -79,14 +84,6 @@
     ctx.font = `${Math.round(9 * dpr)}px monospace`;
     ctx.textAlign = 'center';
     for (let gx = startX; gx <= maxX; gx += step) ctx.fillText(String(Math.round(gx * 100) / 100), toCx(gx), h - 6);
-    // Axis lines at origin
-    const ox0 = toCx(0), oy0 = toCy(0);
-    if (ox0 >= 0 && ox0 <= w && oy0 >= 0 && oy0 <= h) {
-      ctx.lineWidth = Math.max(1.2, dpr);
-      ctx.strokeStyle = '#dc2626'; ctx.beginPath(); ctx.moveTo(ox0, oy0); ctx.lineTo(toCx(Math.min(maxX, 20 * mmPerPx)), oy0); ctx.stroke();
-      ctx.strokeStyle = '#16a34a'; ctx.beginPath(); ctx.moveTo(ox0, oy0); ctx.lineTo(ox0, toCy(Math.min(maxY, 20 * mmPerPx))); ctx.stroke();
-      ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ox0, oy0, 3, 0, Math.PI * 2); ctx.fill();
-    }
     ctx.restore();
     return { toCx, toCy };
   },
@@ -139,10 +136,15 @@
       if (myVersion !== this._segVersion) return;
       const start = state2 ? state2.idx : 0;
       const end = Math.min(start + CHUNK, total);
+      const tpl = templateManager.getActive();
+      const tplData = tpl?.data || tpl;
+      const tplToolOn  = tplData?.laserOnCmd  || 'M3,M4';
+      const tplToolOff = tplData?.laserOffCmd || 'M5';
       const res = segmentBuilder.build(commands, CFG.MAX_SEGMENTS, state2 ? {
         x: state2.x, y: state2.y, z: state2.z, isRel: state2.isRel,
-        unitToMm: state2.unitToMm, planeMode: state2.planeMode, idx: start
-      } : undefined);
+        unitToMm: state2.unitToMm, planeMode: state2.planeMode,
+        toolOnType: state2.toolOnType, toolOffType: state2.toolOffType, idx: start
+      } : { toolOnType: tplToolOn, toolOffType: tplToolOff });
       // Each chunk seeds its own starting point (== last point of previous chunk),
       // so skip index 0 to avoid duplicating it.
       if (keepPoints) for (let i = 1; i < res.points.length; i++) allPoints.push(res.points[i]);
@@ -163,6 +165,7 @@
         this._lastProgDraw = now;
         this._segments = allSegments;
         this._points = keepPoints ? allPoints : null;
+        this._segBounds = this._computeSegBoundsFromSegs(allSegments);
         this._drawCore(commands, end);
       }
       if (end < total && !truncated) {
@@ -176,10 +179,14 @@
     requestAnimationFrame(processChunk);
   },
 
-  fitView() {
+  _zoomToFit() {
     state.previewScale = 1;
-    state.previewOffX = 0;
-    state.previewOffY = 0;
+    state.previewOffX  = 0;
+    state.previewOffY  = 0;
+  },
+
+  fitView() {
+    this._zoomToFit();
     this.draw(state.workingCmds);
   },
 
@@ -210,6 +217,108 @@
       if (s.b.z < minZ) minZ = s.b.z; if (s.b.z > maxZ) maxZ = s.b.z;
     }
     return { minX, maxX, minY, maxY, minZ, maxZ, rangeX: maxX - minX || 1, rangeY: maxY - minY || 1 };
+  },
+
+  // Bounds of the actual cut (tool ON, non-rapid). Used for Scale dimensions so
+  // travel moves before the tool reaches the work don't inflate W/H.
+  _getCutBounds() {
+    const buildBounds = (segs, requireToolOn) => {
+      let first = true, minX, maxX, minY, maxY;
+      for (const s of segs) {
+        if (s.rapid) continue;
+        if (requireToolOn && !s.toolOn) continue;
+        const xs = [s.a.x, s.b.x], ys = [s.a.y, s.b.y];
+        for (const x of xs) {
+          if (first || x < minX) minX = x;
+          if (first || x > maxX) maxX = x;
+        }
+        for (const y of ys) {
+          if (first || y < minY) minY = y;
+          if (first || y > maxY) maxY = y;
+        }
+        first = false;
+      }
+      if (first) return null;
+      const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
+      return { minX, maxX, minY, maxY, rangeX, rangeY };
+    };
+
+    const segs = this._segments;
+    if (segs && segs.length) {
+      const fileHasToolOn = segs.some(s => s.toolOn);
+      let b = buildBounds(segs, true);
+      // Fall back to all non-rapid segments only when the file has NO laser
+      // toggles at all — otherwise a footer travel move (e.g. SM300's
+      // X0 Y0 Z-50, which is non-rapid + tool-off) would inflate the bounds.
+      if (!b && !fileHasToolOn) b = buildBounds(segs, false);
+      if (b) return b;
+    }
+
+    // Segments not built yet — compute from commands.
+    const cmds = state.workingCmds;
+    if (!cmds || !cmds.length) return this._getBounds(cmds);
+    const tpl = templateManager.getActive();
+    const tplData = tpl?.data || tpl;
+    const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
+    const onTypes  = (tplData?.laserOnCmd  || 'M3,M4').split(',').map(baseCmd);
+    const offTypes = (tplData?.laserOffCmd || 'M5').split(',').map(baseCmd);
+    let first = true, minX, maxX, minY, maxY;
+    let toolOn = false, anyOn = false, isRel = false, curX = 0, curY = 0;
+    for (const c of cmds) {
+      const t = (c.type || '').toUpperCase();
+      if (t === 'G90') { isRel = false; continue; }
+      if (t === 'G91') { isRel = true; continue; }
+      if (onTypes.includes(t))  { toolOn = true; anyOn = true; continue; }
+      if (offTypes.includes(t)) { toolOn = false; continue; }
+      // If no ON command was ever seen, treat all non-rapid moves as cut.
+      if (!anyOn ? false : !toolOn) continue;
+      const isMotion = /^G0?([0-3])?$/.test(t) || (t === '' && (c.params.X !== undefined || c.params.Y !== undefined));
+      if (!isMotion) continue;
+      if (t === 'G0' || t === 'G00') continue;
+      if (c.params.X !== undefined) {
+        const x = isRel ? curX + c.params.X : c.params.X;
+        curX = x;
+        if (first || x < minX) minX = x;
+        if (first || x > maxX) maxX = x;
+      }
+      if (c.params.Y !== undefined) {
+        const y = isRel ? curY + c.params.Y : c.params.Y;
+        curY = y;
+        if (first || y < minY) minY = y;
+        if (first || y > maxY) maxY = y;
+      }
+      first = false;
+    }
+    // If no laser-ON moves were found (e.g. file has no toggles), fall back
+    // to every non-rapid coordinate (but only when the file has no laser ON/OFF
+    // at all — otherwise footer travel would inflate bounds).
+    if (first && !anyOn) {
+      first = true; curX = 0; curY = 0; isRel = false;
+      for (const c of cmds) {
+        const t = (c.type || '').toUpperCase();
+        if (t === 'G90') { isRel = false; continue; }
+        if (t === 'G91') { isRel = true; continue; }
+        if (t === 'G92') { continue; }
+        if (t === 'G0' || t === 'G00') continue;
+        if (!/^G0?([0-3])?$/.test(t) && !(t === '' && (c.params.X !== undefined || c.params.Y !== undefined))) continue;
+        if (c.params.X !== undefined) {
+          const x = isRel ? curX + c.params.X : c.params.X;
+          curX = x;
+          if (first || x < minX) minX = x;
+          if (first || x > maxX) maxX = x;
+        }
+        if (c.params.Y !== undefined) {
+          const y = isRel ? curY + c.params.Y : c.params.Y;
+          curY = y;
+          if (first || y < minY) minY = y;
+          if (first || y > maxY) maxY = y;
+        }
+        first = false;
+      }
+    }
+    if (first) return this._getBounds(cmds);
+    const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
+    return { minX, maxX, minY, maxY, rangeX, rangeY };
   },
 
   init(canvas) {
@@ -254,19 +363,40 @@
         });
       }
     };
-    c.addEventListener('wheel', e => { e.preventDefault(); state.previewScale *= e.deltaY < 0 ? 1.1 : 0.9; scheduleDraw(); }, { passive: false });
-    c.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
-    window.addEventListener('mouseup', () => { dragging = false; });
-    // Click: measure | origin mark | point select | set origin
-    c.addEventListener('click', e => {
-      if (e.clientX !== lastX || e.clientY !== lastY) return;
-      if (originMarkMode) {
 
-        this._setMarkFromClick(e);
-      } else if (state.mode === 'gcode') {
+    // Zoom toward cursor position
+    c.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = c.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const zoom = e.deltaY < 0 ? 1.1 : 0.9;
+      // Adjust offset so the point under cursor stays in place
+      state.previewOffX = mx - zoom * (mx - state.previewOffX);
+      state.previewOffY = my - zoom * (my - state.previewOffY);
+      state.previewScale *= zoom;
+      state.previewScale = Math.max(0.2, Math.min(20, state.previewScale));
+      scheduleDraw();
+    }, { passive: false });
+
+    // Left button: drag to pan
+    c.addEventListener('mousedown', e => {
+      if (e.button === 0) {
+        dragging = true; lastX = e.clientX; lastY = e.clientY;
+      }
+    });
+    // Middle button: also drag to pan
+    c.addEventListener('mousedown', e => {
+      if (e.button === 1) { e.preventDefault(); dragging = true; lastX = e.clientX; lastY = e.clientY; }
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+
+    // Click: point select (only if no drag occurred)
+    c.addEventListener('click', e => {
+      if (e.button !== 0) return;
+      if (e.clientX !== lastX || e.clientY !== lastY) return;
+      if (state.mode === 'gcode') {
         this._selectPointFromClick(e);
-      } else {
-        this._setOriginFromClick(e);
       }
     });
     window.addEventListener('mousemove', e => {
@@ -279,14 +409,22 @@
   },
   // ---- Playback state ------------------------------------------------------------------------------------
   _pb: { rafId: null, idx: 0, paused: false, active: false },
+  _lastTransform: null,
 
   draw(commands) {
-    this._stopPlayback();
     const cmds = commands;
     const n = cmds ? cmds.length : 0;
+    if (this._pb.active && !this._pb.paused) {
+      this._drawCore(cmds, this._pb.idx || 0);
+      this._drawHead(cmds, this._pb.idx || 0);
+      return;
+    }
+    if (this._pb.active) this._stopPlayback();
     if (state.mode === 'gcode' && n > 0 && cmds !== this._segCommands) {
       this._segments = null;
       this._points = null;
+      this._segBounds = null;
+      state._boundsCache = null;
       this._segCommands = cmds;
       this._segBuilding = false; // abort any stale build
       this._segVersion++;
@@ -301,9 +439,6 @@
       const preBounds = this._getBounds(cmds);
       if (preBounds) {
         this._segBounds = preBounds;
-        state.previewScale = 1;
-        state.previewOffX = 0;
-        state.previewOffY = 0;
       }
       // Debounce: coalesce rapid edits (e.g. typing) into a single rebuild
       if (this._rebuildTimer) clearTimeout(this._rebuildTimer);
@@ -314,46 +449,23 @@
         this._buildSegmentsAsync(cmds, (result) => {
           ui.setProgress(-1);
           this._showPreviewProgress(false);
-          this.fitView();
-          if (ui.updateResizePanel) ui.updateResizePanel();
+          // Do NOT reset previewScale / fitView here: rebuilding after an edit
+          // must preserve the user's current zoom & pan (otherwise the view
+          // "jumps" every time the G-code is recalculated).
+          this.draw(state.workingCmds);
           if (ui.updateFooterInfo) ui.updateFooterInfo();
-          if (ui._pointsPanelOpen && ui._updatePointsPanel) ui._updatePointsPanel();
+          if (ui._updatePointsPanel) ui._updatePointsPanel();
         }, (pct) => {
           ui.setProgress(pct, 'Building preview…');
         });
       }, 120);
-      this._drawCore(cmds, 0);
+      this._drawCore(cmds, n);
       return;
     }
     this._drawCore(cmds, n);
   },
 
-  _drawInit() {
-    if (!this.canvas) return;
-    const { width: w, height: h } = this.canvas;
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w, h);
-    // grid
-    const gStep = Math.max(2, 10 * state.previewScale);
-    const ox = (state.previewOffX % gStep + gStep) % gStep;
-    const oy = (state.previewOffY % gStep + gStep) % gStep;
-    ctx.strokeStyle = '#e8e8e8';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = ox; x < w; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
-    for (let y = oy; y < h; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
-    ctx.stroke();
-    const gStep5 = gStep * 5;
-    const ox5 = (state.previewOffX % gStep5 + gStep5) % gStep5;
-    const oy5 = (state.previewOffY % gStep5 + gStep5) % gStep5;
-    ctx.strokeStyle = '#cccccc';
-    ctx.beginPath();
-    for (let x = ox5; x < w; x += gStep5) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
-    for (let y = oy5; y < h; y += gStep5) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
-    ctx.stroke();
-  },
+
 
   _drawFinalize(commands, limit, b, toCanvasX, toCanvasY) {
     const ctx = this.ctx;
@@ -369,36 +481,6 @@
       ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 4, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,136,0,0.3)'; ctx.fill();
     });
-    // origin mark
-    if (state.originMark) {
-      const mx = toCanvasX(state.originMark.x);
-      const my = toCanvasY(state.originMark.y);
-      const sz = 28;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(mx, my, sz + 8, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,0,0,0.15)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,0,0,0.3)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.shadowColor = 'rgba(255,0,0,0.7)'; ctx.shadowBlur = 14;
-      ctx.strokeStyle = '#ff2222'; ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
-      ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
-      ctx.stroke(); ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
-      ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
-      ctx.stroke();
-      const dir = state.originMark.dir;
-      ctx.fillStyle = '#ff2222'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
-      const arrowY = dir === 'left' ? -sz - 18 : sz + 10;
-      ctx.fillText(dir === 'left' ? '◀' : '▶', mx, my + arrowY);
-      ctx.restore();
-    }
     this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
   },
 
@@ -463,7 +545,7 @@
     if (!this._pb.lastTick) this._pb.lastTick = now;
     const dt = (now - this._pb.lastTick) / 1000;
     this._pb.lastTick = now;
-    this._pb.accum = (this._pb.accum || 0) + speed * 20 * dt;
+    this._pb.accum = (this._pb.accum || 0) + speed * 3 * dt;
     const step = Math.floor(this._pb.accum);
     this._pb.accum -= step;
     if (step < 1) { this._pb.rafId = requestAnimationFrame(() => this._tick()); return; }
@@ -483,50 +565,64 @@
     if (!idx || !commands[idx - 1]) return;
     const c = commands[idx - 1];
     if (c.params.X === undefined && c.params.Y === undefined) return;
-    const { width: w, height: h } = this.canvas;
-    const b = this._getBounds(commands);
-    if (!b) return;
-    const { minX, minY, rangeX, rangeY } = b;
-    const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    const toCanvasX = x => pad + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => h - pad - (y - minY) * baseFit * state.previewScale + state.previewOffY;
-    // Compute absolute position at idx-1, handling G90/G91
-    let hx = 0, hy = 0, curX = 0, curY = 0, isRel = false;
+    const t = this._lastTransform;
+    if (!t) return;
+    const { toCanvasX, toCanvasY } = t;
+    let curX = 0, curY = 0, prevX = 0, prevY = 0, isRel = false;
     for (let i = 0; i < idx; i++) {
       const cmd = commands[i];
       if (cmd.type === 'G91') { isRel = true; continue; }
       if (cmd.type === 'G90') { isRel = false; continue; }
+      if (cmd.type === 'G92') { continue; }
+      prevX = curX; prevY = curY;
       if (cmd.params.X !== undefined) curX = isRel ? curX + cmd.params.X : cmd.params.X;
       if (cmd.params.Y !== undefined) curY = isRel ? curY + cmd.params.Y : cmd.params.Y;
     }
-    hx = curX; hy = curY;
     const ctx = this.ctx;
-    const cx = toCanvasX(hx), cy = toCanvasY(hy);
-    const isLaserOn = ['G1','G01','G2','G02','G3','G03'].includes(c.type);
-    ctx.save();
-    // Laser indicator dot
-    ctx.beginPath();
-    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-    ctx.fillStyle = isLaserOn ? '#ff0000' : '#00cc00';
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    // Cone / head triangle
-    if (isLaserOn) {
-      const coneSize = 8;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - coneSize);
-      ctx.lineTo(cx - coneSize * 0.6, cy + coneSize * 0.4);
-      ctx.lineTo(cx + coneSize * 0.6, cy + coneSize * 0.4);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(255,0,0,0.15)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,0,0,0.4)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+    const cx = toCanvasX(curX), cy = toCanvasY(curY);
+    const tpl = templateManager.getActive();
+    const tplData = tpl?.data || tpl;
+    const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
+    const onTypes  = (tplData?.laserOnCmd  || 'M3,M4').split(',').map(baseCmd);
+    const offTypes = (tplData?.laserOffCmd || 'M5').split(',').map(baseCmd);
+    let toolOn = false;
+    for (let i = 0; i < idx; i++) {
+      const t = (commands[i].type || '').toUpperCase();
+      if (onTypes.includes(t)) toolOn = true;
+      if (offTypes.includes(t)) toolOn = false;
     }
+    const isLaserOn = toolOn && ['G1','G01','G2','G02','G3','G03',''].includes((c.type || '').toUpperCase());
+    const isRapid = c.type === 'G0' || c.type === 'G00';
+    const dpr = window.devicePixelRatio || 1;
+    const pcx = toCanvasX(prevX), pcy = toCanvasY(prevY);
+    const dx = cx - pcx, dy = cy - pcy;
+    const angle = (dx === 0 && dy === 0) ? (this._headAngle || -Math.PI / 2) : Math.atan2(dy, dx);
+    const dirChanged = this._headAngle != null && Math.abs(angle - this._headAngle) > 0.15;
+    this._headAngle = angle;
+    const coneLen = 8 * dpr;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    const coneColor = isLaserOn ? '#ef4444' : isRapid ? '#94a3b8' : '#3b82f6';
+    if (dirChanged) {
+      ctx.shadowColor = coneColor;
+      ctx.shadowBlur = 8 * dpr;
+    }
+    ctx.beginPath();
+    ctx.moveTo(coneLen, 0);
+    ctx.lineTo(-coneLen * 0.45, -coneLen * 0.4);
+    ctx.lineTo(-coneLen * 0.45, coneLen * 0.4);
+    ctx.closePath();
+    ctx.fillStyle = coneColor;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1 * dpr;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.8 * dpr, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
     ctx.restore();
   },
 
@@ -537,14 +633,14 @@
     ctx.clearRect(0, 0, w, h);
 
     // fundo do canvas
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, w, h);
 
     // grid (batched for performance)
     const gStep = Math.max(2, 10 * state.previewScale);
     const ox = (state.previewOffX % gStep + gStep) % gStep;
     const oy = (state.previewOffY % gStep + gStep) % gStep;
-    ctx.strokeStyle = '#e8e8e8';
+    ctx.strokeStyle = '#D0D8E0';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let x = ox; x < w; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
@@ -563,7 +659,8 @@
     // ---- SVG mode --------------------------------------------------------------------------------------------
     if (state.mode === 'svg' && state.svgText) {
       if (state.svgPreviewMode === 'raster' && state.svgImg) {
-        // Raster image with fills/engraving
+        // Raster image — rendered bitmap with checkerboard background so the
+        // difference from Outlines mode is obvious.
         try {
           const s = state.svgScale;
           const dim = state.svgDims || { width: 100, height: 100 };
@@ -575,7 +672,25 @@
           const drawH = imgH * s * baseFit * state.previewScale;
           const drawX = (w - drawW) / 2 + state.previewOffX;
           const drawY = (h - drawH) / 2 + state.previewOffY;
+          // Checkerboard background behind the image
+          const cs = 12; // checker cell size
+          ctx.save();
+          ctx.beginPath(); ctx.rect(drawX, drawY, drawW, drawH); ctx.clip();
+          for (let gy = drawY; gy < drawY + drawH; gy += cs) {
+            for (let gx = drawX; gx < drawX + drawW; gx += cs) {
+              const even = (Math.floor((gx - drawX) / cs) + Math.floor((gy - drawY) / cs)) % 2 === 0;
+              ctx.fillStyle = even ? '#e8e8e8' : '#f5f5f5';
+              ctx.fillRect(gx, gy, cs, cs);
+            }
+          }
           ctx.drawImage(state.svgImg, drawX, drawY, drawW, drawH);
+          ctx.restore();
+          // Subtle border
+          ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.strokeRect(drawX, drawY, drawW, drawH);
+          ctx.setLineDash([]);
           // SVG dimensions (scaled)
           const parser = new DOMParser();
           const doc = parser.parseFromString(state.svgText, 'image/svg+xml');
@@ -584,15 +699,13 @@
             const vb = svgConverter._getViewBox(svgEl);
             const sw = vb.width * s, sh = vb.height * s;
             this._setInfo(`W: ${sw.toFixed(2)} mm  H: ${sh.toFixed(2)} mm`);
-            document.getElementById('resizeW').value = sw.toFixed(3);
-            document.getElementById('resizeH').value = sh.toFixed(3);
-            state.resizeBaseW = sw;
-            state.resizeBaseH = sh;
+            if (!state.originalW) { state.originalW = sw; state.originalH = sh; }
           }
         } catch (_) {}
       } else {
-        // Contours (outline paths) — cached for performance
+        // Contours (outline paths) or Points (vertices only) — cached for performance
         try {
+          const isPoints = state.svgPreviewMode === 'points';
           if (!state.svgSegments) {
             const parser2 = new DOMParser();
             const doc2 = parser2.parseFromString(state.svgText, 'image/svg+xml');
@@ -616,30 +729,41 @@
             const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
             const pad = 40;
             const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-            // Center the toolpath in the canvas (top-down view)
             const cx = (w - pad * 2 - rangeX * baseFit) / 2;
             const cy = (h - pad * 2 - rangeY * baseFit) / 2;
             const toCx = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-            const toCy = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
-            // Grid + axes for spatial reference
-            this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit);
-            ctx.strokeStyle = '#2563eb';
-            ctx.lineWidth = 1.5;
-            ctx.setLineDash([]);
-            segments.forEach(seg => {
-              if (!seg || seg.length < 2) return;
-              ctx.beginPath();
-              ctx.moveTo(toCx(seg[0].x * s), toCy(seg[0].y * s));
-              for (let i = 1; i < seg.length; i++) {
-                ctx.lineTo(toCx(seg[i].x * s), toCy(seg[i].y * s));
+            const toCy = y => pad + cy + (y - minY) * baseFit * state.previewScale + state.previewOffY;
+            this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit, false);
+            if (isPoints) {
+              // Draw only vertex dots — good for assessing point density
+              const visited = new Set();
+              for (const seg of segments) {
+                for (const pt of seg) {
+                  const k = `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+                  if (visited.has(k)) continue;
+                  visited.add(k);
+                  ctx.fillStyle = '#2563eb';
+                  ctx.beginPath();
+                  ctx.arc(toCx(pt.x * s), toCy(pt.y * s), 3.5, 0, Math.PI * 2);
+                  ctx.fill();
+                }
               }
-              ctx.stroke();
-            });
+            } else {
+              ctx.strokeStyle = '#2563eb';
+              ctx.lineWidth = 1.5;
+              ctx.setLineDash([]);
+              for (const seg of segments) {
+                if (!seg || seg.length < 2) return;
+                ctx.beginPath();
+                ctx.moveTo(toCx(seg[0].x * s), toCy(seg[0].y * s));
+                for (let i = 1; i < seg.length; i++) {
+                  ctx.lineTo(toCx(seg[i].x * s), toCy(seg[i].y * s));
+                }
+                ctx.stroke();
+              }
+            }
             this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
-            document.getElementById('resizeW').value = rangeX.toFixed(3);
-            document.getElementById('resizeH').value = rangeY.toFixed(3);
-            state.resizeBaseW = rangeX;
-            state.resizeBaseH = rangeY;
+            if (!state.originalW) { state.originalW = rangeX; state.originalH = rangeY; }
           }
         } catch (_) {}
       }
@@ -649,9 +773,10 @@
     // ---- DXF mode --------------------------------------------------------------------------------------------
     if (state.mode === 'dxf' && state.dxfSegments && state.dxfSegments.length) {
       try {
+        const s = state.dxfScale || 1;
         const all = state.dxfSegments.flat();
-        const xs = all.map(p => p.x);
-        const ys = all.map(p => p.y);
+        const xs = all.map(p => p.x * s);
+        const ys = all.map(p => p.y * s);
         const mmX3 = safeMinMax(xs), mmY3 = safeMinMax(ys);
         const minX = mmX3.min, maxX = mmX3.max, minY = mmY3.min, maxY = mmY3.max;
         const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
@@ -663,7 +788,7 @@
         const toCx = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
         const toCy = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
         // Grid + axes for spatial reference
-        this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit);
+        this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit, true);
         if (state.svgPreviewMode === 'raster') {
           ctx.strokeStyle = '#333';
           ctx.lineWidth = 3;
@@ -677,9 +802,9 @@
         state.dxfSegments.forEach(seg => {
           if (!seg || seg.length < 2) return;
           ctx.beginPath();
-          ctx.moveTo(toCx(seg[0].x), toCy(seg[0].y));
+          ctx.moveTo(toCx(seg[0].x * s), toCy(seg[0].y * s));
           for (let i = 1; i < seg.length; i++) {
-            ctx.lineTo(toCx(seg[i].x), toCy(seg[i].y));
+            ctx.lineTo(toCx(seg[i].x * s), toCy(seg[i].y * s));
           }
           ctx.stroke();
         });
@@ -701,7 +826,7 @@
       return;
     }
 
-    const b = this._segBounds || (this._points ? this._computeSegBounds(this._points) : null);
+    const b = this._getCutBounds() || this._segBounds || (this._points ? this._computeSegBounds(this._points) : null);
     if (!b) return;
     const { minX, maxX, minY, maxY, rangeX, rangeY } = b;
     const pad = 40;
@@ -711,6 +836,7 @@
     const cy = (h - pad * 2 - rangeY * baseFit) / 2;
     const toCanvasX = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
     const toCanvasY = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    this._lastTransform = { toCanvasX, toCanvasY, minX, minY, maxX, maxY, rangeX, rangeY };
 
     // Dynamic grid with labels
     const dpr = window.devicePixelRatio || 1;
@@ -734,7 +860,8 @@
     for (let gx = startX; gx <= maxX; gx += step) ctx.fillText(String(Math.round(gx * 100) / 100), toCanvasX(gx), h - 6);
     ctx.restore();
 
-    // Work area background + border (like GRBL style)
+    // Work area background + border (like GRBL style) — controlled by BBox checkbox
+    if (previewOpts.showBounds) {
     ctx.save();
     const waX = toCanvasX(minX), waY = toCanvasY(maxY);
     const waW = rangeX * baseFit * state.previewScale;
@@ -761,6 +888,7 @@
       ctx.stroke();
     }
     ctx.restore();
+    }
 
     // Original toolpath (compare mode)
     if (previewOpts.compareMode && this._origSegments && this._origSegments.length) {
@@ -804,6 +932,7 @@
 
     // Draw segments batched by color (contoured: outer glow + inner line)
     const isRaster = state.svgPreviewMode === 'raster';
+    const isPoints = state.svgPreviewMode === 'points';
     const segments = this._segments;
     const sMax = 1000;
     const feedMax = 8000;
@@ -814,11 +943,15 @@
     // Find the last cmdIdx drawn to highlight as "current"
     let lastCmdIdx = -1;
     // Collect coordinates per color for batch stroke
-    const colorBatches = {};
-    const rapidBatch = { ax: [], ay: [], bx: [], by: [] };
+    const toolOnBatch  = { ax: [], ay: [], bx: [], by: [] };
+    const toolOffBatch = { ax: [], ay: [], bx: [], by: [] };
+    const rapidBatch  = { ax: [], ay: [], bx: [], by: [] };
+    const feedBatches = {};
+    let hasToolOn = false, hasToolOff = false;
+    const fileHasToolOn = segments.slice(0, segsToDraw).some(s => s.toolOn);
     for (let i = 0; i < segsToDraw; i++) {
       const s = segments[i];
-      if (!state.showRapids && s.rapid) continue;
+      if (!state.showRapids && (s.rapid || (!s.toolOn && fileHasToolOn))) continue;
       const ax = toCanvasX(s.a.x), ay = toCanvasY(s.a.y);
       const bx = toCanvasX(s.b.x), by = toCanvasY(s.b.y);
       lastCmdIdx = s.cmdIdx;
@@ -826,51 +959,82 @@
         if (isRaster) continue;
         rapidBatch.ax.push(ax); rapidBatch.ay.push(ay);
         rapidBatch.bx.push(bx); rapidBatch.by.push(by);
+      } else if (previewOpts.colorByFeed) {
+        const f = s.feed || 500;
+        const bucket = f <= 200 ? 'slow' : f <= 800 ? 'med' : 'fast';
+        if (!feedBatches[bucket]) feedBatches[bucket] = { ax: [], ay: [], bx: [], by: [] };
+        feedBatches[bucket].ax.push(ax); feedBatches[bucket].ay.push(ay);
+        feedBatches[bucket].bx.push(bx); feedBatches[bucket].by.push(by);
+        hasToolOn = true;
+      } else if (s.toolOn) {
+        hasToolOn = true;
+        toolOnBatch.ax.push(ax); toolOnBatch.ay.push(ay);
+        toolOnBatch.bx.push(bx); toolOnBatch.by.push(by);
       } else {
-        const c = commands[s.cmdIdx];
-        let ratio;
-        if (previewOpts.colorByFeed) {
-          const feed = c && c.params.F ? c.params.F : feedMax;
-          ratio = Math.min(1, feed / feedMax);
-        } else {
-          const pow = c && c.params.S ? c.params.S : sMax;
-          ratio = Math.min(1, pow / sMax);
-        }
-        const color = isRaster
-          ? `rgb(${Math.round(20 + 100 * ratio)},${Math.round(20 + 100 * ratio)},${Math.round(20 + 100 * ratio)})`
-          : `rgb(${Math.round(34 + 200 * ratio)},${Math.round(211 - 160 * ratio)},${Math.round(238 - 80 * ratio)})`;
-        if (!colorBatches[color]) colorBatches[color] = { ax: [], ay: [], bx: [], by: [] };
-        const b = colorBatches[color];
-        b.ax.push(ax); b.ay.push(ay); b.bx.push(bx); b.by.push(by);
+        hasToolOff = true;
+        toolOffBatch.ax.push(ax); toolOffBatch.ay.push(ay);
+        toolOffBatch.bx.push(bx); toolOffBatch.by.push(by);
       }
     }
     // Draw all segments with progressive erase alpha
     const eraseAlpha = pbActive ? 0.35 : 1;
+    if (!isPoints) {
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     const glowWidth = isRaster ? 5 : 3.5;
-    // Outer glow (always at full alpha for glow effect)
-    for (const color in colorBatches) {
-      const b = colorBatches[color];
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = 'rgba(8,30,60,0.85)';
-      ctx.lineWidth = glowWidth;
-      ctx.beginPath();
-      for (let j = 0; j < b.ax.length; j++) { ctx.moveTo(b.ax[j], b.ay[j]); ctx.lineTo(b.bx[j], b.by[j]); }
-      ctx.stroke();
-    }
-    // Inner colored pass with progressive erase alpha
-    for (const color in colorBatches) {
-      const b = colorBatches[color];
-      ctx.globalAlpha = eraseAlpha;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = isRaster ? 3 : 1.5;
-      ctx.beginPath();
-      for (let j = 0; j < b.ax.length; j++) { ctx.moveTo(b.ax[j], b.ay[j]); ctx.lineTo(b.bx[j], b.by[j]); }
-      ctx.stroke();
+    // Feed rate coloring
+    if (previewOpts.colorByFeed && Object.keys(feedBatches).length) {
+      const feedColors = { slow: '#3B82F6', med: '#F59E0B', fast: '#EF4444' };
+      const feedLabels = { slow: 'Slow', med: 'Medium', fast: 'Fast' };
+      for (const [bucket, batch] of Object.entries(feedBatches)) {
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = feedColors[bucket] + '99';
+        ctx.lineWidth = glowWidth;
+        ctx.beginPath();
+        for (let j = 0; j < batch.ax.length; j++) { ctx.moveTo(batch.ax[j], batch.ay[j]); ctx.lineTo(batch.bx[j], batch.by[j]); }
+        ctx.stroke();
+        ctx.globalAlpha = eraseAlpha;
+        ctx.strokeStyle = feedColors[bucket];
+        ctx.lineWidth = isRaster ? 3 : 1.8;
+        ctx.beginPath();
+        for (let j = 0; j < batch.ax.length; j++) { ctx.moveTo(batch.ax[j], batch.ay[j]); ctx.lineTo(batch.bx[j], batch.by[j]); }
+        ctx.stroke();
+      }
+    } else {
+      // Tool ON — purple glow + line
+      if (toolOnBatch.ax.length) {
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(120,30,120,0.85)';
+        ctx.lineWidth = glowWidth;
+        ctx.beginPath();
+        for (let j = 0; j < toolOnBatch.ax.length; j++) { ctx.moveTo(toolOnBatch.ax[j], toolOnBatch.ay[j]); ctx.lineTo(toolOnBatch.bx[j], toolOnBatch.by[j]); }
+        ctx.stroke();
+        ctx.globalAlpha = eraseAlpha;
+        ctx.strokeStyle = isRaster ? '#7e22ce' : '#a855f7';
+        ctx.lineWidth = isRaster ? 3 : 1.8;
+        ctx.beginPath();
+        for (let j = 0; j < toolOnBatch.ax.length; j++) { ctx.moveTo(toolOnBatch.ax[j], toolOnBatch.ay[j]); ctx.lineTo(toolOnBatch.bx[j], toolOnBatch.by[j]); }
+        ctx.stroke();
+      }
+      // Tool OFF (non-rapid travel) — red glow + line
+      if (toolOffBatch.ax.length) {
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(180,30,30,0.85)';
+        ctx.lineWidth = glowWidth;
+        ctx.beginPath();
+        for (let j = 0; j < toolOffBatch.ax.length; j++) { ctx.moveTo(toolOffBatch.ax[j], toolOffBatch.ay[j]); ctx.lineTo(toolOffBatch.bx[j], toolOffBatch.by[j]); }
+        ctx.stroke();
+        ctx.globalAlpha = eraseAlpha;
+        ctx.strokeStyle = isRaster ? '#991b1b' : '#ef4444';
+        ctx.lineWidth = isRaster ? 3 : 1.2;
+        ctx.beginPath();
+        for (let j = 0; j < toolOffBatch.ax.length; j++) { ctx.moveTo(toolOffBatch.ax[j], toolOffBatch.ay[j]); ctx.lineTo(toolOffBatch.bx[j], toolOffBatch.by[j]); }
+        ctx.stroke();
+      }
     }
     ctx.restore();
+    } // end if (!isPoints) — skip line batches in points mode
     // Highlight current playback segment
     if (pbActive && pbCmdIdx > 0 && lastCmdIdx >= 0) {
       ctx.save();
@@ -935,45 +1099,102 @@
       return total > 10 && (short / total) > 0.5;
     })();
 
-    // Draw dots at each vertex (visible for point-to-point programs)
-    if (p2p) {
-      ctx.fillStyle = 'rgba(37,99,235,0.7)';
-      const dotStep = Math.max(1, Math.floor(segsToDraw / 5000));
-      for (let i = 0; i < segsToDraw; i += dotStep) {
+    // Draw dots at each vertex (every G-code coordinate)
+    // In Points mode show ALL vertices large — in Outlines show smaller sampled dots.
+    if (!isRaster) {
+      const dotDotStep = isPoints ? 1 : Math.max(1, Math.floor(segsToDraw / 5000));
+      const dotRadius = isPoints ? 4 : 2.5;
+      ctx.fillStyle = isPoints ? 'rgba(37,99,235,0.95)' : 'rgba(37,99,235,0.7)';
+      for (let i = 0; i < segsToDraw; i += dotDotStep) {
         const s = segments[i];
-        if (!state.showRapids && s.rapid) continue;
+        if (!state.showRapids && (s.rapid || (!s.toolOn && fileHasToolOn))) continue;
         const cx = toCanvasX(s.b.x), cy = toCanvasY(s.b.y);
         if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
         ctx.beginPath();
-        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    // Start marker (first cut point)
+    // Start/End markers
     if (state.mode === 'gcode') {
       let startSeg = null;
       for (let i = 0; i < segments.length; i++) {
-        if (!segments[i].rapid) { startSeg = segments[i]; break; }
+        const s = segments[i];
+        if (fileHasToolOn ? s.toolOn : !s.rapid) { startSeg = s; break; }
       }
-      if (startSeg) {
-        const sx = toCanvasX(startSeg.a.x), sy = toCanvasY(startSeg.a.y);
-        ctx.save();
-        ctx.translate(sx, sy);
-        ctx.beginPath();
-        ctx.arc(0, 0, 8, 0, Math.PI * 2);
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(0, 0, 3, 0, Math.PI * 2);
-        ctx.fillStyle = '#fbbf24';
-        ctx.fill();
-        ctx.font = 'bold 9px sans-serif';
-        ctx.fillStyle = '#f59e0b';
-        ctx.textAlign = 'center';
-        ctx.fillText('START', 0, -14);
-        ctx.restore();
+      let endSeg = null;
+      for (let i = segments.length - 1; i >= 0; i--) {
+        const s = segments[i];
+        if (fileHasToolOn ? s.toolOn : !s.rapid) { endSeg = s; break; }
+      }
+      if (startSeg || endSeg) {
+        const sx = startSeg ? toCanvasX(startSeg.a.x) : 0, sy = startSeg ? toCanvasY(startSeg.a.y) : 0;
+        const ex = endSeg ? toCanvasX(endSeg.b.x) : 0, ey = endSeg ? toCanvasY(endSeg.b.y) : 0;
+        const samePoint = startSeg && endSeg && Math.abs(sx - ex) < 2 && Math.abs(sy - ey) < 2;
+        const offX = samePoint ? 22 : 0;
+        if (startSeg) {
+          ctx.save(); ctx.translate(sx, sy);
+          ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2);
+          ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2; ctx.stroke();
+          ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2);
+          ctx.fillStyle = '#fbbf24'; ctx.fill();
+          ctx.font = 'bold 9px sans-serif'; ctx.fillStyle = '#f59e0b';
+          ctx.textAlign = 'center';
+          ctx.fillText('START', samePoint ? -offX : 0, -14);
+          ctx.restore();
+        }
+        if (endSeg) {
+          ctx.save(); ctx.translate(ex, ey);
+          ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2);
+          ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.stroke();
+          ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2);
+          ctx.fillStyle = '#4ade80'; ctx.fill();
+          ctx.font = 'bold 9px sans-serif'; ctx.fillStyle = '#22c55e';
+          ctx.textAlign = 'center';
+          ctx.fillText('END', samePoint ? offX : 0, -14);
+          ctx.restore();
+        }
+      }
+      // Mark Start — draw a directional arrow on the mark point showing the cut direction
+      if (typeof ui !== 'undefined' && ui._markStartIdx != null && ui._markStartIdx >= 0 && ui._pointsList && ui._pointsList.length) {
+        const mp = ui._pointsList.find(p => p.idx === ui._markStartIdx);
+        if (mp) {
+          const mx = toCanvasX(mp.x), my = toCanvasY(mp.y);
+          const axis = ui._pointsAxis || 'X';
+          const fwd = ui._pointsSide === 'right';
+          // Angles: 0=→, π=←, -π/2=↑, π/2=↓ (screen coords, Y flipped from CNC)
+          const angleMap = { X: fwd ? 0 : Math.PI, Y: fwd ? -Math.PI / 2 : Math.PI / 2 };
+          const sideAngle = angleMap[axis];
+          const dpr = window.devicePixelRatio || 1;
+          ctx.save();
+          ctx.translate(mx, my);
+          ctx.rotate(sideAngle);
+          const arrLen = 18 * dpr;
+          ctx.beginPath();
+          ctx.moveTo(arrLen, 0);
+          ctx.lineTo(-arrLen * 0.4, -arrLen * 0.5);
+          ctx.lineTo(-arrLen * 0.4, arrLen * 0.5);
+          ctx.closePath();
+          ctx.fillStyle = '#ef4444';
+          ctx.shadowColor = 'rgba(239,68,68,0.5)';
+          ctx.shadowBlur = 6 * dpr;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1.2 * dpr;
+          ctx.stroke();
+          ctx.restore();
+          ctx.save(); ctx.translate(mx, my);
+          ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2);
+          ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2.5; ctx.stroke();
+          ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2);
+          ctx.fillStyle = '#ef4444'; ctx.fill();
+          ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#ef4444';
+          ctx.textAlign = 'center';
+          ctx.fillText('MARK', 0, -16);
+          ctx.restore();
+        }
       }
     }
 
@@ -996,15 +1217,6 @@
       }
     }
 
-    // Axis lines at origin
-    const ox0 = toCanvasX(0), oy0 = toCanvasY(0);
-    if (ox0 >= 0 && ox0 <= w && oy0 >= 0 && oy0 <= h) {
-      ctx.lineWidth = Math.max(1.2, dpr);
-      ctx.strokeStyle = '#dc2626'; ctx.beginPath(); ctx.moveTo(ox0, oy0); ctx.lineTo(toCanvasX(Math.min(maxX, 20 * mmPerPx)), oy0); ctx.stroke();
-      ctx.strokeStyle = '#16a34a'; ctx.beginPath(); ctx.moveTo(ox0, oy0); ctx.lineTo(ox0, toCanvasY(Math.min(maxY, 20 * mmPerPx))); ctx.stroke();
-      ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ox0, oy0, 3, 0, Math.PI * 2); ctx.fill();
-    }
-
     // Selected points and origin mark
     state.selectedPoints.forEach(idx => {
       const c = commands[idx];
@@ -1016,66 +1228,128 @@
       ctx.fillStyle = 'rgba(255,136,0,0.3)'; ctx.fill();
     });
 
-    if (state.originMark) {
-      const mx = toCanvasX(state.originMark.x), my = toCanvasY(state.originMark.y);
-      const sz = 28;
+    this._drawMinimap(ctx, w, h, b, baseFit);
+
+    // Legend (right side) — dark panel with color key
+    if (segments.length && segsToDraw > 0) {
+      const dpr2 = window.devicePixelRatio || 1;
+      const cssW = w / dpr2, cssH = h / dpr2;
+      const fs = Math.round(10 * dpr2);
+      const padX = 8 * dpr2, padY = 6 * dpr2;
+      const items = previewOpts.colorByFeed
+        ? [
+            { color: '#3B82F6', label: 'Slow feed',  active: true },
+            { color: '#F59E0B', label: 'Med feed',   active: true },
+            { color: '#EF4444', label: 'Fast feed',  active: true },
+            { color: '#aaaaaa', label: 'Rapid (G0)', active: rapidBatch.ax.length > 0 },
+            { color: '#2563eb', label: 'Vertices',   active: segsToDraw > 0 },
+          ].filter(it => it.active)
+        : [
+            { color: '#f59e0b', label: 'Start',      active: true },
+            { color: '#22c55e', label: 'End',         active: true },
+            { color: '#a855f7', label: 'Tool ON',   active: hasToolOn },
+            { color: '#ef4444', label: 'Tool OFF',  active: hasToolOff },
+            { color: '#aaaaaa', label: 'Rapid (G0)', active: rapidBatch.ax.length > 0 },
+            { color: '#2563eb', label: 'Vertices',   active: segsToDraw > 0 },
+          ].filter(it => it.active);
+      ctx.font = `bold ${fs}px sans-serif`;
+      let maxLabelW = 0;
+      for (const it of items) { const m = ctx.measureText(it.label).width; if (m > maxLabelW) maxLabelW = m; }
+      const boxW = padX * 2 + fs * 1.2 + fs * 1.5 + maxLabelW + 4 * dpr2;
+      const lineH = fs * 1.5;
+      const boxH = items.length * lineH + padY * 2;
+      const bx = cssW - boxW - 6 * dpr2;
+      const by = 6 * dpr2; // top-right corner
       ctx.save();
-      // Background circle
+      // Dark background
+      ctx.fillStyle = 'rgba(15,23,42,0.82)';
       ctx.beginPath();
-      ctx.arc(mx, my, sz + 8, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,0,0,0.15)';
+      const r = 4 * dpr2;
+      ctx.moveTo(bx + r, by);
+      ctx.lineTo(bx + boxW - r, by); ctx.quadraticCurveTo(bx + boxW, by, bx + boxW, by + r);
+      ctx.lineTo(bx + boxW, by + boxH - r); ctx.quadraticCurveTo(bx + boxW, by + boxH, bx + boxW - r, by + boxH);
+      ctx.lineTo(bx + r, by + boxH); ctx.quadraticCurveTo(bx, by + boxH, bx, by + boxH - r);
+      ctx.lineTo(bx, by + r); ctx.quadraticCurveTo(bx, by, bx + r, by);
+      ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255,0,0,0.3)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1;
       ctx.stroke();
-      // Cross glow
-      ctx.shadowColor = 'rgba(255,0,0,0.7)'; ctx.shadowBlur = 14;
-      ctx.strokeStyle = '#ff2222'; ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
-      ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
-      ctx.stroke(); ctx.shadowBlur = 0;
-      // Inner cross (white)
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(mx - sz, my - sz); ctx.lineTo(mx + sz, my + sz);
-      ctx.moveTo(mx + sz, my - sz); ctx.lineTo(mx - sz, my + sz);
-      ctx.stroke();
-      // Direction arrow
-      ctx.fillStyle = '#ff2222'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
-      const arrowY = state.originMark.dir === 'left' ? -sz - 18 : sz + 10;
-      ctx.fillText(state.originMark.dir === 'left' ? '◀' : '▶', mx, my + arrowY);
+      // Items
+      ctx.font = `bold ${fs}px sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      let iy = by + padY + lineH * 0.5;
+      for (const it of items) {
+        // Color swatch
+        ctx.fillStyle = it.color;
+        ctx.fillRect(bx + padX, iy - fs * 0.35, fs * 1.2, fs * 0.7);
+        // Label
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText(it.label, bx + padX + fs * 1.5, iy);
+        iy += lineH;
+      }
       ctx.restore();
     }
 
-    this._drawMinimap(ctx, w, h, b, baseFit);
+    // Direction arrow below work area — shows program flow direction
+    if (segments.length && segsToDraw > 0) {
+      const dpr3 = window.devicePixelRatio || 1;
+      const waX = toCanvasX(minX), waY = toCanvasY(maxY);
+      const waW = rangeX * baseFit * state.previewScale;
+      const waH = rangeY * baseFit * state.previewScale;
+      // Compute net direction from non-rapid segments
+      let dx = 0, dy = 0;
+      for (let i = 0; i < segsToDraw && i < segments.length; i++) {
+        const s = segments[i];
+        if (s.rapid) continue;
+        dx += s.b.x - s.a.x;
+        dy += s.b.y - s.a.y;
+      }
+      const absDx = Math.abs(dx), absDy = Math.abs(dy);
+      if (absDx > 0.001 || absDy > 0.001) {
+        ctx.save();
+        const arrowCY = waY + waH + 18 * dpr3;
+        const arrowCX = waX + waW / 2;
+        const arrowLen = Math.min(waW * 0.6, 120 * dpr3);
+        const arrowHalf = arrowLen / 2;
+        ctx.strokeStyle = 'rgba(226,232,240,0.5)';
+        ctx.fillStyle = 'rgba(226,232,240,0.5)';
+        ctx.lineWidth = Math.max(1.5, dpr3);
+        ctx.lineCap = 'round';
+        // Determine dominant direction
+        if (absDx >= absDy) {
+          const dir = dx > 0 ? 1 : -1;
+          const x1 = arrowCX - arrowHalf * dir;
+          const x2 = arrowCX + arrowHalf * dir;
+          ctx.beginPath(); ctx.moveTo(x1, arrowCY); ctx.lineTo(x2, arrowCY); ctx.stroke();
+          // Arrowhead
+          const hs = 6 * dpr3 * dir;
+          ctx.beginPath();
+          ctx.moveTo(x2, arrowCY);
+          ctx.lineTo(x2 - hs, arrowCY - hs * 0.6);
+          ctx.lineTo(x2 - hs, arrowCY + hs * 0.6);
+          ctx.closePath(); ctx.fill();
+        } else {
+          const dir = dy > 0 ? -1 : 1;
+          const y1 = arrowCY - arrowHalf * dir;
+          const y2 = arrowCY + arrowHalf * dir;
+          ctx.beginPath(); ctx.moveTo(arrowCX, y1); ctx.lineTo(arrowCX, y2); ctx.stroke();
+          // Arrowhead
+          const hs = 6 * dpr3 * dir;
+          ctx.beginPath();
+          ctx.moveTo(arrowCX, y2);
+          ctx.lineTo(arrowCX - hs * 0.6, y2 - hs);
+          ctx.lineTo(arrowCX + hs * 0.6, y2 - hs);
+          ctx.closePath(); ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
     this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
   },
-  // Click on canvas → set origin in world coordinates
-  _setOriginFromClick(e, canvas) {
-    if (!state.workingCmds.length) return;
-    canvas = canvas || this.canvas;
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / rect.width;
-    const sy = canvas.height / rect.height;
-    const cx = (e.clientX - rect.left) * sx;
-    const cy = (e.clientY - rect.top) * sy;
-    const b = this._getBounds(state.workingCmds);
-    if (!b) return;
-    const { minX, minY, rangeX, rangeY } = b;
-    const w = canvas.width, h = canvas.height;
-    const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    const worldX = (cx - pad - state.previewOffX) / (baseFit * state.previewScale) + minX;
-    const worldY = minY + rangeY - (cy - pad - state.previewOffY) / (baseFit * state.previewScale);
-    this.originX = parseFloat(worldX.toFixed(3));
-    this.originY = parseFloat(worldY.toFixed(3));
-    document.getElementById('originX').value = this.originX;
-    document.getElementById('originY').value = this.originY;
-    ui.setStatus(`Origin set to X=${this.originX}  Y=${this.originY}`);
-  },
 
-  // Click to place/remove origin mark (red X) — toggles on each click
   highlightLine(cmdIdx) {
     this._hlCmdIdx = cmdIdx;
     if (this._hlTimeout) clearTimeout(this._hlTimeout);
@@ -1095,43 +1369,6 @@
     return 10;
   },
 
-  _setMarkFromClick(e, canvas) {
-    // If mark already exists, remove it (toggle)
-    if (state.originMark) {
-      state.originMark = null;
-      originMarkMode = null;
-      this.draw(state.workingCmds);
-      ui.setStatus('Mark removed.');
-      return;
-    }
-    canvas = canvas || this.canvas;
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / rect.width;
-    const sy = canvas.height / rect.height;
-    const cx = (e.clientX - rect.left) * sx;
-    const cy = (e.clientY - rect.top) * sy;
-    const b = this._getBounds(state.workingCmds);
-    if (!b) {
-      state.originMark = { x: cx, y: cy, dir: originMarkMode };
-      this.draw(state.workingCmds);
-      ui.setStatus(`Mark placed at canvas (${cx.toFixed(0)}, ${cy.toFixed(0)}) direction: ${originMarkMode}`);
-      return;
-    }
-    const { minX, minY, rangeX, rangeY } = b;
-    const w = canvas.width, h = canvas.height;
-    const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    let worldX = (cx - pad - state.previewOffX) / (baseFit * state.previewScale) + minX;
-    let worldY = minY + rangeY - (cy - pad - state.previewOffY) / (baseFit * state.previewScale);
-    const step = this._getGridStep();
-    worldX = Math.round(worldX / step) * step;
-    worldY = Math.round(worldY / step) * step;
-    state.originMark = { x: parseFloat(worldX.toFixed(3)), y: parseFloat(worldY.toFixed(3)), dir: originMarkMode };
-    this.draw(state.workingCmds);
-    originMarkMode = null;
-    ui.setStatus(`Mark at X=${state.originMark.x} Y=${state.originMark.y}`);
-  },
-
   // Get absolute X,Y position at a given cmdIdx (handles G90/G91)
   _getPosAt(cmdIdx) {
     let x = 0, y = 0, isRel = false;
@@ -1140,6 +1377,7 @@
       const c = cmds[i];
       if (c.type === 'G91') { isRel = true; continue; }
       if (c.type === 'G90') { isRel = false; continue; }
+      if (c.type === 'G92') { continue; }
       if (c.params.X !== undefined) x = isRel ? x + c.params.X : c.params.X;
       if (c.params.Y !== undefined) y = isRel ? y + c.params.Y : c.params.Y;
     }
@@ -1149,6 +1387,7 @@
   _updatePointsInfo() {
     const info = document.getElementById('pointsInfo');
     const dist = document.getElementById('pointsDistance');
+    if (!info || !dist) return;
     if (!state.selectedPoints.size) {
       info.textContent = 'Select points on preview';
       dist.style.display = 'none';
@@ -1182,6 +1421,7 @@
     const sy = canvas.height / rect.height;
     const cx = (e.clientX - rect.left) * sx;
     const cy = (e.clientY - rect.top) * sy;
+
     const b = this._getBounds(state.workingCmds);
     if (!b) return;
     const { minX, minY, rangeX, rangeY } = b;
@@ -1265,10 +1505,12 @@
   },
 
   _drawMinimap(ctx, w, h, b, baseFit) {
-    if (!previewOpts.showMinimap || !this._segments || this._segments.length < 10) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = w / dpr, cssH = h / dpr;
     const mmSize = 120;
-    const mmX = w - mmSize - 10;
-    const mmY = h - mmSize - 10;
+    const mmX = cssW - mmSize - 10;
+    const mmY = cssH - mmSize - 10;
+    if (!previewOpts.showMinimap || !this._segments || !this._segments.length) return;
     const { minX, maxX, minY, maxY } = b;
     const rangeX = maxX - minX || 1;
     const rangeY = maxY - minY || 1;

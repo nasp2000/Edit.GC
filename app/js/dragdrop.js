@@ -16,9 +16,7 @@ async function handleDroppedFile(file) {
     // Free original commands for large files to save memory
     if (state.originalCmds.length > 50000) state.originalCmds = [];
     state.dirty         = false;
-    state.previewScale  = 1;
-    state.previewOffX   = 0;
-    state.previewOffY   = 0;
+    preview._zoomToFit();
     const editorText = isLarge ? '(original text too large for editor)' : truncateForEditor(text);
     document.getElementById('editorOriginal').value = editorText;
     document.getElementById('editorWorking').value = editorText;
@@ -31,10 +29,8 @@ async function handleDroppedFile(file) {
     ui.updateFooterInfo();
     applyHighlight(document.getElementById('highlightOriginal'), isLarge ? '' : text);
     applyHighlight(document.getElementById('highlightWorking'), isLarge ? '' : text);
-    document.getElementById('btnConvertSvg').disabled = true;
-    document.getElementById('btnConvertDxf').disabled = true;
+    document.getElementById('btnSlice').disabled = true;
   } else if (ext === 'svg') {
-    document.getElementById('fileInputSvg').files = new DataTransfer().files; // clear
     // Reuse the SVG load flow by dispatching to the same handler
     const input = document.getElementById('fileInputSvg');
     const dt = new DataTransfer();
@@ -42,7 +38,7 @@ async function handleDroppedFile(file) {
     input.files = dt.files;
     input.dispatchEvent(new Event('change'));
   } else if (ext === 'dxf') {
-    document.getElementById('fileInputSvg').files = new DataTransfer().files; // clear
+    document.getElementById('fileInputDxf').files = new DataTransfer().files; // clear
     const input = document.getElementById('fileInputDxf');
     const dt = new DataTransfer();
     dt.items.add(file);

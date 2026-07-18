@@ -150,7 +150,7 @@ const findReplace = {
     if (ta) {
       ta.focus();
       ta.setSelectionRange(m.index, m.index + m.length);
-      ta.scrollTop = (lineNo - 3) * 19.2;
+      ta.scrollTop = (lineNo - 3) * (parseFloat(getComputedStyle(ta).lineHeight) || 19.2);
     } else if (window.ui && ui._ve) {
       ui._ve.focus();
       ui._ve.scrollToLine(lineNo - 1);

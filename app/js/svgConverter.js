@@ -20,54 +20,101 @@ const svgConverter = {
   },
 
   // Convert pre-parsed segments (from SVG or DXF) to G-code
-  // Each segment is [{x,y,cut}, ...]; Y is SVG-down (will be flipped)
+  // Each segment is [{x,y,cut}, ...]; Y is SVG-down (0 at top)
+  // We flip Y to CNC convention: Y+ up (0 at bottom).
   segmentsToGcode(segments, template, dimH) {
     const feedCut    = template?.laser?.feedCut    || 3000;
     const feedTravel = template?.laser?.feedTravel || 8000;
     const sMax       = template?.laser?.sMax       || 1000;
+    const passes     = template?.laser?.passes     || 1;
     const laserOn    = template?.laser?.laserOnCmd || 'M4';
+    const laserOff   = template?.laser?.laserOffCmd || 'M5';
+    const baseCmd    = (s) => s.trim().toUpperCase().split(/\s+/)[0];
+    const isStdLaserOn = /^M[34]$/i.test(baseCmd(laserOn));
+    const laserOnHasS = /\bS\b/.test(laserOn);
+    const cmtMap     = template?.commandComments  || {};
+    const flipY = dimH != null;
+    const _y = (y) => flipY ? Number((dimH - y).toFixed(4)) : Number(y.toFixed(4));
+    const _x = (x) => Number(x.toFixed(4));
     const cmds = [];
+    // SM300 mode: implicit motion (no G0/G1), no S param, feed on move line
+    const isSM300 = /SM3/i.test(laserOn) || /SM3/i.test(laserOff) ||
+                    (template?.options && /^SM3/i.test(String(template.options.laserOnCmd || '')));
+    const _annotate = (raw) => {
+      const trimmed = raw.trim();
+      for (const key in cmtMap) {
+        if (trimmed === key || trimmed.startsWith(key + ' ')) {
+          const existingComment = trimmed.includes(';') ? '' : ` ; ${cmtMap[key]}`;
+          return raw + existingComment;
+        }
+      }
+      return raw;
+    };
     // Header
     if (template?.header?.length) {
-      template.header.forEach(raw => cmds.push(...gcodeParser.parse(raw + '\n')));
+      template.header.forEach(raw => cmds.push(...gcodeParser.parse(_annotate(raw) + '\n')));
+      const headerStr = template.header.join(' ').toUpperCase();
+      if (!headerStr.includes(baseCmd(laserOn).toUpperCase())) {
+        cmds.push(this._cmd(baseCmd(laserOn), isStdLaserOn && !laserOnHasS ? { S: 0 } : {}));
+      }
     } else {
       cmds.push(this._cmd('G21'));
       cmds.push(this._cmd('G90'));
-      cmds.push(this._cmd(laserOn, { S: 0 }));
+      cmds.push(this._cmd(baseCmd(laserOn), isStdLaserOn && !laserOnHasS ? { S: 0 } : {}));
     }
-    const hMm = dimH || this._guessHeight(segments);
     segments.forEach(seg => {
       if (!seg || seg.length < 2) return;
       const start = seg[0];
-      cmds.push(this._cmd('G0', { X: this._r(start.x), Y: this._r(hMm - start.y), F: feedTravel }));
-      for (let i = 1; i < seg.length; i++) {
-        const pt = seg[i];
-        if (pt.cut) {
-          cmds.push(this._cmd('G1', { X: this._r(pt.x), Y: this._r(hMm - pt.y), F: feedCut, S: sMax }));
-        } else {
-          cmds.push(this._cmd('G0', { X: this._r(pt.x), Y: this._r(hMm - pt.y), F: feedTravel }));
+      // Rapid to segment start (once, before all passes)
+      if (isSM300) {
+        cmds.push(this._cmdImplicit(_x(start.x), _y(start.y), feedTravel));
+      } else {
+        cmds.push(this._cmd('G0', { X: this._r(_x(start.x)), Y: this._r(_y(start.y)), F: feedTravel }));
+      }
+      // Cut portion repeated `passes` times
+      for (let pass = 0; pass < passes; pass++) {
+        if (passes > 1) {
+          cmds.push({ lineIndex: -1, raw: `; Pass ${pass + 1}`, type: '', params: {}, comment: ` Pass ${pass + 1}`, isBlank: false, isComment: true, blockDelete: false });
+        }
+        if (pass > 0) {
+          // Rapid back to segment start for next pass
+          if (isSM300) {
+            cmds.push(this._cmdImplicit(_x(start.x), _y(start.y), feedTravel));
+          } else {
+            cmds.push(this._cmd('G0', { X: this._r(_x(start.x)), Y: this._r(_y(start.y)), F: feedTravel }));
+          }
+        }
+        for (let i = 1; i < seg.length; i++) {
+          const pt = seg[i];
+          if (pt.cut) {
+            if (isSM300) {
+              cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedCut));
+            } else {
+              cmds.push(this._cmd('G1', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedCut, S: sMax }));
+            }
+          } else {
+            if (isSM300) {
+              cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedTravel));
+            } else {
+              cmds.push(this._cmd('G0', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedTravel }));
+            }
+          }
         }
       }
     });
     // Footer
     if (template?.footer?.length) {
-      template.footer.forEach(raw => cmds.push(...gcodeParser.parse(raw + '\n')));
+      template.footer.forEach(raw => cmds.push(...gcodeParser.parse(_annotate(raw) + '\n')));
     } else {
-      cmds.push(this._cmd('M5'));
-      cmds.push(this._cmd('G0', { X: 0, Y: 0, F: feedTravel }));
+      cmds.push(this._cmd(baseCmd(laserOff)));
+      if (isSM300) {
+        cmds.push(this._cmdImplicit(_x(0), _y(0), feedTravel));
+      } else {
+        cmds.push(this._cmd('G0', { X: this._r(_x(0)), Y: this._r(_y(0)), F: feedTravel }));
+      }
       cmds.push(this._cmd('M30'));
     }
     return cmds;
-  },
-
-  _guessHeight(segments) {
-    let maxY = 0;
-    for (const seg of segments) {
-      for (const pt of seg) {
-        if (pt.y > maxY) maxY = pt.y;
-      }
-    }
-    return maxY || 100;
   },
 
   _cmd(type, params = {}) {
@@ -76,6 +123,11 @@ const svgConverter = {
       .join('');
     const raw = type + paramStr;
     return { lineIndex: -1, raw, type, params: { ...params }, comment: '', isBlank: false, isComment: false };
+  },
+
+  _cmdImplicit(x, y, feed) {
+    const raw = `X${this._r(x)} Y${this._r(y)} F${feed}`;
+    return { lineIndex: -1, raw, type: '', params: { X: this._r(x), Y: this._r(y), F: feed }, comment: '', isBlank: false, isComment: false };
   },
 
   _r(n) { return parseFloat(n.toFixed(3)); },
@@ -344,7 +396,7 @@ const svgConverter = {
     let dTheta  = angle((x1p-cxp)/rx, (y1p-cyp)/ry, (-x1p-cxp)/rx, (-y1p-cyp)/ry);
     if (!sweep && dTheta > 0) dTheta -= 2*Math.PI;
     if ( sweep && dTheta < 0) dTheta += 2*Math.PI;
-    const steps = Math.max(8, Math.ceil(Math.abs(dTheta) * Math.max(rx, ry) * scale * 2));
+    const steps = Math.min(Math.max(8, Math.ceil(Math.abs(dTheta) * Math.max(rx, ry) * scale * 2)), 2000);
     for (let i = 1; i <= steps; i++) {
       const t = theta1 + dTheta * i / steps;
       const px = cp*rx*Math.cos(t) - sp*ry*Math.sin(t) + cx;
@@ -372,7 +424,7 @@ const svgConverter = {
     const cx = (parseFloat(el.getAttribute('cx') || 0)) - vb.minX;
     const cy = (parseFloat(el.getAttribute('cy') || 0)) - vb.minY;
     const r  =  parseFloat(el.getAttribute('r')  || 0);
-    const steps = Math.max(32, Math.ceil(2 * Math.PI * r * scale * 2));
+    const steps = Math.min(Math.max(32, Math.ceil(2 * Math.PI * r * scale * 2)), 2000);
     return Array.from({ length: steps + 1 }, (_, i) => {
       const a = (i / steps) * 2 * Math.PI;
       return { x: (cx + r*Math.cos(a))*scale, y: (cy + r*Math.sin(a))*scale, cut: i > 0 };
@@ -384,7 +436,7 @@ const svgConverter = {
     const cy = (parseFloat(el.getAttribute('cy') || 0)) - vb.minY;
     const rx =  parseFloat(el.getAttribute('rx') || 0);
     const ry =  parseFloat(el.getAttribute('ry') || 0);
-    const steps = Math.max(32, Math.ceil(2 * Math.PI * Math.max(rx, ry) * scale * 2));
+    const steps = Math.min(Math.max(32, Math.ceil(2 * Math.PI * Math.max(rx, ry) * scale * 2)), 2000);
     return Array.from({ length: steps + 1 }, (_, i) => {
       const a = (i / steps) * 2 * Math.PI;
       return { x: (cx + rx*Math.cos(a))*scale, y: (cy + ry*Math.sin(a))*scale, cut: i > 0 };

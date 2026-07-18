@@ -31,7 +31,7 @@
 
   populateSelect(sel) {
     if (!sel) return;
-    const list = this.list();
+    const list = this.list().filter(f => f.type === 'G-code');
     sel.innerHTML = '<option value="">— Recent —</option>';
     if (!list.length) { sel.innerHTML = '<option value="">— No recent —</option>'; return; }
     list.forEach(f => {

@@ -3,7 +3,7 @@
   const lines = text.split('\n');
   if (lines.length <= CFG.EDITOR_LINE_LIMIT) return text;
   return lines.slice(0, CFG.EDITOR_LINE_LIMIT).join('\n') +
-    `\n\n;  !  File truncated: showing first ${_EDITOR_LINE_LIMIT.toLocaleString()} of ${lines.length.toLocaleString()} lines.`;
+    `\n\n;  !  File truncated: showing first ${CFG.EDITOR_LINE_LIMIT.toLocaleString()} of ${lines.length.toLocaleString()} lines.`;
 }
 function editorLineCount(text) {
   return text ? text.split('\n').length : 0;
@@ -19,7 +19,7 @@ function applyHighlight(el, text) {
     el.innerHTML = gcodeParser.highlight(text);
   }
   // Toggle visible text on the paired textarea when highlight is off
-  const taMap = { highlightOriginal: 'editorOriginal', highlightWorking: 'editorWorking', highlightOriginalModal: 'editorOriginalModal', highlightWorkingModal: 'editorWorkingModal' };
+  const taMap = { highlightOriginal: 'editorOriginal', highlightWorking: 'editorWorking', highlightOriginalModal: 'editorOriginalModal', highlightWorkingModal: 'editorWorkingModal', highlightOriginalModalDual: 'editorOriginalModalDual', highlightWorkingModalDual: 'editorWorkingModalDual' };
   const ta = document.getElementById(taMap[el.id]);
   if (ta) {
     if (skipHL) ta.classList.add('no-highlight');
@@ -30,6 +30,8 @@ function applyHighlight(el, text) {
   else if (id === 'highlightWorking') updateLineNumbers('linesWorking', 'editorWorking');
   else if (id === 'highlightOriginalModal') updateLineNumbers('linesOriginalModal', 'editorOriginalModal');
   else if (id === 'highlightWorkingModal') updateLineNumbers('linesWorkingModal', 'editorWorkingModal');
+  else if (id === 'highlightOriginalModalDual') updateLineNumbers('linesOriginalModalDual', 'editorOriginalModalDual');
+  else if (id === 'highlightWorkingModalDual') updateLineNumbers('linesWorkingModalDual', 'editorWorkingModalDual');
 }
 
 function updateLineNumbers(linesId, textareaId) {
