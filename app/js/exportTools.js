@@ -1,4 +1,4 @@
-// ---- exportTools: G-code → SVG / DXF export ----------------------------------------------------
+// ---- exportTools: G-code -> SVG / DXF export ----------------------------------------------------
 const exportTools = {
   _tracePath(commands) {
     const segments = [];

@@ -1,4 +1,4 @@
-﻿// ── Virtual Editor: renders only visible lines ─────────────
+// -- Virtual Editor: renders only visible lines -------------
 class VirtualEditor {
   constructor(container, opts) {
     this._container = container;
@@ -132,7 +132,7 @@ class VirtualEditor {
     this._spacer.style.height = h + 'px';
   }
 
-  // ── Syntax highlight for a single line ──────────────────
+  // -- Syntax highlight for a single line ------------------
   _highlightLine(line) {
     if (!line) return '\u00A0';
     // Comment-only line

@@ -1,4 +1,4 @@
-﻿// ---- svgConverter ----------------------------------------------------------------------------------------------
+// ---- svgConverter ----------------------------------------------------------------------------------------------
 const svgConverter = {
   PX_TO_MM: 25.4 / 96,
 
@@ -28,6 +28,10 @@ const svgConverter = {
     const sMax       = template?.laser?.sMax       || 1000;
     const passes     = template?.laser?.passes     || 1;
     const zStep      = parseFloat(template?.laser?.zStep) || 0;
+    const focusZ     = parseFloat(template?.laser?.focusZ) || 0;
+    const useZ       = template?.laser?.useZ !== false;
+    const machineX   = parseFloat(template?.laser?.machineX) || 0;
+    const machineY   = parseFloat(template?.laser?.machineY) || 0;
     const laserOn    = template?.laser?.laserOnCmd || 'M4';
     const laserOff   = template?.laser?.laserOffCmd || 'M5';
     const baseCmd    = (s) => s.trim().toUpperCase().split(/\s+/)[0];
@@ -41,6 +45,7 @@ const svgConverter = {
     // SM300 mode: implicit motion (no G0/G1), no S param, feed on move line
     const isSM300 = /SM3/i.test(laserOn) || /SM3/i.test(laserOff) ||
                     (template?.options && /^SM3/i.test(String(template.options.laserOnCmd || '')));
+    const zBase = isSM300 ? focusZ : 0;
     const _annotate = (raw) => {
       const trimmed = raw.trim();
       for (const key in cmtMap) {
@@ -63,61 +68,163 @@ const svgConverter = {
       cmds.push(this._cmd('G90'));
       cmds.push(this._cmd(baseCmd(laserOn), isStdLaserOn && !laserOnHasS ? { S: 0 } : {}));
     }
-    segments.forEach(seg => {
-      if (!seg || seg.length < 2) return;
+    // Sort segments by interior-first (contained shapes before containers) and add inter-segment laser-off/travel/laser-on
+    const segBounds = segments.map(seg => {
+      if (!seg || seg.length < 2) return null;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      seg.forEach(pt => {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      });
+      return { minX, maxX, minY, maxY, area: (maxX - minX) * (maxY - minY) || 0 };
+    });
+    const sortedIndices = segments.map((_, i) => i).sort((a, b) => {
+      const ba = segBounds[a], bb = segBounds[b];
+      if (!ba || !bb) return 0;
+      const aContainsB = ba.minX <= bb.minX && ba.maxX >= bb.maxX && ba.minY <= bb.minY && ba.maxY >= bb.maxY;
+      const bContainsA = bb.minX <= ba.minX && bb.maxX >= ba.maxX && bb.minY <= ba.minY && bb.maxY >= ba.maxY;
+      if (aContainsB && !bContainsA) return 1;
+      if (bContainsA && !aContainsB) return -1;
+      return (ba.area || 0) - (bb.area || 0);
+    });
+
+    const baseOff = baseCmd(laserOff);
+    const baseOn = baseCmd(laserOn);
+
+    for (let si = 0; si < sortedIndices.length; si++) {
+      const seg = segments[sortedIndices[si]];
+      if (!seg || seg.length < 2) continue;
       const start = seg[0];
-      // Rapid to segment start (once, before all passes)
-      if (isSM300) {
-        cmds.push(this._cmdImplicit(_x(start.x), _y(start.y), feedTravel));
+
+      if (si > 0) {
+        // Inter-segment: laser off, travel to next start, laser on
+        cmds.push(this._cmd(baseOff));
+        if (isSM300) {
+          cmds.push(this._cmdImplicit(_x(start.x), _y(start.y), feedTravel, zBase));
+          cmds.push(this._cmd(baseOn, {}));
+        } else {
+          cmds.push(this._cmd('G0', { X: this._r(_x(start.x)), Y: this._r(_y(start.y)), F: feedTravel }));
+          cmds.push(this._cmd(baseOn, isStdLaserOn && !laserOnHasS ? { S: 0 } : {}));
+        }
       } else {
-        cmds.push(this._cmd('G0', { X: this._r(_x(start.x)), Y: this._r(_y(start.y)), F: feedTravel }));
+        // First segment: rapid to start only
+        if (isSM300) {
+          cmds.push(this._cmdImplicit(_x(start.x), _y(start.y), feedTravel, zBase));
+        } else {
+          cmds.push(this._cmd('G0', { X: this._r(_x(start.x)), Y: this._r(_y(start.y)), F: feedTravel }));
+        }
       }
+      // Determine if segment is closed (last point ? travel-to-start point)
+      const lastPt = seg[seg.length - 1];
+      const isClosed = start && lastPt &&
+        Math.abs(start.x - lastPt.x) < 0.001 && Math.abs(start.y - lastPt.y) < 0.001;
       // Cut portion repeated `passes` times
       for (let pass = 0; pass < passes; pass++) {
+        const passZ = zBase + pass * zStep;
         if (passes > 1) {
           cmds.push({ lineIndex: -1, raw: `; Pass ${pass + 1}`, type: '', params: {}, comment: ` Pass ${pass + 1}`, isBlank: false, isComment: true, blockDelete: false });
         }
-        if (pass > 0) {
-          // Rapid back to segment start for next pass
-          if (isSM300) {
-            cmds.push(this._cmdImplicit(_x(start.x), _y(start.y), feedTravel));
-          } else {
-            cmds.push(this._cmd('G0', { X: this._r(_x(start.x)), Y: this._r(_y(start.y)), F: feedTravel }));
-          }
-          // Z step: lower Z incrementally each pass
-          if (zStep) {
+        if (isClosed) {
+          // Closed shape: all passes go forward, no travel between passes
+          if (pass > 0 && zStep && useZ && !isSM300) {
             cmds.push(...gcodeParser.parse('G91\nG0 Z' + zStep + '\nG90\n'));
           }
-        }
-        for (let i = 1; i < seg.length; i++) {
-          const pt = seg[i];
-          if (pt.cut) {
-            if (isSM300) {
-              cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedCut));
-            } else {
-              cmds.push(this._cmd('G1', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedCut, S: sMax }));
+          for (let i = 1; i < seg.length; i++) {
+            const pt = seg[i];
+            if (pt.cut) {
+              if (isSM300) {
+                cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedCut, useZ ? passZ : 0));
+              } else {
+                cmds.push(this._cmd('G1', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedCut, S: sMax }));
+              }
+            }
+          }
+        } else {
+          // Open shape: alternating direction, no travel between passes
+          if (pass > 0 && zStep && useZ && !isSM300) {
+            cmds.push(...gcodeParser.parse('G91\nG0 Z' + zStep + '\nG90\n'));
+          }
+          if (pass % 2 === 0) {
+            // Even pass: forward direction (start ? end)
+            for (let i = 1; i < seg.length; i++) {
+              const pt = seg[i];
+              if (pt.cut) {
+                if (isSM300) {
+                  cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedCut, useZ ? passZ : 0));
+                } else {
+                  cmds.push(this._cmd('G1', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedCut, S: sMax }));
+                }
+              } else {
+                if (isSM300) {
+                  cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedTravel, useZ ? passZ : 0));
+                } else {
+                  cmds.push(this._cmd('G0', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedTravel }));
+                }
+              }
             }
           } else {
-            if (isSM300) {
-              cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedTravel));
-            } else {
-              cmds.push(this._cmd('G0', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedTravel }));
+            // Odd pass: reverse direction (no travel, cut back from end to start)
+            for (let i = seg.length - 1; i >= 1; i--) {
+              const pt = seg[i];
+              if (pt.cut) {
+                if (isSM300) {
+                  cmds.push(this._cmdImplicit(_x(pt.x), _y(pt.y), feedCut, useZ ? passZ : 0));
+                } else {
+                  cmds.push(this._cmd('G1', { X: this._r(_x(pt.x)), Y: this._r(_y(pt.y)), F: feedCut, S: sMax }));
+                }
+              }
             }
           }
         }
       }
-    });
+    }
     // Footer
     if (template?.footer?.length) {
       template.footer.forEach(raw => cmds.push(...gcodeParser.parse(_annotate(raw) + '\n')));
     } else {
       cmds.push(this._cmd(baseCmd(laserOff)));
       if (isSM300) {
-        cmds.push(this._cmdImplicit(_x(0), _y(0), feedTravel));
+        cmds.push(this._cmdImplicit(_x(0), _y(0), feedTravel, useZ ? zBase : 0));
       } else {
         cmds.push(this._cmd('G0', { X: this._r(_x(0)), Y: this._r(_y(0)), F: feedTravel }));
       }
       cmds.push(this._cmd('M30'));
+    }
+    // Auto-center: shift all motion commands so path starts near X0 Y0
+    const isMotion = (t) => ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(t) || t === null || t === undefined;
+    const isRealCmd = (c) => !c.isComment && !c.isBlank && isMotion(c.type);
+    let minX = Infinity, minY = Infinity;
+    cmds.forEach(c => {
+      if (!isRealCmd(c)) return;
+      if (c.params.X !== undefined && c.params.X < minX) minX = c.params.X;
+      if (c.params.Y !== undefined && c.params.Y < minY) minY = c.params.Y;
+    });
+    if (isFinite(minX) && isFinite(minY) && (Math.abs(minX) > 0.01 || Math.abs(minY) > 0.01)) {
+      cmds.forEach(c => {
+        if (!isRealCmd(c)) return;
+        if (c.params.X !== undefined) c.params.X = parseFloat((c.params.X - minX).toFixed(3));
+        if (c.params.Y !== undefined) c.params.Y = parseFloat((c.params.Y - minY).toFixed(3));
+        c.raw = '';
+      });
+      // Restore footer return-to-home to X0 Y0
+      for (let i = cmds.length - 1; i >= 0; i--) {
+        const c = cmds[i];
+        if (c.params.X !== undefined || c.params.Y !== undefined) {
+          c.params.X = 0; c.params.Y = 0; c.raw = '';
+          break;
+        }
+      }
+    }
+    // Apply machine origin offset (Start X / Start Y)
+    if (machineX || machineY) {
+      cmds.forEach(c => {
+        if (!isRealCmd(c)) return;
+        if (c.params.X !== undefined) c.params.X = parseFloat((c.params.X + machineX).toFixed(3));
+        if (c.params.Y !== undefined) c.params.Y = parseFloat((c.params.Y + machineY).toFixed(3));
+        c.raw = '';
+      });
     }
     return cmds;
   },
@@ -130,9 +237,9 @@ const svgConverter = {
     return { lineIndex: -1, raw, type, params: { ...params }, comment: '', isBlank: false, isComment: false };
   },
 
-  _cmdImplicit(x, y, feed) {
-    const raw = `X${this._r(x)} Y${this._r(y)} F${feed}`;
-    return { lineIndex: -1, raw, type: '', params: { X: this._r(x), Y: this._r(y), F: feed }, comment: '', isBlank: false, isComment: false };
+  _cmdImplicit(x, y, feed, z) {
+    let raw = `X${this._r(x)} Y${this._r(y)} Z${this._r(z)} F${feed}`;
+    return { lineIndex: -1, raw, type: '', params: { X: this._r(x), Y: this._r(y), Z: this._r(z), F: feed }, comment: '', isBlank: false, isComment: false };
   },
 
   _r(n) { return parseFloat(n.toFixed(3)); },
@@ -208,11 +315,15 @@ const svgConverter = {
     for (const child of (el.children || [])) {
       const tag = child.tagName.toLowerCase().replace(/^svg:/, '');
       const localTfm = this._makeTransform(child.getAttribute('transform'));
+      // Compose viewBox offset into the transform (SVG spec: transform, then viewBox)
+      const vbOffset = (x, y) => [x - vb.minX, y - vb.minY];
       const tfm = localTfm
         ? parentTfm
-          ? (x, y) => { const [lx, ly] = localTfm(x, y); return parentTfm(lx, ly); }
-          : localTfm
-        : parentTfm;
+          ? (x, y) => { const [lx, ly] = localTfm(x, y); const [px, py] = parentTfm(lx, ly); return vbOffset(px, py); }
+          : (x, y) => { const [lx, ly] = localTfm(x, y); return vbOffset(lx, ly); }
+        : parentTfm
+          ? (x, y) => { const [px, py] = parentTfm(x, y); return vbOffset(px, py); }
+          : vbOffset;
       if      (tag === 'path')                       segments.push(this._applyTfmToSeg(this._parsePath(child.getAttribute('d') || '', scale, vb), tfm));
       else if (tag === 'rect')                       segments.push(this._applyTfmToSeg(this._parseRect(child, scale, vb), tfm));
       else if (tag === 'circle')                     segments.push(this._applyTfmToSeg(this._parseCircle(child, scale, vb), tfm));
@@ -241,8 +352,8 @@ const svgConverter = {
     for (const { cmd, args } of tokens) {
       const rel = cmd !== cmd.toUpperCase() && cmd !== 'z' && cmd !== 'Z';
       const c   = cmd.toUpperCase();
-      const ax  = v => rel ? x + v : v - vb.minX;
-      const ay  = v => rel ? y + v : v - vb.minY;
+      const ax  = v => rel ? x + v : v;
+      const ay  = v => rel ? y + v : v;
 
       if (c === 'M') {
         for (let i = 0; i < args.length; i += 2) {
@@ -253,9 +364,9 @@ const svgConverter = {
       } else if (c === 'L') {
         for (let i = 0; i < args.length; i += 2) { x = ax(args[i]); y = ay(args[i + 1]); push(x, y, true); }
       } else if (c === 'H') {
-        for (const v of args) { x = rel ? x + v : v - vb.minX; push(x, y, true); }
+        for (const v of args) { x = rel ? x + v : v; push(x, y, true); }
       } else if (c === 'V') {
-        for (const v of args) { y = rel ? y + v : v - vb.minY; push(x, y, true); }
+        for (const v of args) { y = rel ? y + v : v; push(x, y, true); }
       } else if (c === 'C') {
         for (let i = 0; i < args.length; i += 6) {
           const x1 = ax(args[i]),   y1 = ay(args[i+1]);
@@ -316,7 +427,7 @@ const svgConverter = {
     return result;
   },
 
-  _bezierTolerance: 0.1, // mm — configurable
+  _bezierTolerance: 0.1, // mm ? configurable
 
   _flattenCubic(x0, y0, x1, y1, x2, y2, x3, y3, pts, scale) {
     const tol = this._bezierTolerance / scale;
@@ -412,8 +523,8 @@ const svgConverter = {
 
   // ---- Primitive shapes ----------------------------------------------------------------------------
   _parseRect(el, scale, vb) {
-    const x = (parseFloat(el.getAttribute('x') || 0)) - vb.minX;
-    const y = (parseFloat(el.getAttribute('y') || 0)) - vb.minY;
+    const x = parseFloat(el.getAttribute('x') || 0);
+    const y = parseFloat(el.getAttribute('y') || 0);
     const w = parseFloat(el.getAttribute('width')  || 0);
     const h = parseFloat(el.getAttribute('height') || 0);
     return [
@@ -426,8 +537,8 @@ const svgConverter = {
   },
 
   _parseCircle(el, scale, vb) {
-    const cx = (parseFloat(el.getAttribute('cx') || 0)) - vb.minX;
-    const cy = (parseFloat(el.getAttribute('cy') || 0)) - vb.minY;
+    const cx = parseFloat(el.getAttribute('cx') || 0);
+    const cy = parseFloat(el.getAttribute('cy') || 0);
     const r  =  parseFloat(el.getAttribute('r')  || 0);
     const steps = Math.min(Math.max(32, Math.ceil(2 * Math.PI * r * scale * 2)), 2000);
     return Array.from({ length: steps + 1 }, (_, i) => {
@@ -437,8 +548,8 @@ const svgConverter = {
   },
 
   _parseEllipse(el, scale, vb) {
-    const cx = (parseFloat(el.getAttribute('cx') || 0)) - vb.minX;
-    const cy = (parseFloat(el.getAttribute('cy') || 0)) - vb.minY;
+    const cx = parseFloat(el.getAttribute('cx') || 0);
+    const cy = parseFloat(el.getAttribute('cy') || 0);
     const rx =  parseFloat(el.getAttribute('rx') || 0);
     const ry =  parseFloat(el.getAttribute('ry') || 0);
     const steps = Math.min(Math.max(32, Math.ceil(2 * Math.PI * Math.max(rx, ry) * scale * 2)), 2000);
@@ -450,8 +561,8 @@ const svgConverter = {
 
   _parseLine(el, scale, vb) {
     return [
-      { x: ((parseFloat(el.getAttribute('x1')||0)) - vb.minX) * scale, y: ((parseFloat(el.getAttribute('y1')||0)) - vb.minY) * scale, cut: false },
-      { x: ((parseFloat(el.getAttribute('x2')||0)) - vb.minX) * scale, y: ((parseFloat(el.getAttribute('y2')||0)) - vb.minY) * scale, cut: true  },
+      { x: (parseFloat(el.getAttribute('x1')||0)) * scale, y: (parseFloat(el.getAttribute('y1')||0)) * scale, cut: false },
+      { x: (parseFloat(el.getAttribute('x2')||0)) * scale, y: (parseFloat(el.getAttribute('y2')||0)) * scale, cut: true  },
     ];
   },
 
@@ -459,7 +570,7 @@ const svgConverter = {
     const nums = (el.getAttribute('points') || '').trim().split(/[\s,]+/).map(Number);
     const pts = [];
     for (let i = 0; i + 1 < nums.length; i += 2) {
-      pts.push({ x: (nums[i] - vb.minX)*scale, y: (nums[i+1] - vb.minY)*scale, cut: i > 0 });
+      pts.push({ x: nums[i] * scale, y: nums[i+1] * scale, cut: i > 0 });
     }
     if (tag === 'polygon' && pts.length > 0) pts.push({ ...pts[0], cut: true });
     return pts;

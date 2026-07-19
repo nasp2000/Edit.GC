@@ -1,11 +1,11 @@
-﻿// ---- Modais --------------------------------------------------------------------------------------------------------
+// ---- Modais --------------------------------------------------------------------------------------------------------
 function openModal(id) {
   const m = document.getElementById(id);
   if (!m) return;
   m.classList.add('open');
   if (id === 'modal-preview') {
     const mc = document.getElementById('previewCanvasModal');
-    // aguardar frame para o modal estar visÃ­vel e ter dimensÃµes correctas
+    // aguardar frame para o modal estar visivel e ter dimenses correctas
     requestAnimationFrame(() => {
       const dpr = window.devicePixelRatio || 1;
       mc.width  = Math.floor(mc.offsetWidth * dpr);
@@ -16,7 +16,7 @@ function openModal(id) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       preview.canvas = mc;
       preview.ctx    = ctx;
-      // pan/zoom no canvas do modal — setup once
+      // pan/zoom no canvas do modal ? setup once
       if (!mc._panZoomReady) {
         mc._panZoomReady = true;
         let dragging = false, lastX = 0, lastY = 0;

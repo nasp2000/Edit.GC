@@ -1,4 +1,4 @@
-﻿// ── Pure segment builder (no canvas dependency) ──────────────
+// -- Pure segment builder (no canvas dependency) --------------
 const segmentBuilder = {
   build(commands, maxSegs, initialState) {
     maxSegs = maxSegs || CFG.MAX_SEGMENTS;
@@ -29,7 +29,7 @@ const segmentBuilder = {
 
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-    // Subdivide an arc — all params passed explicitly (no closure over c)
+    // Subdivide an arc ? all params passed explicitly (no closure over c)
     const subdivideArc = (prev, next, cw, cx, cy, planeAx, planeAy, perpAz, cmdIdx) => {
       const p0a = prev[planeAx], p0b = prev[planeAy];
       const da0 = p0a - cx, db0 = p0b - cy;
@@ -85,7 +85,7 @@ const segmentBuilder = {
       return (rVal < 0 ? Math.abs(d0) >= Math.abs(d1) : Math.abs(d0) <= Math.abs(d1)) ? c1 : c2;
     };
 
-    // Main loop — process every command once
+    // Main loop ? process every command once
     for (let i = startIdx; i < commands.length; i++) {
       const c = commands[i];
       const t = c.type;
@@ -110,7 +110,7 @@ const segmentBuilder = {
       else if (t === 'G1' || t === 'G01') motionMode = 1;
       else if (t === 'G2' || t === 'G02') motionMode = 2;
       else if (t === 'G3' || t === 'G03') motionMode = 3;
-      // Implicit motion — line with coordinates but no G command
+      // Implicit motion ? line with coordinates but no G command
         // Use current motionMode (defaults to G1)
         else if (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined) {
         }

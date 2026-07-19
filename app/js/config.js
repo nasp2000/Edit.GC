@@ -1,4 +1,4 @@
-﻿// ── Application Configuration ──────────────────────────────
+// -- Application Configuration ------------------------------
 const CFG = {
   // Editor limits
   EDITOR_LINE_LIMIT: 200000,
@@ -6,7 +6,7 @@ const CFG = {
 
   // Preview / segment builder
   SEGMENT_CHUNK: 5000,
-  MAX_SEGMENTS: 400000,        // 4M → 400K to save memory
+  MAX_SEGMENTS: 400000,        // 4M ? 400K to save memory
   MAX_COMMANDS: 300000,        // skip parse if more than this
   ARC_STEP_MM: 0.8,
   ARC_MAX_THETA: Math.PI / 18,

@@ -1,4 +1,4 @@
-﻿const preview = {
+const preview = {
   canvas: null,
   ctx: null,
   _segVersion: 0,
@@ -53,12 +53,12 @@
     return state._boundsCache;
   },
 
-  // ── Shared grid + axes for SVG/DXF modes ──────────────────────────
+  // -- Shared grid + axes for SVG/DXF modes --------------------------
   _drawGridAxesSVG(ctx, w, h, b, baseFit, invertY) {
     const { minX, maxX, minY, maxY, rangeX, rangeY } = b;
     const dpr = window.devicePixelRatio || 1;
     const pad = 40;
-    // Center the toolpath in the canvas (top-down view) — must match the
+    // Center the toolpath in the canvas (top-down view) ? must match the
     // segment transforms above so grid/axes align with the toolpath.
     const cx = (w - pad * 2 - rangeX * baseFit) / 2;
     const cy = (h - pad * 2 - rangeY * baseFit) / 2;
@@ -112,7 +112,7 @@
 
     // RAM optimization: only accumulate the full point array when needed for
     // hit-testing (point selection). Otherwise we keep only the bounds, which is
-    // all the renderer needs — this avoids holding millions of {x,y,z} objects.
+    // all the renderer needs ? this avoids holding millions of {x,y,z} objects.
     const keepPoints = this._keepPoints;
     const allPoints = keepPoints ? [{ x: 0, y: 0, z: 0 }] : null;
     const allSegments = [];
@@ -144,11 +144,16 @@
       if (state2 === undefined) {
         const knownOn  = ['M3','M4','SM3'];
         const knownOff = ['M5','RM3'];
+        const detectedOn  = [];
+        const detectedOff = [];
         for (let i = 0; i < Math.min(100, commands.length); i++) {
           const t = (commands[i].type || '').toUpperCase();
-          if (knownOn.includes(t)) tplToolOn = t;
-          if (knownOff.includes(t)) tplToolOff = t;
+          if (knownOn.includes(t) && !detectedOn.includes(t)) detectedOn.push(t);
+          if (knownOff.includes(t) && !detectedOff.includes(t)) detectedOff.push(t);
         }
+        // Always include base M3/M4 (both standard laser-on commands)
+        if (detectedOn.length) tplToolOn = [...new Set(['M3','M4',...detectedOn])].join(',');
+        if (detectedOff.length) tplToolOff = [...new Set(['M5',...detectedOff])].join(',');
       }
       const res = segmentBuilder.build(commands, CFG.MAX_SEGMENTS, state2 ? {
         x: state2.x, y: state2.y, z: state2.z, isRel: state2.isRel,
@@ -258,13 +263,13 @@
       const fileHasToolOn = segs.some(s => s.toolOn);
       let b = buildBounds(segs, true);
       // Fall back to all non-rapid segments only when the file has NO laser
-      // toggles at all — otherwise a footer travel move (e.g. SM300's
+      // toggles at all ? otherwise a footer travel move (e.g. SM300's
       // X0 Y0 Z-50, which is non-rapid + tool-off) would inflate the bounds.
       if (!b && !fileHasToolOn) b = buildBounds(segs, false);
       if (b) return b;
     }
 
-    // Segments not built yet — compute from commands.
+    // Segments not built yet ? compute from commands.
     const cmds = state.workingCmds;
     if (!cmds || !cmds.length) return this._getBounds(cmds);
     const tpl = templateManager.getActive();
@@ -301,7 +306,7 @@
     }
     // If no laser-ON moves were found (e.g. file has no toggles), fall back
     // to every non-rapid coordinate (but only when the file has no laser ON/OFF
-    // at all — otherwise footer travel would inflate bounds).
+    // at all ? otherwise footer travel would inflate bounds).
     if (first && !anyOn) {
       first = true; curX = 0; curY = 0; isRel = false;
       for (const c of cmds) {
@@ -460,7 +465,7 @@
       if (this._rebuildTimer) clearTimeout(this._rebuildTimer);
       this._rebuildTimer = setTimeout(() => {
         this._rebuildTimer = null;
-        ui.setProgress(0, 'Building preview…');
+        ui.setProgress(0, 'Building preview?');
         this._showPreviewProgress(true);
         this._buildSegmentsAsync(cmds, (result) => {
           ui.setProgress(-1);
@@ -472,7 +477,7 @@
           if (ui.updateFooterInfo) ui.updateFooterInfo();
           if (ui._updatePointsPanel) ui._updatePointsPanel();
         }, (pct) => {
-          ui.setProgress(pct, 'Building preview…');
+          ui.setProgress(pct, 'Building preview?');
         });
       }, 120);
       this._drawCore(cmds, n);
@@ -573,7 +578,7 @@
       this._pb.rafId = requestAnimationFrame(() => this._tick());
     } else {
       this._pb.active = false;
-      document.getElementById('btnPlay').textContent = '▶';
+      document.getElementById('btnPlay').textContent = '?';
     }
   },
 
@@ -662,7 +667,7 @@
     for (let x = ox; x < w; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
     for (let y = oy; y < h; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
     ctx.stroke();
-    // grid principal (cada 5 cÃ©lulas)
+    // grid principal (cada 5 celulas)
     const gStep5 = gStep * 5;
     const ox5 = (state.previewOffX % gStep5 + gStep5) % gStep5;
     const oy5 = (state.previewOffY % gStep5 + gStep5) % gStep5;
@@ -675,7 +680,7 @@
     // ---- SVG mode --------------------------------------------------------------------------------------------
     if (state.mode === 'svg' && state.svgText) {
       if (state.svgPreviewMode === 'raster' && state.svgImg) {
-        // Raster image — rendered bitmap with checkerboard background so the
+        // Raster image ? rendered bitmap with checkerboard background so the
         // difference from Outlines mode is obvious.
         try {
           const s = state.svgScale;
@@ -719,7 +724,7 @@
           }
         } catch (_) {}
       } else {
-        // Contours (outline paths) or Points (vertices only) — cached for performance
+        // Contours (outline paths) or Points (vertices only) ? cached for performance
         try {
           const isPoints = state.svgPreviewMode === 'points';
           if (!state.svgSegments) {
@@ -751,7 +756,7 @@
             const toCy = y => pad + cy + (y - minY) * baseFit * state.previewScale + state.previewOffY;
             this._drawGridAxesSVG(ctx, w, h, { minX, maxX, minY, maxY, rangeX, rangeY }, baseFit, false);
             if (isPoints) {
-              // Draw only vertex dots — good for assessing point density
+              // Draw only vertex dots ? good for assessing point density
               const visited = new Set();
               for (const seg of segments) {
                 for (const pt of seg) {
@@ -838,7 +843,7 @@
       ctx.fillStyle = '#555';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Building preview…', w / 2, h / 2);
+      ctx.fillText('Building preview?', w / 2, h / 2);
       return;
     }
 
@@ -876,7 +881,58 @@
     for (let gx = startX; gx <= maxX; gx += step) ctx.fillText(String(Math.round(gx * 100) / 100), toCanvasX(gx), h - 6);
     ctx.restore();
 
-    // Work area background + border (like GRBL style) — controlled by BBox checkbox
+    // X and Y axis lines at origin (0,0)
+    ctx.save();
+    const originX = toCanvasX(0);
+    const originY = toCanvasY(0);
+    const isOnScreen = originX > 0 && originX < w && originY > 0 && originY < h;
+    if (isFinite(originX) && isFinite(originY) && isOnScreen) {
+      ctx.strokeStyle = 'rgba(220,50,50,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      // X axis (horizontal through origin)
+      ctx.beginPath();
+      ctx.moveTo(10, originY);
+      ctx.lineTo(w - 10, originY);
+      ctx.stroke();
+      // Y axis (vertical through origin)
+      ctx.beginPath();
+      ctx.moveTo(originX, 10);
+      ctx.lineTo(originX, h - 10);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Arrow at positive X end
+      const axEnd = w - 10;
+      ctx.beginPath();
+      ctx.moveTo(axEnd, originY);
+      ctx.lineTo(axEnd - 8, originY - 4);
+      ctx.moveTo(axEnd, originY);
+      ctx.lineTo(axEnd - 8, originY + 4);
+      ctx.stroke();
+      // Arrow at positive Y end
+      const ayEnd = 10;
+      ctx.beginPath();
+      ctx.moveTo(originX, ayEnd);
+      ctx.lineTo(originX - 4, ayEnd + 8);
+      ctx.moveTo(originX, ayEnd);
+      ctx.lineTo(originX + 4, ayEnd + 8);
+      ctx.stroke();
+      // Labels
+      ctx.fillStyle = 'rgba(220,50,50,0.7)';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('X', axEnd - 2, originY - 12);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Y', originX, ayEnd + 2);
+      // Origin circle
+      ctx.fillStyle = 'rgba(220,50,50,0.4)';
+      ctx.beginPath(); ctx.arc(originX, originY, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // Work area background + border (like GRBL style) ? controlled by BBox checkbox
     if (previewOpts.showBounds) {
     ctx.save();
     const waX = toCanvasX(minX), waY = toCanvasY(maxY);
@@ -1027,7 +1083,7 @@
         ctx.stroke();
       }
     }
-    // Tool ON (when not using feed coloring) — purple
+    // Tool ON (when not using feed coloring) ? purple
     if (!previewOpts.colorByFeed && toolOnBatch.ax.length) {
         ctx.globalAlpha = 1;
         ctx.strokeStyle = 'rgba(120,30,120,0.85)';
@@ -1042,7 +1098,7 @@
         for (let j = 0; j < toolOnBatch.ax.length; j++) { ctx.moveTo(toolOnBatch.ax[j], toolOnBatch.ay[j]); ctx.lineTo(toolOnBatch.bx[j], toolOnBatch.by[j]); }
         ctx.stroke();
       }
-      // Tool OFF (non-rapid travel) — red glow + line
+      // Tool OFF (non-rapid travel) ? red glow + line
       if (toolOffBatch.ax.length) {
         ctx.globalAlpha = 1;
         ctx.strokeStyle = 'rgba(180,30,30,0.85)';
@@ -1058,7 +1114,7 @@
         ctx.stroke();
       }
     ctx.restore();
-    } // end if (!isPoints) — skip line batches in points mode
+    } // end if (!isPoints) ? skip line batches in points mode
     // Highlight current playback segment
     if (pbActive && pbCmdIdx > 0 && lastCmdIdx >= 0) {
       ctx.save();
@@ -1124,7 +1180,7 @@
     })();
 
     // Draw dots at each vertex (every G-code coordinate)
-    // In Points mode show ALL vertices large — in Outlines show smaller sampled dots.
+    // In Points mode show ALL vertices large ? in Outlines show smaller sampled dots.
     if (!isRaster) {
       const dotDotStep = isPoints ? 1 : Math.max(1, Math.floor(segsToDraw / 5000));
       const dotRadius = isPoints ? 4 : 2.5;
@@ -1198,14 +1254,14 @@
           ctx.restore();
         }
       }
-      // Mark Start — draw a directional arrow on the mark point showing the cut direction
+      // Mark Start ? draw a directional arrow on the mark point showing the cut direction
       if (typeof ui !== 'undefined' && ui._markStartIdx != null && ui._markStartIdx >= 0 && ui._pointsList && ui._pointsList.length) {
         const mp = ui._pointsList.find(p => p.idx === ui._markStartIdx);
         if (mp) {
           const mx = toCanvasX(mp.x), my = toCanvasY(mp.y);
           const axis = ui._pointsAxis || 'X';
           const fwd = ui._pointsSide === 'right';
-          // Angles: 0=→, π=←, -π/2=↑, π/2=↓ (screen coords, Y flipped from CNC)
+          // Angles: 0=?, p=?, -p/2=?, p/2=? (screen coords, Y flipped from CNC)
           const angleMap = { X: fwd ? 0 : Math.PI, Y: fwd ? -Math.PI / 2 : Math.PI / 2 };
           const sideAngle = angleMap[axis];
           const dpr = window.devicePixelRatio || 1;
@@ -1272,7 +1328,7 @@
 
     this._drawMinimap(ctx, w, h, b, baseFit);
 
-    // Legend (right side) — dark panel with color key
+    // Legend (right side) ? dark panel with color key
     if (segments.length && segsToDraw > 0) {
       const dpr2 = window.devicePixelRatio || 1;
       const cssW = w / dpr2, cssH = h / dpr2;
@@ -1334,7 +1390,7 @@
       ctx.restore();
     }
 
-    // Direction arrow below work area — shows program flow direction
+    // Direction arrow below work area ? shows program flow direction
     if (segments.length && segsToDraw > 0) {
       const dpr3 = window.devicePixelRatio || 1;
       const waX = toCanvasX(minX), waY = toCanvasY(maxY);
@@ -1445,7 +1501,7 @@
       const d = Math.hypot(dx, dy);
       info.textContent = `${sorted.length} point(s) selected`;
       dist.style.display = 'block';
-      dist.textContent = `ΔX=${dx.toFixed(3)} ΔY=${dy.toFixed(3)}  D=${d.toFixed(3)}`;
+      dist.textContent = `?X=${dx.toFixed(3)} ?Y=${dy.toFixed(3)}  D=${d.toFixed(3)}`;
     } else {
       info.textContent = '1 point selected';
       dist.style.display = 'none';
@@ -1588,6 +1644,21 @@
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(Math.max(mmX + pad, vx), Math.max(mmY + pad, vy), Math.min(mmSize - pad * 2, vw), Math.min(mmSize - pad * 2, vh));
+    // Origin crosshair on minimap
+    const mmOx0 = mmOx(0);
+    const mmOy0 = mmOy(0);
+    if (isFinite(mmOx0) && isFinite(mmOy0) && mmOx0 >= mmX && mmOx0 <= mmX + mmSize && mmOy0 >= mmY && mmOy0 <= mmY + mmSize) {
+      ctx.strokeStyle = 'rgba(220,50,50,0.6)';
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(mmX + pad, mmOy0); ctx.lineTo(mmX + mmSize - pad, mmOy0);
+      ctx.moveTo(mmOx0, mmY + pad); ctx.lineTo(mmOx0, mmY + mmSize - pad);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(220,50,50,0.6)';
+      ctx.beginPath(); ctx.arc(mmOx0, mmOy0, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   },
 

@@ -42,7 +42,7 @@
         <div class="widget-title"><span>Scale</span><button class="widget-maximize" title="Maximize">▢</button></div>
         <div class="widget-body" style="position:relative;flex-wrap:wrap;gap:3px">
           <div class="step-corner"><span class="step-label">Step</span><select id="scaleStep" class="bselect step-select"><option value="0.01">0.01</option><option value="0.1">0.1</option><option value="1" selected>1</option><option value="10">10</option><option value="100">100</option></select></div>
-          <span class="clabel" style="width:100%">Dimensions (mm) — aspect ratio locked</span>
+          <span class="clabel" style="width:100%">Dimensions (mm) --- aspect ratio locked</span>
           <div style="display:flex;gap:3px;width:100%;align-items:center">
             <span class="clabel">W</span><input type="number" id="resizeW" class="cinput" style="flex:1;text-align:center" min="0.001" value="0" />
             <button class="btn-icon" id="btnScaleUp" title="Scale up by step" style="flex:none">▲</button>
@@ -61,7 +61,7 @@
             <button class="btn-action" id="btnSaveTemplateFile" title="Save selected template as .json file" style="flex:1">Save</button>
           </div>
           <div style="display:flex;gap:3px;width:100%">
-            <select id="templateSelect" class="bselect" style="flex:1"><option value="">— Templates —</option></select>
+            <select id="templateSelect" class="bselect" style="flex:1"><option value="">--- Templates ---</option></select>
             <button class="btn-action" id="btnApplyTemplate" title="Apply selected template to this session">Apply</button>
           </div>
         </div>
@@ -72,9 +72,12 @@
           <span class="clabel" style="width:100%;font-size:9px;color:var(--muted)">Select a template to see options</span>
         </div>
       </div>
+      <div class="widget" data-widget="points">
+        <div class="widget-title"><span>Points Editor</span><button class="btn-icon" id="btnTogglePointsPanel" title="Show points table" style="height:14px;width:18px;padding:0;font-size:9px;line-height:1">▶</button></div>
+      </div>
       <div class="widget" data-widget="info">
-        <div class="widget-title"><span>Gcode Info</span><button class="btn-icon" id="btnToggleGcodeInfo" title="Expand/Collapse" style="height:14px;width:18px;padding:0;line-height:1">▶</button></div>
-        <div class="widget-body collapsed" id="gcodeInfoBody" style="flex-wrap:wrap;gap:3px;font-size:11px;line-height:1.6;min-height:120px">
+        <div class="widget-title"><span>Gcode Info</span></div>
+        <div class="widget-body" id="gcodeInfoBody" style="flex-wrap:wrap;gap:3px;font-size:11px;line-height:1.6;min-height:120px">
           <span class="clabel" id="infoFileName" style="width:100%;color:var(--accent);font-weight:600;word-break:break-all;margin-bottom:2px"> - </span>
           <div style="display:grid;grid-template-columns:1fr 1fr;width:100%;gap:2px">
             <span class="clabel" id="infoUnits"> - </span>
@@ -93,9 +96,6 @@
           </div>
         </div>
       </div>
-      <div class="widget" data-widget="points">
-        <div class="widget-title"><span>Points Editor</span><button class="btn-icon" id="btnTogglePointsPanel" title="Show points table" style="height:14px;width:18px;padding:0;font-size:9px;line-height:1">▶</button></div>
-      </div>
     </div>
 
     <!-- CENTER COLUMN -->
@@ -113,7 +113,7 @@
           </select>
           <button class="btn-icon" id="btnSlice" disabled title="Convert: generate G-code from drawing + all widget options" style="font-weight:700;border:2px solid var(--accent2);padding:2px 10px;color:var(--accent2);font-size:12px">Convert</button>
           <span class="ctrl-sep-v"></span>
-          <button class="btn-icon" id="btnRotate90" title="Rotate all G-code 90° clockwise">↻ 90°</button>
+          <button class="btn-icon" id="btnRotate90" title="Rotate all G-code 90deg clockwise">↻ 90deg</button>
           <span class="ctrl-sep-v"></span>
           <button class="btn-icon" id="btnPlay" title="Play preview">Play</button>
           <button class="btn-icon" id="btnPause" title="Pause preview">Pause</button>
@@ -144,7 +144,7 @@
           <span class="ctrl-sep-v"></span>
           <span class="file-actions">
             <button class="btn-icon" onclick="document.getElementById('fileInputGcode').click()" data-tab-vis="original" title="Open G-code file">Open G-code</button>
-            <select id="recentFilesSelect" class="bselect" style="width:110px;height:18px;font-size:9px" data-tab-vis="original" title="Open recent file"><option value="">— Recent —</option></select>
+            <select id="recentFilesSelect" class="bselect" style="width:110px;height:18px;font-size:9px" data-tab-vis="original" title="Open recent file"><option value="">--- Recent ---</option></select>
             <button class="btn-icon" id="btnSave2" onclick="document.getElementById('btnSave').click()" data-tab-vis="working" title="Save G-code to file">Save</button>
             <button class="btn-icon" id="btnSaveAs2" onclick="document.getElementById('btnSaveAs').click()" data-tab-vis="working" title="Save G-code as new file">Save As</button>
             <span class="ctrl-sep-v" data-tab-vis="working"></span>
@@ -183,23 +183,20 @@
               <div class="highlight-overlay" id="highlightWorking"></div>
               <textarea id="editorWorking" class="gcode-editor highlight-textarea" placeholder="Working G-code appears here..." spellcheck="false"></textarea>
               <div id="virtualEditorWrap" style="display:none;flex:1;min-height:0;position:relative"></div>
-        </div>
       </div>
     </div>
-      </div>
-
   </div>
 
   <!-- POINTS PANEL (fixed overlay, outside grid) -->
   <div id="col-points">
     <div style="display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg3);border-bottom:1px solid var(--border2);flex-shrink:0">
       <button class="btn-icon" id="btnClosePointsPanel" title="Hide panel" style="height:18px;width:18px;padding:0;font-size:10px">&#9664;</button>
-      <span style="font-size:11px;font-weight:600;flex:1">Points Editor</span>
+      <span style="font-size:11px;font-weight:600;flex:1" title="Add, delete, shift, and generate offset variations of path points">Points Editor</span>
       <span id="pointsPanelCount" style="font-size:10px;color:var(--text-dim)">0 points</span>
     </div>
     <div style="display:flex;gap:4px;padding:4px 8px;border-bottom:1px solid var(--border2);flex-shrink:0">
       <button class="btn-action" id="btnMarkStart" title="Mark the start position on preview" style="flex:1">Mark Start</button>
-      <button class="btn-action" id="btnSetSide" title="Click to toggle the cutting direction (arrow on the start point)" style="flex:1">Set Side →</button>
+      <button class="btn-action" id="btnSetSide" title="Click to toggle the cutting direction (arrow on the start point)" style="flex:1">Set Side -></button>
     </div>
     <div style="flex:1;overflow-y:auto;overflow-x:hidden;min-height:0">
       <table id="pointsTable" style="width:100%;border-collapse:collapse;font-size:10px;table-layout:auto">
@@ -216,8 +213,8 @@
       </table>
     </div>
 
-    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
-      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600">Set Start Coordinates</span>
+    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'&#9654;':'&#9660;'">
+      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">&#9654;</span><span style="font-size:11px;font-weight:600" title="Move first cut point to entered coordinates">Set Start Coordinates</span>
     </div>
     <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="originContent">
       <span class="clabel" style="width:100%">Machine origin</span>
@@ -231,26 +228,15 @@
         <span class="clabel">Z</span><input type="number" id="originZ" class="cinput" style="flex:1;min-width:40px;height:18px;font-size:10px" value="0" step="any" />
         <button class="btn-icon" data-step-for="originZ" data-step-sel="originStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
         <button class="btn-icon" data-step-for="originZ" data-step-sel="originStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
-        <button class="btn-action" id="btnApplyOrigin" title="Insert G92 at start of G-code to set machine zero" style="flex:none;width:35px">Set</button>
+        <button class="btn-action" id="btnApplyOrigin" title="Move first cut point to entered coordinates" style="flex:none;width:35px">Set</button>
       </div>
-      <span class="clabel" style="width:100%;margin-top:2px">Offset shift</span>
-      <div style="display:flex;gap:3px;width:100%;align-items:center">
-        <span class="clabel">X</span><input type="number" id="originOffX" class="cinput" style="flex:1;min-width:40px;height:18px;font-size:10px" value="0" step="any" />
-        <button class="btn-icon" data-step-for="originOffX" data-step-sel="originStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
-        <button class="btn-icon" data-step-for="originOffX" data-step-sel="originStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
-        <span class="clabel">Y</span><input type="number" id="originOffY" class="cinput" style="flex:1;min-width:40px;height:18px;font-size:10px" value="0" step="any" />
-        <button class="btn-icon" data-step-for="originOffY" data-step-sel="originStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
-        <button class="btn-icon" data-step-for="originOffY" data-step-sel="originStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
-        <span class="clabel">Z</span><input type="number" id="originOffZ" class="cinput" style="flex:1;min-width:40px;height:18px;font-size:10px" value="0" step="any" />
-        <button class="btn-icon" data-step-for="originOffZ" data-step-sel="originStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
-        <button class="btn-icon" data-step-for="originOffZ" data-step-sel="originStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
+      <div style="display:flex;gap:4px;width:100%;align-items:center;justify-content:flex-end;margin-top:-2px">
         <span class="step-label">Step</span><select id="originStep" class="bselect step-select" style="width:50px;height:18px;font-size:10px"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
-        <button class="btn-action" id="btnApplyOffsets" title="Shift all coordinates by the offset values" style="flex:none">Apply</button>
       </div>
     </div>
 
     <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
-      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600">Add Points</span>
+      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600" title="Insert new points at selected positions with Start/Stop or Continuous mode">Add Points</span>
     </div>
     <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="addPointsContent">
       <div style="display:flex;gap:4px;width:100%;align-items:center">
@@ -281,8 +267,34 @@
         <button class="btn-action" id="btnPointsGenerate" title="Add selected points to G-code with offset" style="margin-left:auto">Apply</button>
       </div>
     </div>
+
+    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'&#9654;':'&#9660;'">
+      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">&#9654;</span><span style="font-size:11px;font-weight:600" title="Insert intermediate points along each path segment at a fixed distance interval">Add Point at Minimum Distance</span>
+    </div>
+    <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="minDistContent">
+      <span class="clabel" style="width:100%">Subdivide each segment into steps of this distance</span>
+      <div style="display:flex;gap:4px;width:100%;align-items:center">
+        <span class="clabel" style="flex:none">Distance</span>
+        <input type="number" id="minDistValue" class="cinput" style="flex:1;height:18px;font-size:10px" value="2" step="0.1" min="0.01" />
+        <button class="btn-icon" data-step-for="minDistValue" data-step-sel="minDistStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
+        <button class="btn-icon" data-step-for="minDistValue" data-step-sel="minDistStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
+        <span style="font-size:9px;color:var(--text-dim)">mm</span>
+        <button class="btn-action" id="btnMinDistApply" style="flex:none">Apply</button>
+      </div>
+      <div style="display:flex;gap:4px;width:100%;align-items:center;justify-content:flex-end;margin-top:-2px">
+        <span class="step-label">Step</span><select id="minDistStep" class="bselect step-select" style="width:50px;height:18px;font-size:10px"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
+      </div>
+      <div style="width:100%;display:flex;gap:3px;align-items:center;margin-top:4px">
+        <label class="toggle-switch" title="Start/Stop: adds laser ON + point + laser OFF">
+          <input type="checkbox" id="chkMinDistStartStop">
+          <span class="toggle-slider"></span>
+        </label>
+        <span id="toggleMinDistLabel" style="font-size:9px;color:var(--text-dim);min-width:42px;text-align:center">Continuous</span>
+      </div>
+    </div>
+
     <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
-      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600">Shift Points</span>
+      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600" title="Batch shift X, Y, or Z coordinates by a value">Shift Points</span>
     </div>
     <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="shiftPointsContent">
       <div style="display:flex;gap:4px;width:100%;align-items:center">
@@ -308,6 +320,53 @@
           <span class="clabel" style="font-size:10px">To</span>
           <input type="number" id="batchTo" class="cinput" style="flex:1;height:18px;font-size:10px" value="" min="0" step="1" placeholder="To" />
         </div>
+      </div>
+    </div>
+    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
+      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600" title="Generate inside/outside offset copies of the entire path">Full Path Variation</span>
+    </div>
+    <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="pathVarContent">
+      <span class="clabel" style="width:100%">Add offset passes around the full path</span>
+      <div style="display:flex;gap:4px;width:100%;align-items:center;flex-wrap:wrap">
+        <label class="toggle-switch" title="Offset path outward">
+          <input type="checkbox" id="chkPathVarOutside">
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:10px;flex:none">Outside</span>
+        <input type="number" id="pathVarOutside" class="cinput" style="flex:1;min-width:40px;height:18px;font-size:10px" value="0.1" step="0.01" />
+        <button class="btn-icon" data-step-for="pathVarOutside" data-step-sel="pathVarStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
+        <button class="btn-icon" data-step-for="pathVarOutside" data-step-sel="pathVarStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
+        <span style="font-size:9px;color:var(--text-dim)">mm</span>
+        <label class="toggle-switch" title="Offset path inward">
+          <input type="checkbox" id="chkPathVarInside">
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:10px;flex:none">Inside</span>
+        <input type="number" id="pathVarInside" class="cinput" style="flex:1;min-width:40px;height:18px;font-size:10px" value="0.2" step="0.01" />
+        <button class="btn-icon" data-step-for="pathVarInside" data-step-sel="pathVarStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
+        <button class="btn-icon" data-step-for="pathVarInside" data-step-sel="pathVarStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
+        <span style="font-size:9px;color:var(--text-dim)">mm</span>
+        <button class="btn-action" id="btnPathVarApply" style="flex:none">Apply</button>
+      </div>
+      <div style="display:flex;gap:4px;width:100%;align-items:center;justify-content:flex-end;margin-top:-2px">
+        <span class="step-label">Step</span><select id="pathVarStep" class="bselect step-select" style="width:50px;height:18px;font-size:10px"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
+      </div>
+    </div>
+    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
+      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600" title="Apply alternating +/-offset perpendicular to each segment (Y for horizontal, X for vertical)">Full Turn Path Variation</span>
+    </div>
+    <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="turnVarContent">
+      <span class="clabel" style="width:100%">Apply alternating +/-offset perpendicular<br>to each segment (Y for horizontal, X for vertical)</span>
+      <div style="display:flex;gap:4px;width:100%;align-items:center">
+        <span class="clabel" style="flex:none">Variation</span>
+        <input type="number" id="turnVarValue" class="cinput" style="flex:1;height:18px;font-size:10px" value="0.1" step="0.01" />
+        <button class="btn-icon" data-step-for="turnVarValue" data-step-sel="turnVarStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
+        <button class="btn-icon" data-step-for="turnVarValue" data-step-sel="turnVarStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
+        <span style="font-size:9px;color:var(--text-dim)">mm</span>
+        <button class="btn-action" id="btnTurnVarApply" style="flex:none">Apply</button>
+      </div>
+      <div style="display:flex;gap:4px;width:100%;align-items:center;justify-content:flex-end;margin-top:-2px">
+        <span class="step-label">Step</span><select id="turnVarStep" class="bselect step-select" style="width:50px;height:18px;font-size:10px"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
       </div>
     </div>
   </div>

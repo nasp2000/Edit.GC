@@ -1,68 +1,60 @@
 # Edit.GC
 
-A browser-based G-code editor for laser and CNC. Edit lines and points, convert SVG/DXF to toolpaths, and visualize G-code — all local, no installation or server required.
-
-![Edit.GC](app/image/home.png)
+Browser-based G-code editor for laser/CNC. Edit paths, convert SVG/DXF to G-code, preview toolpaths — no install needed.
 
 ## Quick start
 
-Open `app/index.html` in any modern browser.  
-Drag & drop `.gcode`, `.svg`, or `.dxf` files onto the preview area, or use the **Open** buttons.  
-Select a **Template** for your machine, adjust options, and click **Convert** to generate G-code.
+Open `app/index.html` in any browser.
+Drag & drop `.gcode`, `.svg`, or `.dxf` files, or use the **Open** buttons.
+Select a **Template**, adjust options, click **Convert**.
 
 ## Features
 
-### Working G-code Editor
-- **Dual editors** — Original (read-only) + Working (editable), side by side, syntax‑highlighted
-- **Find & Replace** — regex, case toggle, Replace All (Ctrl+F / Ctrl+H / F3)
-- **Undo / Redo** — 50‑level stack (Ctrl+Z / Ctrl+Y)
-- **Virtual editor** — handles files >15k lines without slowdown
-- **Tag edits** — marks modified lines with `;edit.gc` comments
+### G-code Editor
+- Original + Working editors side by side, syntax highlighted
+- Find & Replace (regex, case toggle), Undo/Redo (50 levels)
+- Virtual editor for files >15k lines
+- `;edit.gc` tags on modified lines
 
-### Points Editor (full control panel)
-- **Mark Start** — select any point on the toolpath; click **Mark Start** to rotate all motion commands so that point becomes the cutting start. Preview instantly shows a red arrow at the new start
-- **Set Side** — reverse the cutting direction (left/right/clear). Swaps G2↔G3 arcs automatically. The G-code and preview update immediately
-- **Offset Origin** — set machine zero (G92) or fine‑shift all coordinates by X/Y/Z
-- **Add Points** — duplicate selected points with offset, optional laser on/off wrapping
-- **Shift Points** — batch‑subtract X/Y/Z values from all, selected, or a line‑range
-- **Delete Points** — remove selected coordinates from the G-code
+### Points Editor (6 widgets)
+- **Set Start Coordinates** — moves first cut point to entered X/Y/Z, shifts rest by delta
+- **Add Points** — duplicate selected points with offset (Continuous or Start/Stop with laser on/off)
+- **Add Point at Minimum Distance** — subdivide cut segments at fixed interval (skips rapids)
+- **Shift Points** — batch X/Y/Z shift (all, selected, or range)
+- **Full Path Variation** — inside/outside offset copies of entire path with laser-off/travel/laser-on
+- **Full Turn Path Variation** — alternating ±offset perpendicular to each segment
+- Mark Start / Set Side — reorder path, reverse direction
 
-### SVG / DXF → G-code
-- Drag & drop SVG or DXF files, preview as outlines or points
-- **Convert** button generates G-code with all current options
-- **Scale** — single W input (aspect ratio locked), step up/down, reset to original
-- **Multi-pass** — repeat cutting paths N times with `; Pass 1/2/3…` comments
-- **Rotate 90°** — clockwise
+### SVG/DXF → G-code
+- Drag & drop, preview as outlines/points
+- Scale (aspect locked), Rotate 90°, Multi-pass with Z Step
+- **Interior-first cutting** — nested shapes cut inside→outside with laser-off/travel/laser-on between shapes
+- **Multi-pass bidirectional** — open paths alternate forward/reverse, closed paths same direction (no laser-off between passes)
 
-### Templates & Machine Options
-- Built‑in templates: **GRBL 1.1h**, **Smoothieware**, **Marlin (Laser)**, **SM300**
-- Per‑template options: Passes, feed rates, laser power/mode, gas, safety, homing, focus
-- **Custom value** input — type any value beyond the dropdown presets
-- Settings saved per template in localStorage
+### Templates
+- **Grbl**, **Smoothieware**, **Marlin (Laser)**, **SM300**
+- Per-template options: passes, feed rates, laser mode (M3/M4), gas, Z step, focus Z
+- Settings saved to localStorage
 
-### SM Motion Control (SM300) Support
-- Implicit motion (`X90 Y200` without G0/G1)
-- Laser programs (RLAD/RRBM), gas commands (SM12/RM12), safety (SA3/RA3/RA4)
-- No S‑parameter (power set on machine control panel)
+### SM300 Support
+- Implicit motion (no G0/G1), laser programs, gas, safety
+- Z in every move (focusZ + pass × zStep)
 
-### Canvas Preview
-- 2D toolpath with pan/zoom/fit, playback, minimap, feed‑rate coloring
-- Compare mode — overlay original path as dashed line
-- Mark Start arrow updates direction in real‑time
+### Preview
+- 2D toolpath with pan/zoom/fit, playback, minimap
+- Compare mode (original as dashed line)
+- M3/M4 both recognised as tool-on (purple), tool-off (red)
 
-## Keyboard shortcuts
+## Tests
 
-| Key | Action |
-|-----|--------|
-| `Ctrl+O` | Open G-code file |
-| `Ctrl+S` | Save |
-| `Ctrl+Shift+S` | Save As |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo |
-| `Space` | Play / Pause preview |
-| `+` / `-` | Zoom in / out |
-| `Escape` | Stop preview |
+```
+node test/runner.js           # 142 integration tests
+node test/gaps.test.js        # 103 gap/edge-case tests
+node test/unit.js             # 41 unit tests
+node test/markstart.test.js   # 12 mark start tests
+node test/comprehensive.test.js  # 348 cross-template tests
+```
 
 ## License
 
-MIT — free to use, modify, and share.
+MIT

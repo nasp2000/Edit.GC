@@ -1,4 +1,4 @@
-﻿function truncateForEditor(text) {
+function truncateForEditor(text) {
   if (!text) return text;
   const lines = text.split('\n');
   if (lines.length <= CFG.EDITOR_LINE_LIMIT) return text;

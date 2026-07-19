@@ -1,4 +1,4 @@
-﻿// ── Find & Replace ─────────────────────────────────────────
+// -- Find & Replace -----------------------------------------
 const findReplace = {
   _matches: [],
   _currentIdx: -1,

@@ -1,11 +1,11 @@
-﻿// ---- gcodeParser ----------------------------------------------------------------------------------------------
+// ---- gcodeParser ----------------------------------------------------------------------------------------------
 const gcodeParser = {
   parse(text) {
     if (typeof text !== 'string') return [];
     text = text.replace(/\r/g, '');
     const lines = text.split('\n');
     if (lines.length > CFG.MAX_COMMANDS) {
-      // Too large — return empty to prevent OOM
+      // Too large ? return empty to prevent OOM
       return [];
     }
     const results = lines.map((raw, lineIndex) => {
@@ -47,13 +47,22 @@ const gcodeParser = {
   serialize(commands) {
     const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
     const lineEnd = (tpl && tpl.data && tpl.data.lineEnd) || '\n';
+    const canonicalOrder = ['X','Y','Z','I','J','R','F','S','T','P','Q','L','A','B','C','U','V','W','D','H','M','K'];
     return commands.map(c => {
       if (c.isBlank || c.isComment || c.type === 'UNKNOWN') return c.raw;
       let line = '';
       if (c.blockDelete) line += '/';
       line += c.type;
-      for (const [k, v] of Object.entries(c.params)) {
+      const used = {};
+      for (const k of canonicalOrder) {
         if (k === 'N') continue;
+        if (c.params[k] !== undefined) {
+          line += ` ${k}${Number.isInteger(c.params[k]) ? c.params[k] : parseFloat(c.params[k].toFixed(4))}`;
+          used[k] = true;
+        }
+      }
+      for (const [k, v] of Object.entries(c.params)) {
+        if (k === 'N' || used[k]) continue;
         line += ` ${k}${Number.isInteger(v) ? v : parseFloat(v.toFixed(4))}`;
       }
       if (c.comment) line += ` ; ${c.comment}`;
@@ -97,7 +106,7 @@ const gcodeParser = {
       // Check if first token is an axis word (implicit motion)
       const isAxisWord = /^[XYZABC][-\d]/.test(cmd);
       if (isAxisWord) {
-        // No explicit command — treat entire line as params
+        // No explicit command ? treat entire line as params
         cmdClass = '';
       } else if (/^G0(0)?$/.test(cmd)) cmdClass = 'hl-g0';
       else if (/^G1(01)?$/.test(cmd)) cmdClass = 'hl-g1';
@@ -198,10 +207,13 @@ const gcodeParser = {
     };
   },
 
-  applyOffset(commands, offsets) {
+  applyOffset(commands, offsets, opts) {
+    const { laserOnly = false } = opts || {};
     const axes = ['X','Y','Z','A','B','C'];
+    const isMotion = (t) => ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(t) || t === null || t === undefined;
     return commands.map(c => {
-      if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
+      if (!isMotion(c.type)) return c;
+      if (laserOnly && !((c.params.S && c.params.S > 0) || c.type === '' || c.type === null || c.type === undefined)) return c;
       const p = { ...c.params };
       for (const k of axes) {
         if (p[k] !== undefined && offsets[k] !== undefined) {
@@ -271,7 +283,7 @@ const gcodeParser = {
 
   rotate(commands, angleDeg) {
     const steps = ((angleDeg % 360) + 360) % 360;
-    // Use exact integer rotations for 90° multiples to avoid floating-point drift
+    // Use exact integer rotations for 90? multiples to avoid floating-point drift
     return commands.map(c => {
       const isMotion = /^G[0-3]$|^G0[0-3]$/i.test(c.type);
       const isImplicit = (c.type === '' || c.type === undefined) && (c.params?.X !== undefined || c.params?.Y !== undefined);
@@ -280,7 +292,7 @@ const gcodeParser = {
       if (p.X !== undefined || p.Y !== undefined) {
         let x = p.X || 0, y = p.Y || 0;
         for (let r = 0; r < steps / 90; r++) {
-          const nx = -y, ny = x; // 90° CW: (x, y) → (-y, x)
+          const nx = -y, ny = x; // 90? CW: (x, y) ? (-y, x)
           x = nx; y = ny;
         }
         p.X = parseFloat(x.toFixed(4));

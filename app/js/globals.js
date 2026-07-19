@@ -1,4 +1,4 @@
-﻿// ── Globals used across modules ───────────────────────────────
+// -- Globals used across modules -------------------------------
 const previewOpts = {
   showBounds: true,
   colorByFeed: false,

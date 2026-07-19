@@ -1,4 +1,4 @@
-﻿// ---- Drag & Drop handler ----------------------------------------------------------------------------------
+// ---- Drag & Drop handler ----------------------------------------------------------------------------------
 async function handleDroppedFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (['gcode','gc','nc','cnc','tap','mpf','iso','min','eia','ncc','pnc','plt','hpgl','spf','din','g','ngc','prg','txt'].includes(ext)) {
@@ -7,7 +7,7 @@ async function handleDroppedFile(file) {
     const text = await fileManager.readGcode(file);
     state.originalCmds  = gcodeParser.parse(text);
     if (!state.originalCmds.length && text.length > 100000) {
-      ui.setStatus('File too large — showing lightweight preview.', 'error');
+      ui.setStatus('File too large ? showing lightweight preview.', 'error');
     }
     const isLarge = text.length > 5 * 1024 * 1024 || state.originalCmds.length > 50000;
     state.originalText  = isLarge ? '' : text;

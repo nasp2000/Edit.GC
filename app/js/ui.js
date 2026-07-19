@@ -1,4 +1,4 @@
-﻿// ---- uiController --------------------------------------------------------------------------------------------
+// ---- uiController --------------------------------------------------------------------------------------------
 const ui = {
   init() {
     // Abrir G-code
@@ -6,11 +6,11 @@ const ui = {
       const file = e.target.files[0]; if (!file) return;
       e.target.value = '';
       ui.clearState(); // permite reabrir o mesmo ficheiro
-      ui.setProgress(2, 'Reading file…');
+      ui.setProgress(2, 'Reading file...');
       const text = await fileManager.readGcode(file);
-      ui.setProgress(30, 'Parsing…');
+      ui.setProgress(30, 'Parsing...');
       state.originalCmds  = gcodeParser.parse(text);
-      ui.setProgress(50, 'Preparing editor…');
+      ui.setProgress(50, 'Preparing editor...');
       const isLarge = text.length > 5 * 1024 * 1024 || state.originalCmds.length > 50000;
       const isHuge = text.length > 50 * 1024 * 1024;
       state.originalText  = isLarge ? '' : text;
@@ -25,13 +25,13 @@ const ui = {
       const editorText = isLarge ? '(original text too large for editor)' : truncateForEditor(text);
       document.getElementById('editorOriginal').value = editorText;
       document.getElementById('editorWorking').value = editorText;
-      ui.setProgress(70, 'Applying syntax highlight…');
+      ui.setProgress(70, 'Applying syntax highlight...');
       const hlText = isLarge ? '' : text;
       applyHighlight(document.getElementById('highlightOriginal'), hlText);
       applyHighlight(document.getElementById('highlightWorking'), hlText);
-      ui.setProgress(90, 'Rendering…');
-      preview.resize(); // garante dimensÃµes do canvas e faz draw
-      preview.fitView(); // centra e ajusta o toolpath Ã  vista (top-down)
+      ui.setProgress(90, 'Rendering...');
+      preview.resize(); // garante dimenses do canvas e faz draw
+      preview.fitView(); // centra e ajusta o toolpath ?  vista (top-down)
       // Check for unknown commands
       const analysis = gcodeParser.analyzeFull(state.workingCmds);
       let statusMsg = `Opened: ${file.name} (${state.workingCmds.length} lines)`;
@@ -120,9 +120,17 @@ const ui = {
       ['X','Y','Z','A','B','C','E1'].forEach(a => {
         document.getElementById('origin' + a).step = v;
       });
-      document.getElementById('originOffX').step = v;
-      document.getElementById('originOffY').step = v;
-      document.getElementById('originOffZ').step = v;
+    });
+    document.getElementById('pathVarStep').addEventListener('change', function() {
+      const v = parseFloat(this.value);
+      document.getElementById('pathVarOutside').step = v;
+      document.getElementById('pathVarInside').step = v;
+    });
+    document.getElementById('turnVarStep').addEventListener('change', function() {
+      document.getElementById('turnVarValue').step = parseFloat(this.value);
+    });
+    document.getElementById('minDistStep').addEventListener('change', function() {
+      document.getElementById('minDistValue').step = parseFloat(this.value);
     });
     // Apply default step values on init
     const _initStep = (id, targets) => {
@@ -133,8 +141,11 @@ const ui = {
     };
     _initStep('scaleStep', ['resizeW']);
     _initStep('batchStep', ['batchAxisVal']);
-    _initStep('pointsStep', ['pointsOffsetX','pointsOffsetY']);
-    _initStep('originStep', ['originX','originY','originZ','originA','originB','originC','originE1','originOffX','originOffY','originOffZ']);
+    _initStep('pointsStep', ['pointsOffsetX','pointsOffsetY','pointsOffsetZ']);
+    _initStep('pathVarStep', ['pathVarOutside','pathVarInside']);
+    _initStep('turnVarStep', ['turnVarValue']);
+    _initStep('minDistStep', ['minDistValue']);
+    _initStep('originStep', ['originX','originY','originZ','originA','originB','originC','originE1']);
     // Recent files select
     const _recentSel = document.getElementById('recentFilesSelect');
     if (_recentSel) {
@@ -320,7 +331,7 @@ const ui = {
       preview.draw(state.workingCmds);
     };
     const _syncSvgViewEnabled = () => {
-      // Always enabled — works for G-code, SVG, DXF
+      // Always enabled ? works for G-code, SVG, DXF
     };
     _syncSvgViewEnabled();
     document.getElementById('svgViewMode').addEventListener('change', e => {
@@ -339,7 +350,7 @@ const ui = {
       await ui._loadDxfFile(file);
     });
 
-    // Open Vector (SVG or DXF — unified button)
+    // Open Vector (SVG or DXF ? unified button)
     document.getElementById('fileInputVector').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
       e.target.value = '';
@@ -353,11 +364,18 @@ const ui = {
       }
     });
 
-    // Convert button — single entry point for SVG/DXF → G-code generation
+    // Convert button ? single entry point for SVG/DXF ? G-code generation
     document.getElementById('btnSlice').addEventListener('click', () => {
       const hasSvg = !!state.svgText;
       const hasDxf = !!(state.dxfSegments?.length);
       if (!hasSvg && !hasDxf) { ui.setStatus('Load an SVG or DXF file first.', 'error'); return; }
+      // Warn if widget edits will be lost on re-convert
+      const hasWidgetEdits = state.originalCmds && state.originalCmds.length &&
+        (state.workingCmds.length !== state.originalCmds.length ||
+         gcodeParser.serialize(state.workingCmds) !== gcodeParser.serialize(state.originalCmds));
+      if (hasWidgetEdits) {
+        if (!confirm('Re-converting will discard all Points Editor changes (Path Variation, Shift, MinDist, Add Points, etc.).\n\nCorrect order: Machine Options ? Convert ? Points Editor widgets.\n\nContinue?')) return;
+      }
       try {
         ui.setStatus('Converting...');
         ui.setProgress(5, 'Converting...');
@@ -423,7 +441,7 @@ const ui = {
         setTimeout(() => ui.setProgress(-1), 1200);
         const passes = processed?.laser?.passes || 1;
         const cutLines = cmds.filter(c => c.type === 'G1' || c.type === 'G01').length;
-        ui.setStatus(`Converted: ${cutLines} cut moves · ${cmds.length} lines · ${passes} pass(es) · "${baseName}"`);
+        ui.setStatus(`Converted: ${cutLines} cut moves ? ${cmds.length} lines ? ${passes} pass(es) ? "${baseName}"`);
       } catch (err) {
         ui.setProgress(-1);
         ui.setStatus(`Conversion error: ${err.message}`, 'error');
@@ -474,7 +492,7 @@ const ui = {
       }
     });
 
-    // Export G-code → SVG / DXF
+    // Export G-code ? SVG / DXF
     const btnExportSvg = document.getElementById('btnExportSvg');
     if (btnExportSvg) btnExportSvg.addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
@@ -504,9 +522,27 @@ const ui = {
     document.getElementById('btnRotate90').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code to rotate.', 'error'); return; }
       undoRedo.push(state.workingCmds);
-      state.workingCmds = gcodeParser.rotate(state.workingCmds, 90);
+      let cmds = gcodeParser.rotate(state.workingCmds, 90);
+      // Re-center after rotation so X/Y stay non-negative
+      const isMotion = (t) => ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(t) || t === null || t === undefined;
+      let minX = Infinity, minY = Infinity;
+      cmds.forEach(c => {
+        if (!isMotion(c.type)) return;
+        if (c.params.X !== undefined && c.params.X < minX) minX = c.params.X;
+        if (c.params.Y !== undefined && c.params.Y < minY) minY = c.params.Y;
+      });
+      if (isFinite(minX) && isFinite(minY) && (minX < -0.001 || minY < -0.001)) {
+        cmds = cmds.map(c => {
+          if (!isMotion(c.type)) return c;
+          const p = { ...c.params };
+          if (p.X !== undefined) p.X = parseFloat((p.X - minX).toFixed(4));
+          if (p.Y !== undefined) p.Y = parseFloat((p.Y - minY).toFixed(4));
+          return { ...c, params: p, raw: '' };
+        });
+      }
+      state.workingCmds = cmds;
       ui.refreshWorking();
-      ui.setStatus('Rotated 90° clockwise.');
+      ui.setStatus('Rotated 90 deg clockwise.');
     });
     document.addEventListener('keydown', e => {
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { document.getElementById('btnUndo').click(); }
@@ -528,7 +564,7 @@ const ui = {
       ui.setStatus('Reset to original.');
     });
 
-    // ---- Scale widget — single W input, aspect ratio locked ----
+    // ---- Scale widget ? single W input, aspect ratio locked ----
     const _getBounds = () => preview._getBounds(state.workingCmds);
 
     const _updateScaleFromW = () => {
@@ -710,7 +746,7 @@ const ui = {
       await templateManager.openFolder();
     });
 
-    // Working editor → sync state (debounced)
+    // Working editor ? sync state (debounced)
     let _editTimer = null;
     ui._isRefreshing = false;
     const _onWorkingInput = (rawText) => {
@@ -777,48 +813,55 @@ const ui = {
     // ---- Origin ----------------------------------------------------------------------------------------------------
     document.getElementById('btnApplyOrigin').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
-      const axes = ['X','Y','Z','A','B','C'];
-      const offsets = {};
+      const axes = ['X','Y','Z'];
+      const target = {};
       for (const a of axes) {
         const el = document.getElementById('origin' + a);
         const v = el ? parseFloat(el.value) : 0;
-        if (v) offsets[a] = -v;
+        if (v !== 0 && !v) continue;
+        target[a] = v;
       }
-      const e1El = document.getElementById('originE1');
-      const e1 = e1El ? parseFloat(e1El.value) : 0;
-      if (e1) offsets.E1 = -e1;
-      const e1Reset = document.getElementById('originE1');
-      if (e1Reset) e1Reset.value = '0';
+      if (!Object.keys(target).length) {
+        // If all axes are explicitly 0, move first cut to (0,0,0)
+        if (['X','Y','Z'].every(a => {
+          const el = document.getElementById('origin' + a);
+          const v = el ? parseFloat(el.value) : 0;
+          return v === 0;
+        })) {
+          ['X','Y','Z'].forEach(a => { target[a] = 0; });
+        } else {
+          ui.setStatus('Enter at least one coordinate.', 'error'); return;
+        }
+      }
+
+      // Find first tool-on command (G1/G2/G3 with S>0, or first non-G0 motion for SM300)
+      const firstToolOn = state.workingCmds.find(c =>
+        ['G1','G01','G2','G02','G3','G03'].includes(c.type) && c.params.S && c.params.S > 0
+      ) || state.workingCmds.find(c =>
+        (['G1','G01','G2','G02','G3','G03',''].includes(c.type)) && !c.isComment && !c.isBlank &&
+        c.params.X !== undefined && c.params.Y !== undefined &&
+        !['G0','G00'].includes(c.type) && c.type !== 'G0' && c.type !== 'G00'
+      );
+      if (!firstToolOn) { ui.setStatus('No tool-on motion commands found.', 'error'); return; }
+
+      // Calculate delta = target - current for each axis
+      const offsets = {};
+      for (const a of Object.keys(target)) {
+        if (firstToolOn.params[a] !== undefined) {
+          offsets[a] = target[a] - firstToolOn.params[a];
+        }
+      }
+      if (!Object.keys(offsets).length) { ui.setStatus('No matching axes on first tool-on point.', 'error'); return; }
+
       undoRedo.push(state.workingCmds);
       state.workingCmds = gcodeParser.applyOffset(state.workingCmds, offsets);
       ui.refreshWorking();
       preview.originX = 0;
       preview.originY = 0;
       for (const a of axes) { const el = document.getElementById('origin' + a); if (el) el.value = '0'; }
-      const e1Reset2 = document.getElementById('originE1');
-      if (e1Reset2) e1Reset2.value = '0';
-      const parts = Object.keys(offsets).map(k => `${k}${-offsets[k]}`).join(' ');
-      ui.setStatus(`Origin offset applied: ${parts} → 0`);
-    });
-
-    // Fine offset buttons
-    document.getElementById('btnApplyOffsets').addEventListener('click', () => {
-      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
-      const dx = parseFloat(document.getElementById('originOffX').value) || 0;
-      const dy = parseFloat(document.getElementById('originOffY').value) || 0;
-      const dz = parseFloat(document.getElementById('originOffZ').value) || 0;
-      if (!dx && !dy && !dz) { ui.setStatus('No offset to apply.', 'error'); return; }
-      undoRedo.push(state.workingCmds);
-      state.workingCmds = gcodeParser.applyOffset(state.workingCmds, { X: dx, Y: dy, Z: dz });
-      ui.refreshWorking();
-      document.getElementById('originOffX').value = '0';
-      document.getElementById('originOffY').value = '0';
-      document.getElementById('originOffZ').value = '0';
-      let msg = 'Fine offset applied:';
-      if (dx) msg += ` X${dx >= 0 ? '+' : ''}${dx}`;
-      if (dy) msg += ` Y${dy >= 0 ? '+' : ''}${dy}`;
-      if (dz) msg += ` Z${dz >= 0 ? '+' : ''}${dz}`;
-      ui.setStatus(msg);
+      const parts = Object.keys(offsets).map(k => `${k}${offsets[k] >= 0 ? '+' : ''}${offsets[k].toFixed(3)}`).join(' ');
+      const targetStr = Object.entries(target).map(([k,v]) => `${k}${v}`).join(' ');
+      ui.setStatus(`Start set: first cut ? ${targetStr} (delta ${parts})`);
     });
 
     const _getSaveCommands = () => {
@@ -842,7 +885,7 @@ const ui = {
       const from = fromStr !== '' ? parseInt(fromStr) : -1;
       const to = toStr !== '' ? parseInt(toStr) : -1;
       if (from >= 0 && to >= 0 && from > to) {
-        ui.setStatus('From line must be â‰¤ To line.', 'error'); return;
+        ui.setStatus('From line must be = To line.', 'error'); return;
       }
       undoRedo.push(state.workingCmds);
       state.workingCmds = state.workingCmds.map((c, i) => {
@@ -854,7 +897,339 @@ const ui = {
         return { ...c, params: p, raw: '' };
       });
       ui.refreshWorking();
-      ui.setStatus(`Batch: ${axis} ${val >= 0 ? '-' : '+'}${Math.abs(val)} applied${from >= 0 ? ` to lines ${from}–${to}` : ''}.`);
+      ui.setStatus(`Batch: ${axis} ${val >= 0 ? '-' : '+'}${Math.abs(val)} applied${from >= 0 ? ` to lines ${from}?${to}` : ''}.`);
+    });
+
+    // ---- Full Path Variation ------------------------------------------------------------------
+    document.getElementById('btnPathVarApply').addEventListener('click', () => {
+      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
+      const doOutside = document.getElementById('chkPathVarOutside').checked;
+      const doInside = document.getElementById('chkPathVarInside').checked;
+      if (!doOutside && !doInside) { ui.setStatus('Select at least Outside or Inside.', 'error'); return; }
+      const outsideVal = parseFloat(document.getElementById('pathVarOutside').value) || 0;
+      const insideVal = parseFloat(document.getElementById('pathVarInside').value) || 0;
+
+      // Collect all motion commands with X,Y coords
+      const moves = state.workingCmds.filter(c => c.params.X !== undefined && c.params.Y !== undefined);
+      if (moves.length < 2) { ui.setStatus('Need at least 2 motion commands with X,Y.', 'error'); return; }
+
+      // Compute bounding box
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      moves.forEach(c => {
+        const x = c.params.X, y = c.params.Y;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      });
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      const hw = (maxX - minX) / 2 || 1, hh = (maxY - minY) / 2 || 1;
+
+      const offsetCmd = (cmd, dx, dy) => {
+        const p = { ...cmd.params };
+        if (p.X !== undefined) p.X = parseFloat((p.X + dx).toFixed(4));
+        if (p.Y !== undefined) p.Y = parseFloat((p.Y + dy).toFixed(4));
+        let raw = cmd.type;
+        for (const [k, v] of Object.entries(p)) {
+          raw += ` ${k}${Number.isInteger(v) ? v : parseFloat(v.toFixed(4))}`;
+        }
+        return { ...cmd, params: p, raw };
+      };
+
+      // Get laser pattern for wrapper (laser off, travel, laser on)
+      const _getLaserPat = () => {
+        const tpl = templateManager.getActive();
+        const td = tpl?.data || tpl;
+        if (td?.laserOnCmd && td?.laserOffCmd) return { on: td.laserOnCmd, off: td.laserOffCmd };
+        return ui._detectLaserPatterns();
+      };
+      const laserPat = _getLaserPat();
+      const isSM300 = laserPat && /SM3/i.test(laserPat.on);
+      const tplFeed = templateManager.getActive();
+      const tdFeed = tplFeed?.data || tplFeed;
+      const feedTravel = tdFeed?.feedTravel || 8000;
+      const smZ = isSM300 ? (tdFeed?.focusZ || -220) : 0;
+      const _makeWrapper = (firstX, firstY) => {
+        const cmds = [];
+        cmds.push({ lineIndex: -1, raw: '', type: laserPat.off, params: {}, comment: '', isBlank: false, isComment: false, blockDelete: false, _newInsert: true });
+        const tParams = { X: parseFloat(firstX.toFixed(4)), Y: parseFloat(firstY.toFixed(4)), F: feedTravel };
+        if (isSM300) tParams.Z = smZ;
+        cmds.push({ lineIndex: -1, raw: '', type: isSM300 ? '' : 'G0', params: tParams, comment: '', isBlank: false, isComment: false, blockDelete: false, _newInsert: true });
+        cmds.push({ lineIndex: -1, raw: '', type: laserPat.on, params: {}, comment: '', isBlank: false, isComment: false, blockDelete: false, _newInsert: true });
+        return cmds;
+      };
+
+      // Find last motion command index ? insert offset lines BEFORE footer (laser off, M2, etc.)
+      let lastMoveIdx = -1;
+      for (let i = 0; i < state.workingCmds.length; i++) {
+        if (state.workingCmds[i].params.X !== undefined && state.workingCmds[i].params.Y !== undefined) {
+          lastMoveIdx = i;
+        }
+      }
+      let insertIdx = lastMoveIdx + 1;
+
+      undoRedo.push(state.workingCmds);
+      const newCmds = [...state.workingCmds];
+
+      const _buildSection = (label, val, sign) => {
+        if (val <= 0) return null;
+        const section = [];
+        section.push({ lineIndex: -1, raw: `; ${label}`, type: '', params: {}, comment: ` ${label}`, isBlank: false, isComment: true, blockDelete: false, _newInsert: true });
+        moves.forEach(c => {
+          const dx = c.params.X !== undefined ? ((c.params.X - cx) / hw) * val * sign : 0;
+          const dy = c.params.Y !== undefined ? ((c.params.Y - cy) / hh) * val * sign : 0;
+          section.push(Object.assign(offsetCmd(c, dx, dy), { _newInsert: true }));
+        });
+        // Add wrapper (laser off, travel to first point, laser on) before the offset moves
+        const firstDx = (moves[0].params.X - cx) / hw * val * sign;
+        const firstDy = (moves[0].params.Y - cy) / hh * val * sign;
+        const firstX = (moves[0].params.X || 0) + firstDx;
+        const firstY = (moves[0].params.Y || 0) + firstDy;
+        const wrapper = _makeWrapper(firstX, firstY);
+        section.splice(1, 0, ...wrapper);
+        return section;
+      };
+
+      const outsideSection = doOutside && outsideVal > 0 ? _buildSection(`Full Path Variation ? Outside +${outsideVal}mm`, outsideVal, 1) : null;
+      if (outsideSection) {
+        newCmds.splice(insertIdx, 0, ...outsideSection);
+        insertIdx += outsideSection.length;
+      }
+      const insideSection = doInside && insideVal > 0 ? _buildSection(`Full Path Variation ? Inside -${insideVal}mm`, insideVal, -1) : null;
+      if (insideSection) {
+        newCmds.splice(insertIdx, 0, ...insideSection);
+      }
+
+      state.workingCmds = newCmds;
+      ui.refreshWorking();
+      ui.setStatus(`Full Path Variation applied: ${doOutside ? 'outside ' + outsideVal + 'mm ' : ''}${doInside ? 'inside ' + insideVal + 'mm' : ''}`);
+    });
+
+    // ---- Full Turn Path Variation ---------------------------------------------------------------
+    document.getElementById('btnTurnVarApply').addEventListener('click', () => {
+      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
+      const val = parseFloat(document.getElementById('turnVarValue').value);
+      if (!val) { ui.setStatus('Enter a non-zero variation value.', 'error'); return; }
+
+      // Find all motion commands with X,Y coords
+      const moves = state.workingCmds.filter(c => c.params.X !== undefined);
+      if (moves.length < 2) { ui.setStatus('Need at least 2 motion commands with X coordinate.', 'error'); return; }
+
+      undoRedo.push(state.workingCmds);
+      let toggle = true;
+      let moveIdx = 0;
+      let prevX, prevY;
+      state.workingCmds = state.workingCmds.map(c => {
+        if (c.params.X === undefined) return c;
+        moveIdx++;
+        if (moveIdx === 1) { prevX = c.params.X; prevY = c.params.Y; return c; }
+        const dx = Math.abs(c.params.X - prevX);
+        const dy = Math.abs(c.params.Y - prevY);
+        const p = { ...c.params };
+        const offset = toggle ? val : -val;
+        // Apply offset perpendicular to segment direction
+        if (dx >= dy) {
+          // Horizontal segment ? vary Y
+          p.Y = parseFloat((p.Y + offset).toFixed(4));
+        } else {
+          // Vertical segment ? vary X
+          p.X = parseFloat((p.X + offset).toFixed(4));
+        }
+        toggle = !toggle;
+        prevX = p.X; prevY = p.Y;
+        return { ...c, params: p, raw: '' };
+      });
+
+      ui.refreshWorking();
+      ui.setStatus(`Full Turn Path Variation: ?${val}mm alternating perpendicular to segments applied.`);
+    });
+
+    // ---- Add Point at Minimum Distance ----------------------------------------------------------
+    document.getElementById('btnMinDistApply').addEventListener('click', () => {
+      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
+      const minDist = parseFloat(document.getElementById('minDistValue').value);
+      if (!minDist || minDist <= 0) { ui.setStatus('Enter a positive distance value.', 'error'); return; }
+      const isStartStop = document.getElementById('chkMinDistStartStop').checked;
+
+      // Collect indices of cut motion commands (skip G0/G00 rapid moves)
+      const moveIndices = [];
+      state.workingCmds.forEach((c, i) => {
+        if (c.params.X !== undefined && c.params.Y !== undefined) moveIndices.push(i);
+      });
+      if (moveIndices.length < 2) { ui.setStatus('Need at least 2 motion commands with X,Y.', 'error'); return; }
+
+      // Helper: check if a command is a rapid/travel move (not a cut)
+      const hasSM3 = state.workingCmds.some(c => c.type === 'SM3');
+      // Pre-build tool state map for SM300
+      const toolState = new Array(state.workingCmds.length).fill(!hasSM3);
+      if (hasSM3) {
+        let on = false;
+        for (let i = 0; i < state.workingCmds.length; i++) {
+          const t = state.workingCmds[i].type || '';
+          if (t === 'SM3') on = true;
+          else if (t === 'RM3') on = false;
+          toolState[i] = on;
+        }
+      }
+      // Find SM300 feedCut threshold for distinguishing travel from cuts
+      let smFeedCut = 0;
+      if (hasSM3) {
+        for (const c of state.workingCmds) {
+          if (c.params.F && c.params.F > 0 && c.params.F < 2000) { smFeedCut = c.params.F; break; }
+        }
+        if (!smFeedCut) smFeedCut = 400;
+      }
+      const isRapid = (c, idx) => {
+        const t = c.type || '';
+        if (t === 'G0' || t === 'G00') return true;
+        if (hasSM3) {
+          if (t === 'SM3' || t === 'RM3') return true;
+          // Check tool state and feed rate
+          if (!toolState[idx]) return true;
+          return c.params.F && c.params.F >= smFeedCut * 2;
+        }
+        return false;
+      };
+
+      if (isStartStop) {
+        // Start/Stop mode: collect interpolated points, wrap each with travel+laser-on/off
+        const interpPoints = [];
+        for (let i = 0; i < state.workingCmds.length; i++) {
+          const cmd = state.workingCmds[i];
+          const curMove = moveIndices.includes(i);
+          if (!curMove) continue;
+          const prevIdx = moveIndices.indexOf(i);
+          if (prevIdx === 0 || prevIdx < 0) continue;
+          const prevMoveIdx = moveIndices[prevIdx - 1];
+          const prev = state.workingCmds[prevMoveIdx];
+          if (prev.params.X === undefined || prev.params.Y === undefined) continue;
+          // Skip rapid-to-rapid and rapid-to-cut transitions (travel moves)
+          if (isRapid(prev, prevMoveIdx) || isRapid(cmd, i)) continue;
+          const dx = cmd.params.X - prev.params.X;
+          const dy = cmd.params.Y - prev.params.Y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist <= minDist) continue;
+          const numDiv = Math.ceil(dist / minDist);
+          const stepX = dx / numDiv;
+          const stepY = dy / numDiv;
+          for (let s = 1; s <= numDiv - 1; s++) {
+            const p = { ...cmd.params };
+            p.X = parseFloat((prev.params.X + stepX * s).toFixed(4));
+            p.Y = parseFloat((prev.params.Y + stepY * s).toFixed(4));
+            interpPoints.push({ params: p, type: cmd.type });
+          }
+        }
+
+        if (!interpPoints.length) {
+          ui.setStatus('No intermediate points to add.', 'error');
+          return;
+        }
+
+        // Get laser pattern
+        const tpl = templateManager.getActive();
+        const td = tpl?.data || tpl;
+        const pat = (td?.laserOnCmd && td?.laserOffCmd)
+          ? { on: td.laserOnCmd, off: td.laserOffCmd }
+          : ui._detectLaserPatterns();
+        const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
+        const smZ = isSM300 ? (td?.focusZ || -220) : 0;
+
+        undoRedo.push(state.workingCmds);
+        let result = [...state.workingCmds];
+
+        // Find insert index: after last motion command (before footer)
+        let insertIdx = state.workingCmds.length;
+        for (let j = state.workingCmds.length - 1; j >= 0; j--) {
+          if (state.workingCmds[j].params.X !== undefined && state.workingCmds[j].params.Y !== undefined) {
+            insertIdx = j + 1;
+            break;
+          }
+        }
+
+        const insertBlock = [];
+        for (const pt of interpPoints) {
+          // Travel
+          const travel = { lineIndex: -1, raw: '', type: isSM300 ? '' : 'G0', params: { X: pt.params.X, Y: pt.params.Y }, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
+          travel.params.F = td?.feedTravel || (isSM300 ? 5000 : 8000);
+          if (isSM300 && pt.params.Z !== undefined) travel.params.Z = pt.params.Z;
+          else if (isSM300) travel.params.Z = smZ;
+          travel._newInsert = true;
+          // Laser on
+          const onCmd = { lineIndex: -1, raw: '', type: pat.on, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
+          // Point (cut)
+          const point = { lineIndex: -1, raw: '', type: pt.type, params: { ...pt.params }, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
+          // Laser off
+          const offCmd = { lineIndex: -1, raw: '', type: pat.off, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
+          insertBlock.push(travel, onCmd, point, offCmd);
+        }
+
+        result.splice(insertIdx, 0, ...insertBlock);
+        state.workingCmds = result;
+        ui.refreshWorking();
+        ui.setStatus(`Add Point at Minimum Distance (Start/Stop): ${interpPoints.length} points added.`);
+        return;
+      }
+
+      // Continuous mode (existing behavior)
+      undoRedo.push(state.workingCmds);
+      const result = [];
+
+      for (let i = 0; i < state.workingCmds.length; i++) {
+        const cmd = state.workingCmds[i];
+        const curMove = moveIndices.includes(i);
+
+        if (!curMove) {
+          result.push(cmd);
+          continue;
+        }
+
+        // Find previous move index
+        const prevIdx = moveIndices.indexOf(i);
+        if (prevIdx === 0 || prevIdx < 0) {
+          result.push(cmd);
+          continue;
+        }
+
+        const prevMoveIdx = moveIndices[prevIdx - 1];
+        const prev = state.workingCmds[prevMoveIdx];
+        if (prev.params.X === undefined || prev.params.Y === undefined) {
+          result.push(cmd);
+          continue;
+        }
+        // Skip rapid-to-rapid and rapid-to-cut transitions (travel moves)
+        if (isRapid(prev, prevMoveIdx) || isRapid(cmd, curMove ? i : -1)) {
+          result.push(cmd);
+          continue;
+        }
+
+        const dx = cmd.params.X - prev.params.X;
+        const dy = cmd.params.Y - prev.params.Y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= minDist) {
+          result.push(cmd);
+          continue;
+        }
+
+        const numDiv = Math.ceil(dist / minDist);
+        const stepX = dx / numDiv;
+        const stepY = dy / numDiv;
+
+        for (let s = 1; s <= numDiv - 1; s++) {
+          const p = { ...cmd.params };
+          p.X = parseFloat((prev.params.X + stepX * s).toFixed(4));
+          p.Y = parseFloat((prev.params.Y + stepY * s).toFixed(4));
+          let raw = cmd.type;
+          for (const [k, v] of Object.entries(p)) {
+            raw += ` ${k}${Number.isInteger(v) ? v : parseFloat(v.toFixed(4))}`;
+          }
+          result.push({ ...cmd, params: p, raw });
+        }
+        // Add the original endpoint
+        result.push(cmd);
+      }
+
+      state.workingCmds = result;
+      ui.refreshWorking();
+      ui.setStatus(`Add Point at Minimum Distance: ${minDist}mm interval applied.`);
     });
 
     // ---- Points Panel (second sidebar) -----------------------------------------------------------
@@ -985,7 +1360,7 @@ const ui = {
         }
       }
 
-      // Set Side: reverse motion commands and swap G2↔G3
+      // Set Side: reverse motion commands and swap G2?G3
       if (ui._pointsSide) {
         const motionCmds = motionIdxs.map(i => newCmds[i]);
         const reversed = motionCmds.reverse().map(c => {
@@ -1036,11 +1411,11 @@ const ui = {
       const cur = ui._pointsSide;
       ui._pointsSide = cur === 'left' ? 'right' : cur === 'right' ? null : 'left';
       const btn = document.getElementById('btnSetSide');
-      if (ui._pointsSide === 'left') { btn.textContent = '← Set Side'; btn.style.background = 'var(--accent2)'; }
-      else if (ui._pointsSide === 'right') { btn.textContent = 'Set Side →'; btn.style.background = 'var(--accent2)'; }
-      else { btn.textContent = 'Set Side →'; btn.style.background = ''; }
+      if (ui._pointsSide === 'left') { btn.textContent = '? Set Side'; btn.style.background = 'var(--accent2)'; }
+      else if (ui._pointsSide === 'right') { btn.textContent = 'Set Side ?'; btn.style.background = 'var(--accent2)'; }
+      else { btn.textContent = 'Set Side ?'; btn.style.background = ''; }
       const ok = ui._reorderFromMark();
-      ui.setStatus(ui._pointsSide ? `Side: ${ui._pointsSide}${ok ? ' — G-code reordered' : ' — already reversed'}` : 'Side cleared');
+      ui.setStatus(ui._pointsSide ? `Side: ${ui._pointsSide}${ok ? ' ? G-code reordered' : ' ? already reversed'}` : 'Side cleared');
     });
 
     document.getElementById('pointsStep').addEventListener('change', function() {
@@ -1074,6 +1449,9 @@ const ui = {
 
     document.getElementById('chkStartStop').addEventListener('change', e => {
       document.getElementById('toggleStartStopLabel').textContent = e.target.checked ? 'Start/Stop' : 'Continuous';
+    });
+    document.getElementById('chkMinDistStartStop').addEventListener('change', e => {
+      document.getElementById('toggleMinDistLabel').textContent = e.target.checked ? 'Start/Stop' : 'Continuous';
     });
 
     document.getElementById('btnPointsGenerate').addEventListener('click', () => {
@@ -1126,9 +1504,22 @@ const ui = {
         ui._updateWorkingEditor(textCont);
         applyHighlight(document.getElementById('highlightWorking'), textCont);
         const wm2 = document.getElementById('editorWorkingModal');
-        if (wm2) wm2.value = textCont;
+        if (wm2) {
+          wm2.value = textCont;
+          applyHighlight(document.getElementById('highlightWorkingModal'), textCont);
+        }
+        const dwm = document.getElementById('editorWorkingModalDual');
+        if (dwm) {
+          dwm.value = textCont;
+          applyHighlight(document.getElementById('highlightWorkingModalDual'), textCont);
+        }
         preview.draw(state.workingCmds);
-        ui.syncModals();
+        // Update original modal text (no tags needed)
+        const origText = state.originalText || (state.originalCmds.length ? gcodeParser.serialize(state.originalCmds) : '');
+        const om = document.getElementById('editorOriginalModal');
+        if (om) { om.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModal'), truncateForEditor(origText)); }
+        const dom = document.getElementById('editorOriginalModalDual');
+        if (dom) { dom.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModalDual'), truncateForEditor(origText)); }
         if (ui.updateResizePanel) ui.updateResizePanel();
         ui.updateFooterInfo();
         ui._updatePointsPanel();
@@ -1144,7 +1535,7 @@ const ui = {
       };
       const tpl = templateManager.getActive();
       const td = tpl?.data || tpl;
-      const isSM = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
+      const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
       const tag = '  ;edit.gc';
 
       let result = [...state.workingCmds];
@@ -1169,7 +1560,7 @@ const ui = {
 
         // Build travel command
         const travel = JSON.parse(JSON.stringify(copy));
-        if (isSM) {
+        if (isSM300) {
           travel.type = '';
           travel.params.F = td?.feedTravel || 5000;
         } else {
@@ -1209,9 +1600,23 @@ const ui = {
       ui._updateWorkingEditor(text);
       applyHighlight(document.getElementById('highlightWorking'), text);
       const wm = document.getElementById('editorWorkingModal');
-      if (wm) wm.value = text;
+      if (wm) {
+        wm.value = text;
+        applyHighlight(document.getElementById('highlightWorkingModal'), text);
+      }
+      const dwm = document.getElementById('editorWorkingModalDual');
+      if (dwm) {
+        dwm.value = text;
+        applyHighlight(document.getElementById('highlightWorkingModalDual'), text);
+      }
+      preview._segments = null;
       preview.draw(state.workingCmds);
-      ui.syncModals();
+      // Update original modal text
+      const origText = state.originalText || (state.originalCmds.length ? gcodeParser.serialize(state.originalCmds) : '');
+      const om = document.getElementById('editorOriginalModal');
+      if (om) { om.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModal'), truncateForEditor(origText)); }
+      const dom = document.getElementById('editorOriginalModalDual');
+      if (dom) { dom.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModalDual'), truncateForEditor(origText)); }
       if (ui.updateResizePanel) ui.updateResizePanel();
       ui.updateFooterInfo();
       ui._updatePointsPanel();
@@ -1247,38 +1652,29 @@ const ui = {
       if (!open) ui._populateMachineOptions();
     });
 
-    // Gcode Info toggle
-    document.getElementById('btnToggleGcodeInfo').addEventListener('click', () => {
-      const body = document.getElementById('gcodeInfoBody');
-      const btn = document.getElementById('btnToggleGcodeInfo');
-      const open = body.classList.toggle('collapsed');
-      btn.textContent = open ? '\u25B6' : '\u25BE';
-      if (!open) ui.updateFooterInfo();
-    });
-
     // ---- Keyboard Shortcuts --------------------------------------------------------------------------
     document.addEventListener('keydown', e => {
-      // Ctrl+O — Open G-code
+      // Ctrl+O ? Open G-code
       if (e.ctrlKey && !e.shiftKey && e.key === 'o') {
         e.preventDefault();
         document.getElementById('fileInputGcode').click();
       }
-      // Ctrl+Shift+S — Save As
+      // Ctrl+Shift+S ? Save As
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         document.getElementById('btnSaveAs').click();
       }
-      // Space — Play/Pause (unless in input/textarea)
+      // Space ? Play/Pause (unless in input/textarea)
       if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         if (preview._pb.active && !preview._pb.paused) preview.pause();
         else preview.play();
       }
-      // Esc — Stop
+      // Esc ? Stop
       if (e.key === 'Escape' && e.target.tagName !== 'TEXTAREA') {
         preview.stop();
       }
-      // + / - — Zoom (only when not in input/textarea)
+      // + / - ? Zoom (only when not in input/textarea)
       if ((e.key === '+' || e.key === '=') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         state.previewScale *= 1.15;
         preview.draw(state.workingCmds);
@@ -1287,7 +1683,7 @@ const ui = {
         state.previewScale *= 0.85;
         preview.draw(state.workingCmds);
       }
-      // Arrow keys / WASD — pan (skip arrows when points panel is open)
+      // Arrow keys / WASD ? pan (skip arrows when points panel is open)
       if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         const panStep = 20 / state.previewScale;
         const key = e.key;
@@ -1301,12 +1697,12 @@ const ui = {
           if (key === 'ArrowDown'  || key === 's' || key === 'S') { state.previewOffY += panStep; e.preventDefault(); preview.draw(state.workingCmds); }
         }
       }
-      // Home — Fit view
+      // Home ? Fit view
       if (e.key === 'Home' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         preview.fitView();
       }
-      // Tab / Shift+Tab — navigate points in table
+      // Tab / Shift+Tab ? navigate points in table
       if (e.key === 'Tab' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const list = ui._pointsList;
@@ -1317,7 +1713,7 @@ const ui = {
           ui._focusPoint(e.shiftKey ? ui._focusedPointPos - 1 : ui._focusedPointPos + 1);
         }
       }
-      // Arrow Up/Down — navigate points in table
+      // Arrow Up/Down ? navigate points in table
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && ui._pointsPanelOpen && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const list = ui._pointsList;
@@ -1456,7 +1852,7 @@ const ui = {
       try { if (localStorage.getItem('editgc_panel_open') === 'true') { openPanel(); } else { if (edgeHint) edgeHint.classList.remove('hidden'); } } catch (_) { if (edgeHint) edgeHint.classList.remove('hidden'); }
     }
 
-    // ---- Sidebar widget management ------------------------------------------”€------------
+    // ---- Sidebar widget management ------------------------------------------??------------
     function _widgetName(wid) {
       const names = { scale:'Scale', template:'Template', origin:'Origin', batch:'Shift Points', points:'Add points' };
       return names[wid] || wid;
@@ -1631,19 +2027,24 @@ const ui = {
   refreshWorking() {
     state._boundsCache = null;
     let text = gcodeParser.serialize(state.workingCmds);
-    if (document.getElementById('chkTagEdits').checked && state.originalCmds && state.originalCmds.length) {
+    if (state.originalCmds && state.originalCmds.length) {
       const lines = text.split('\n');
       state.workingCmds.forEach((cmd, i) => {
         if (i >= lines.length) return;
         let edited = false;
-        if (i >= state.originalCmds.length) {
+        if (cmd._newInsert) {
           edited = true;
-        } else {
+          delete cmd._newInsert;
+        } else if (i < state.originalCmds.length) {
           const orig = state.originalCmds[i];
           const cmdP = { ...cmd.params }; delete cmdP.N;
           const origP = { ...orig.params }; delete origP.N;
-          edited = JSON.stringify(cmdP) !== JSON.stringify(origP) || cmd.type !== orig.type;
+          // Round all numeric values to 4 decimal places for comparison
+          const round = (o) => { const r = {}; for (const [k, v] of Object.entries(o)) { r[k] = typeof v === 'number' ? parseFloat(v.toFixed(4)) : v; } return r; };
+          edited = JSON.stringify(round(cmdP)) !== JSON.stringify(round(origP)) || cmd.type !== orig.type;
         }
+        // Commands past originalCmds.length are shifted from insertion, not edited.
+        // Only tag them if explicitly marked with _newInsert.
         if (edited) {
           lines[i] = lines[i].replace(/\s*;\s*edit\.gc/g, '').trimEnd() + '  ;edit.gc';
         }
@@ -1654,10 +2055,34 @@ const ui = {
     this._updateWorkingEditor(text);
     applyHighlight(document.getElementById('highlightWorking'), text);
     const wm = document.getElementById('editorWorkingModal');
-    if (wm) wm.value = text;
+    if (wm) {
+      const tWork = truncateForEditor(text);
+      wm.value = tWork;
+      applyHighlight(document.getElementById('highlightWorkingModal'), tWork);
+    }
     this._isRefreshing = false;
     preview.draw(state.workingCmds);
-    ui.syncModals();
+    // Sync original modal (working already done above)
+    const origText = state.originalText || (state.originalCmds.length ? gcodeParser.serialize(state.originalCmds) : '');
+    const om = document.getElementById('editorOriginalModal');
+    if (om) {
+      const tOrig = truncateForEditor(origText);
+      om.value = tOrig;
+      applyHighlight(document.getElementById('highlightOriginalModal'), tOrig);
+    }
+    // Update dual view editors
+    const dwm = document.getElementById('editorWorkingModalDual');
+    if (dwm) {
+      const tWork = truncateForEditor(text);
+      dwm.value = tWork;
+      applyHighlight(document.getElementById('highlightWorkingModalDual'), tWork);
+    }
+    const dom = document.getElementById('editorOriginalModalDual');
+    if (dom) {
+      const tOrig = truncateForEditor(origText);
+      dom.value = tOrig;
+      applyHighlight(document.getElementById('highlightOriginalModalDual'), tOrig);
+    }
     if (ui.updateResizePanel) ui.updateResizePanel();
     ui.updateFooterInfo();
     state.dirty = true;
@@ -1687,7 +2112,7 @@ const ui = {
   refreshTemplateList() {
     const sel = document.getElementById('templateSelect');
     const cur = sel.value;
-    sel.innerHTML = '<option value="">— Templates —</option>';
+    sel.innerHTML = '<option value="">-- Templates --</option>';
     templateManager.list().sort().forEach(name => {
       const opt = document.createElement('option');
       opt.value = opt.textContent = name;
@@ -1715,16 +2140,16 @@ const ui = {
     if (hasGcode) {
       if (iName) iName.textContent = state.originalName || 'Untitled';
     } else {
-      if (iName) iName.textContent = '—';
+      if (iName) iName.textContent = '?';
     }
     if (hasGcode) {
       const unitsCmd = state.workingCmds.find(c => c.type === 'G20' || c.type === 'G21');
       const modeCmd  = state.workingCmds.find(c => c.type === 'G90' || c.type === 'G91');
-      let units = unitsCmd ? (unitsCmd.type === 'G21' ? 'mm' : 'in') : '—';
-      let mode = modeCmd ? (modeCmd.type === 'G90' ? 'ABS' : 'REL') : '—';
-      const unitsLabel = unitsCmd ? `${unitsCmd.type} (${units})` : '—';
-      const modeLabel = modeCmd ? `${modeCmd.type} (${mode})` : '—';
-      if (iUnits) iUnits.textContent = `Units: ${unitsLabel} · Mode: ${modeLabel}`;
+      let units = unitsCmd ? (unitsCmd.type === 'G21' ? 'mm' : 'in') : '?';
+      let mode = modeCmd ? (modeCmd.type === 'G90' ? 'ABS' : 'REL') : '?';
+      const unitsLabel = unitsCmd ? `${unitsCmd.type} (${units})` : '?';
+      const modeLabel = modeCmd ? `${modeCmd.type} (${mode})` : '?';
+      if (iUnits) iUnits.textContent = `Units: ${unitsLabel} | Mode: ${modeLabel}`;
       const total = state.workingCmds.length;
       const cuts = state.workingCmds.filter(c => c.type === 'G1' || c.type === 'G01').length;
       const rapids = state.workingCmds.filter(c => c.type === 'G0' || c.type === 'G00').length;
@@ -1750,9 +2175,9 @@ const ui = {
           else if (totalSec >= 60) timeStr = `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`;
           else timeStr = `${totalSec}s`;
           if (iTime) iTime.textContent = `Est. time: ~${timeStr}`;
-        } else if (iTime) iTime.textContent = 'Est. time: —';
+        } else if (iTime) iTime.textContent = 'Est. time: ?';
       } else {
-        if (iDist) iDist.textContent = 'Build preview for distances…';
+        if (iDist) iDist.textContent = 'Build preview for distances...';
         if (iTime) iTime.textContent = '';
       }
       if (iWarn) {
@@ -1766,13 +2191,13 @@ const ui = {
         iWarn.style.color = warns.length ? '#d97706' : 'var(--text-dim)';
       }
     } else {
-      if (iUnits) iUnits.textContent = '—';
-      if (iLines) iLines.textContent = '—';
-      if (iDist)  iDist.textContent = '—';
-      if (iTime)  iTime.textContent = '—';
-      if (iWarn)  iWarn.textContent = '—';
+      if (iUnits) iUnits.textContent = '?';
+      if (iLines) iLines.textContent = '?';
+      if (iDist)  iDist.textContent = '?';
+      if (iTime)  iTime.textContent = '?';
+      if (iWarn)  iWarn.textContent = '?';
     }
-    // Footer stays clean — all info is in Gcode Info widget
+    // Footer stays clean ? all info is in Gcode Info widget
     const el = document.getElementById('footerInfo');
     if (el) el.textContent = '';
   },
@@ -1785,7 +2210,7 @@ const ui = {
         preview.highlightLine(lineNo);
       }
     });
-    // Textarea click → backplot
+    // Textarea click ? backplot
     document.getElementById('editorWorking').addEventListener('click', function() {
       const idx = this.selectionStart;
       const lineNo = this.value.substring(0, idx).split('\n').length - 1;
@@ -1793,7 +2218,7 @@ const ui = {
         preview.highlightLine(lineNo);
       }
     });
-    // VirtualEditor click → backplot
+    // VirtualEditor click ? backplot
     const veWrap = document.getElementById('virtualEditorWrap');
     if (veWrap) {
       veWrap.addEventListener('click', function(e) {
@@ -1834,7 +2259,18 @@ const ui = {
   },
 
   _loadMachineOpts() {
-    try { return JSON.parse(localStorage.getItem(this._getMachineOptsKey())) || {}; } catch (_) { return {}; }
+    const saved = (() => { try { return JSON.parse(localStorage.getItem(this._getMachineOptsKey())); } catch (_) { return null; } })() || {};
+    const name = document.getElementById('templateSelect')?.value;
+    const optDefs = templateManager.getTemplateOptions(name);
+    const result = { ...saved };
+    optDefs.forEach(group => {
+      group.options.forEach(opt => {
+        if (result[opt.id] == null) {
+          result[opt.id] = opt.default;
+        }
+      });
+    });
+    return result;
   },
 
   _saveMachineOpts(opts) {
@@ -1858,6 +2294,11 @@ const ui = {
       const id = inp.dataset.optId;
       if (id && !opts[id]) opts[id] = inp.value;
     });
+    try {
+      body.querySelectorAll('input[type="number"][data-opt-id]:not(.mo-custom-input)').forEach(inp => {
+        opts[inp.dataset.optId] = inp.value;
+      });
+    } catch (_) {}
     return opts;
   },
 
@@ -1877,6 +2318,13 @@ const ui = {
       html += '<div style="display:flex;flex-wrap:wrap;gap:6px;width:100%">';
       group.options.forEach(opt => {
         const val = saved[opt.id] != null ? saved[opt.id] : opt.default;
+        if (opt.type === 'number') {
+          html += `<label class="clabel mo-container" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap">${opt.label}`;
+          html += `<input type="number" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:70px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
+          html += `<span style="font-size:9px;color:var(--text-dim)">${opt.unit || ''}</span>`;
+          html += '</label>';
+          return;
+        }
         const isCustom = !opt.values.some(v => String(v) === String(val));
         html += `<label class="clabel mo-container" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap">${opt.label}`;
         html += `<select class="bselect" data-opt-id="${opt.id}" style="width:auto;min-width:0;max-width:100px;height:18px;font-size:10px">`;
@@ -1909,6 +2357,11 @@ const ui = {
     });
     body.querySelectorAll('.mo-custom-input').forEach(inp => {
       inp.addEventListener('input', () => {
+        this._saveMachineOpts(this._getSelectedMachineOpts());
+      });
+    });
+    body.querySelectorAll('input[type="number"][data-opt-id]').forEach(inp => {
+      inp.addEventListener('change', () => {
         this._saveMachineOpts(this._getSelectedMachineOpts());
       });
       inp.addEventListener('change', () => {
@@ -2011,7 +2464,7 @@ const ui = {
       document.getElementById('resizeW').value = dimW.toFixed(3);
       const hEl1 = document.getElementById('resizeHDisplay'); if (hEl1) hEl1.textContent = dimH.toFixed(3);
       preview.resize();
-      ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} × H: ${dimH.toFixed(1)} — click "Convert" to generate G-code`);
+      ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} ? H: ${dimH.toFixed(1)} ? click "Convert" to generate G-code`);
       recentFiles.add(file.name, 'SVG', text);
     };
     img.onerror = () => {
@@ -2044,7 +2497,7 @@ const ui = {
     const hEl2 = document.getElementById('resizeHDisplay'); if (hEl2) hEl2.textContent = h.toFixed(3);
     document.getElementById('btnSlice').disabled = false;
     preview.draw();
-    ui.setStatus(`DXF: ${file.name} — ${segments.length} segments, ${all.length} points`);
+    ui.setStatus(`DXF: ${file.name} ? ${segments.length} segments, ${all.length} points`);
   },
 };
 

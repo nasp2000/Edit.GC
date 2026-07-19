@@ -1,9 +1,9 @@
-﻿const undoRedo = {
+const undoRedo = {
   MAX: 50,
 
   // RAM optimization: store references to the parsed command arrays instead of
   // JSON strings. The arrays are already allocated by the editor/parser, so this
-  // avoids duplicating potentially megabytes of text 50× over. Dedupe by identity.
+  // avoids duplicating potentially megabytes of text 50? over. Dedupe by identity.
   push(cmds) {
     const clone = cmds.map(c => ({ ...c, params: { ...c.params } }));
     state.undoStack.push(clone);
