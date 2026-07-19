@@ -19,4 +19,4 @@ Open `app/index.html` in any browser. Drag & drop `.gcode`, `.svg`, `.dxf` or us
 
 ## License
 
-MIT
+MIT — free to share and modify
