@@ -1105,13 +1105,32 @@ const ui = {
             if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
             if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
             copy.raw = '';
+            copy._newInsert = true;
             result.push(copy);
           }
         }
         state.workingCmds = result;
         state.selectedPoints.clear();
         preview._updatePointsInfo();
-        ui.refreshWorking();
+        // Force-tag only newly inserted lines
+        let textCont = gcodeParser.serialize(state.workingCmds);
+        const linesCont = textCont.split('\n');
+        state.workingCmds.forEach((cmd, i) => {
+          if (cmd._newInsert && i < linesCont.length) {
+            linesCont[i] = linesCont[i].trimEnd() + '  ;edit.gc';
+          }
+          delete cmd._newInsert;
+        });
+        textCont = linesCont.join('\n');
+        state._boundsCache = null;
+        ui._updateWorkingEditor(textCont);
+        applyHighlight(document.getElementById('highlightWorking'), textCont);
+        const wm2 = document.getElementById('editorWorkingModal');
+        if (wm2) wm2.value = textCont;
+        preview.draw(state.workingCmds);
+        ui.syncModals();
+        if (ui.updateResizePanel) ui.updateResizePanel();
+        ui.updateFooterInfo();
         ui._updatePointsPanel();
         ui.setStatus(`Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz}.`);
         return;
