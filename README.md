@@ -2,6 +2,8 @@
 
 Browser-based G-code editor for laser/CNC. Edit paths, convert SVG/DXF to G-code, preview toolpaths — no install needed.
 
+![Edit.GC screenshot](image/home.png)
+
 ## Quick start
 
 Open `app/index.html` in any browser.
@@ -44,16 +46,6 @@ Select a **Template**, adjust options, click **Convert**.
 - 2D toolpath with pan/zoom/fit, playback, minimap
 - Compare mode (original as dashed line)
 - M3/M4 both recognised as tool-on (purple), tool-off (red)
-
-## Tests
-
-```
-node test/runner.js           # 142 integration tests
-node test/gaps.test.js        # 103 gap/edge-case tests
-node test/unit.js             # 41 unit tests
-node test/markstart.test.js   # 12 mark start tests
-node test/comprehensive.test.js  # 348 cross-template tests
-```
 
 ## License
 
