@@ -1734,7 +1734,17 @@ const ui = {
     preview.init(document.getElementById('previewCanvas'));
     ui.refreshTemplateList();
     settings.applyAll();
-    ui._populateMachineOptions();
+    // Clean corrupted machineOpts (empty strings from old _getSelectedMachineOpts bug)
+    try {
+      Object.keys(localStorage).filter(k => k.startsWith('machineOpts_')).forEach(k => {
+        const val = JSON.parse(localStorage.getItem(k));
+        if (val && typeof val === 'object') {
+          const cleaned = {};
+          Object.keys(val).forEach(id => { if (val[id] !== '') cleaned[id] = val[id]; });
+          localStorage.setItem(k, JSON.stringify(cleaned));
+        }
+      });
+    } catch (_) {}
     ui._populateMachineOptions();
     ui.updateTemplateIndicator();
     preview.init(document.getElementById('previewCanvas'));
@@ -2265,7 +2275,7 @@ const ui = {
     const result = { ...saved };
     optDefs.forEach(group => {
       group.options.forEach(opt => {
-        if (result[opt.id] == null) {
+        if (result[opt.id] == null || result[opt.id] === '') {
           result[opt.id] = opt.default;
         }
       });
