@@ -27,6 +27,7 @@ const svgConverter = {
     const feedTravel = template?.laser?.feedTravel || 8000;
     const sMax       = template?.laser?.sMax       || 1000;
     const passes     = template?.laser?.passes     || 1;
+    const zStep      = parseFloat(template?.laser?.zStep) || 0;
     const laserOn    = template?.laser?.laserOnCmd || 'M4';
     const laserOff   = template?.laser?.laserOffCmd || 'M5';
     const baseCmd    = (s) => s.trim().toUpperCase().split(/\s+/)[0];
@@ -82,6 +83,10 @@ const svgConverter = {
             cmds.push(this._cmdImplicit(_x(start.x), _y(start.y), feedTravel));
           } else {
             cmds.push(this._cmd('G0', { X: this._r(_x(start.x)), Y: this._r(_y(start.y)), F: feedTravel }));
+          }
+          // Z step: lower Z incrementally each pass
+          if (zStep) {
+            cmds.push(...gcodeParser.parse('G91\nG0 Z' + zStep + '\nG90\n'));
           }
         }
         for (let i = 1; i < seg.length; i++) {

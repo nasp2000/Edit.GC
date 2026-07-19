@@ -292,6 +292,7 @@
   getTemplateOptions(name) {
     const passesOpt = { section: 'Passes', options: [
       { id: 'passes', label: 'Passes', type: 'select', values: [1,2,3,4,5,6,8,10], default: 1, unit: '' },
+      { id: 'zStep', label: 'Z Step', type: 'select', values: [0, -0.05, -0.1, -0.2, -0.5, -1], default: 0, unit: 'mm' },
     ]};
     const opts = {
       "SM Motion Control (SM300)": [
@@ -403,6 +404,7 @@
         laserOnCmd,
         laserOffCmd,
         passes: parseInt(opts.passes) || 1,
+        zStep: parseFloat(opts.zStep) || 0,
       },
       header: this._buildHeader(t, opts),
       footer: this._buildFooter(t, opts),
