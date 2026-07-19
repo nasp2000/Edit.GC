@@ -311,57 +311,7 @@ const ui = {
     document.getElementById('fileInputSvg').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
       e.target.value = '';
-      const text = await fileManager.readGcode(file);
-
-      // extrair dimensÃµes do viewBox / width+height
-      let dimW = 100, dimH = 100;
-      try {
-        const parser = new DOMParser();
-        const doc    = parser.parseFromString(text, 'image/svg+xml');
-        const svg    = doc.querySelector('svg');
-        if (svg) {
-          const vb = svg.getAttribute('viewBox');
-          if (vb) {
-            const parts = vb.trim().split(/[\s,]+/).map(Number);
-            dimW = parts[2] || 100;
-            dimH = parts[3] || 100;
-          } else {
-            dimW = parseFloat(svg.getAttribute('width'))  || 100;
-            dimH = parseFloat(svg.getAttribute('height')) || 100;
-          }
-        }
-      } catch (_) { /* dimensÃµes por defeito */ }
-
-      state.svgDims = { width: dimW, height: dimH };
-      state.svgText = text;
-      state.svgSegments = null; // will be cached on first draw
-      state.mode    = 'svg';
-
-      // criar imagem a partir do blob SVG
-      const blob = new Blob([text], { type: 'image/svg+xml' });
-      const url  = URL.createObjectURL(blob);
-      const img  = new Image();
-      img.onload = () => {
-        state.svgImg = img;
-        URL.revokeObjectURL(url);
-        state.previewScale = 1;
-        state.previewOffX  = 0;
-        state.previewOffY  = 0;
-        document.getElementById('btnSlice').disabled = false;
-        // populate resize panel with SVG dimensions
-        state.resizeBaseW = dimW;
-        state.resizeBaseH = dimH;
-        document.getElementById('resizeW').value = dimW.toFixed(3);
-        const hEl1 = document.getElementById('resizeHDisplay'); if (hEl1) hEl1.textContent = dimH.toFixed(3);
-        preview.resize();
-        ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} × H: ${dimH.toFixed(1)} — click "Convert" to generate G-code`);
-        recentFiles.add(file.name, 'SVG', text);
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        ui.setStatus(`Error loading SVG: ${file.name}`, 'error');
-      };
-      img.src = url;
+      await ui._loadSvgFile(file);
     });
 
     // SVG view mode toggle (outlines / raster)
@@ -386,29 +336,7 @@ const ui = {
     document.getElementById('fileInputDxf').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
       e.target.value = '';
-      const text = await fileManager.readGcode(file);
-      const segments = dxfParser.parse(text, 1);
-      if (!segments.length) { ui.setStatus('No entities found in DXF.', 'error'); return; }
-      const all = segments.flat();
-      const xs = all.map(p => p.x);
-      const ys = all.map(p => p.y);
-      const mmX4 = safeMinMax(xs), mmY4 = safeMinMax(ys);
-      const minX = mmX4.min, maxX = mmX4.max, minY = mmY4.min, maxY = mmY4.max;
-      const w = maxX - minX || 1, h = maxY - minY || 1;
-      state.dxfSegments = segments;
-      state.dxfText = text;
-      state.dxfName = file.name;
-      state.mode = 'dxf';
-      state.previewScale = 1;
-      state.previewOffX = 0;
-      state.previewOffY = 0;
-      state.resizeBaseW = w;
-      state.resizeBaseH = h;
-      document.getElementById('resizeW').value = w.toFixed(3);
-      const hEl2 = document.getElementById('resizeHDisplay'); if (hEl2) hEl2.textContent = h.toFixed(3);
-      document.getElementById('btnSlice').disabled = false;
-      preview.draw();
-      ui.setStatus(`DXF: ${file.name} — ${segments.length} segments, ${all.length} points`);
+      await ui._loadDxfFile(file);
     });
 
     // Open Vector (SVG or DXF — unified button)
@@ -417,12 +345,9 @@ const ui = {
       e.target.value = '';
       const ext = file.name.split('.').pop().toLowerCase();
       if (ext === 'svg') {
-        // Reuse SVG handler by dispatching to the same file input
-        document.getElementById('fileInputSvg').files = e.target.files;
-        document.getElementById('fileInputSvg').dispatchEvent(new Event('change'));
+        await ui._loadSvgFile(file);
       } else if (ext === 'dxf') {
-        document.getElementById('fileInputDxf').files = e.target.files;
-        document.getElementById('fileInputDxf').dispatchEvent(new Event('change'));
+        await ui._loadDxfFile(file);
       } else {
         ui.setStatus('Unsupported file format.', 'error');
       }
@@ -1167,56 +1092,111 @@ const ui = {
         if (td?.laserOnCmd && td?.laserOffCmd) return { on: td.laserOnCmd, off: td.laserOffCmd };
         return ui._detectLaserPatterns();
       })() : null;
-      const result = [];
-      let addedOn = false;
-      for (let i = 0; i < state.workingCmds.length; i++) {
-        result.push(state.workingCmds[i]);
-        if (sorted.includes(i)) {
-          const c = state.workingCmds[i];
-          const copy = JSON.parse(JSON.stringify(c));
-          if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
-          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
-          if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
-          copy.raw = '';
-          if (isStartStop && pat) {
-            // Add travel move + laser ON before first selected point
-            if (!addedOn) {
-              // Build a travel (rapid) command to the same position, laser OFF
-              const travel = JSON.parse(JSON.stringify(copy));
-              const tpl = templateManager.getActive();
-              const td = tpl?.data || tpl;
-              const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
-              // Set travel feed (G0 or SM300 implicit with travel feed)
-              if (isSM300) {
-                travel.type = '';
-                travel.params.F = td?.feedTravel || 5000;
-              } else {
-                travel.type = 'G0';
-                travel.params.F = td?.feedTravel || 8000;
-              }
-              travel.raw = '';
-              // Clear S param on travel (no laser power during rapid)
-              if (travel.params.S !== undefined) delete travel.params.S;
-              result.push(travel);
-              result.push({ lineIndex: -1, raw: pat.on, type: pat.on, params: {}, comment: '', isBlank: false, isComment: false });
-              addedOn = true;
-            }
-            result.push(copy);
-          } else {
+
+      if (!isStartStop || !pat) {
+        // Continuous mode: insert offset copy right after each selected point
+        const result = [];
+        for (let i = 0; i < state.workingCmds.length; i++) {
+          result.push(state.workingCmds[i]);
+          if (sorted.includes(i)) {
+            const c = state.workingCmds[i];
+            const copy = JSON.parse(JSON.stringify(c));
+            if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
+            if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
+            if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+            copy.raw = '';
             result.push(copy);
           }
         }
+        state.workingCmds = result;
+        state.selectedPoints.clear();
+        preview._updatePointsInfo();
+        ui.refreshWorking();
+        ui._updatePointsPanel();
+        ui.setStatus(`Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz}.`);
+        return;
       }
-      // Add laser OFF after the last selected point (in Start/Stop mode)
-      if (isStartStop && pat && addedOn) {
-        result.push({ lineIndex: -1, raw: pat.off, type: pat.off, params: {}, comment: '', isBlank: false, isComment: false });
+
+      // Start/Stop mode: each selected point gets its own travel + laser-on + point + laser-off wrapper
+      // Insert AFTER the next laser-off command, not at the point's index
+      const isLaserOff = (cmd) => {
+        const raw = (cmd.raw || '').trim().toUpperCase().split(/\s+/)[0];
+        return raw === (pat.off || '').toUpperCase().split(/\s+/)[0];
+      };
+      const tpl = templateManager.getActive();
+      const td = tpl?.data || tpl;
+      const isSM = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
+      const tag = '  ;edit.gc';
+
+      let result = [...state.workingCmds];
+      // Process in reverse order so splicing doesn't shift remaining indices
+      const addPoints = [...sorted].reverse();
+      for (const idx of addPoints) {
+        const c = state.workingCmds[idx];
+        const copy = JSON.parse(JSON.stringify(c));
+        if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
+        if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
+        if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+        copy.raw = '';
+
+        // Find next laser-off after this point
+        let insertAfter = idx;
+        for (let j = idx; j < state.workingCmds.length; j++) {
+          if (isLaserOff(state.workingCmds[j])) {
+            insertAfter = j;
+            break;
+          }
+        }
+
+        // Build travel command
+        const travel = JSON.parse(JSON.stringify(copy));
+        if (isSM) {
+          travel.type = '';
+          travel.params.F = td?.feedTravel || 5000;
+        } else {
+          travel.type = 'G0';
+          travel.params.F = td?.feedTravel || 8000;
+        }
+        travel.raw = '';
+        if (travel.params.S !== undefined) delete travel.params.S;
+
+        // Tag all inserted commands via comment field
+        travel.comment = 'edit.gc';
+        copy.comment = 'edit.gc';
+        const onCmd = { lineIndex: -1, raw: '', type: pat.on, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
+        const offCmd = { lineIndex: -1, raw: '', type: pat.off, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
+        // Mark for ;edit.gc tagging
+        [travel, onCmd, copy, offCmd].forEach(cmd => cmd._newInsert = true);
+
+        const insertBlock = [travel, onCmd, copy, offCmd];
+        result.splice(insertAfter + 1, 0, ...insertBlock);
       }
+
       state.workingCmds = result;
       state.selectedPoints.clear();
       preview._updatePointsInfo();
-      ui.refreshWorking();
+
+      // Serialize and force-tag only the newly inserted lines
+      let text = gcodeParser.serialize(state.workingCmds);
+      const lines = text.split('\n');
+      state.workingCmds.forEach((cmd, i) => {
+        if (cmd._newInsert && i < lines.length) {
+          lines[i] = lines[i].replace(/\s*;\s*edit\.gc/g, '').trimEnd() + '  ;edit.gc';
+        }
+        delete cmd._newInsert;
+      });
+      text = lines.join('\n');
+      state._boundsCache = null;
+      ui._updateWorkingEditor(text);
+      applyHighlight(document.getElementById('highlightWorking'), text);
+      const wm = document.getElementById('editorWorkingModal');
+      if (wm) wm.value = text;
+      preview.draw(state.workingCmds);
+      ui.syncModals();
+      if (ui.updateResizePanel) ui.updateResizePanel();
+      ui.updateFooterInfo();
       ui._updatePointsPanel();
-      ui.setStatus(`Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz}${isStartStop ? ' (Start/Stop)' : ''}.`);
+      ui.setStatus(`Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz} (Start/Stop).`);
     });
 
     document.getElementById('btnTogglePointsPanel').addEventListener('click', () => {
@@ -1646,7 +1626,7 @@ const ui = {
           edited = JSON.stringify(cmdP) !== JSON.stringify(origP) || cmd.type !== orig.type;
         }
         if (edited) {
-          lines[i] = lines[i].replace(/\s*;edit\.gc/g, '').trimEnd() + '  ;edit.gc';
+          lines[i] = lines[i].replace(/\s*;\s*edit\.gc/g, '').trimEnd() + '  ;edit.gc';
         }
       });
       text = lines.join('\n');
@@ -1970,6 +1950,82 @@ const ui = {
     applyHighlight(document.getElementById('highlightWorking'), gcode);
     ui.syncModals();
     preview.resize();
+  },
+
+  async _loadSvgFile(file) {
+    const text = await fileManager.readGcode(file);
+    let dimW = 100, dimH = 100;
+    try {
+      const parser = new DOMParser();
+      const doc    = parser.parseFromString(text, 'image/svg+xml');
+      const svg    = doc.querySelector('svg');
+      if (svg) {
+        const vb = svg.getAttribute('viewBox');
+        if (vb) {
+          const parts = vb.trim().split(/[\s,]+/).map(Number);
+          dimW = parts[2] || 100;
+          dimH = parts[3] || 100;
+        } else {
+          dimW = parseFloat(svg.getAttribute('width'))  || 100;
+          dimH = parseFloat(svg.getAttribute('height')) || 100;
+        }
+      }
+    } catch (_) {}
+
+    state.svgDims = { width: dimW, height: dimH };
+    state.svgText = text;
+    state.svgSegments = null;
+    state.mode    = 'svg';
+
+    const blob = new Blob([text], { type: 'image/svg+xml' });
+    const url  = URL.createObjectURL(blob);
+    const img  = new Image();
+    img.onload = () => {
+      state.svgImg = img;
+      URL.revokeObjectURL(url);
+      state.previewScale = 1;
+      state.previewOffX  = 0;
+      state.previewOffY  = 0;
+      document.getElementById('btnSlice').disabled = false;
+      state.resizeBaseW = dimW;
+      state.resizeBaseH = dimH;
+      document.getElementById('resizeW').value = dimW.toFixed(3);
+      const hEl1 = document.getElementById('resizeHDisplay'); if (hEl1) hEl1.textContent = dimH.toFixed(3);
+      preview.resize();
+      ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} × H: ${dimH.toFixed(1)} — click "Convert" to generate G-code`);
+      recentFiles.add(file.name, 'SVG', text);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      ui.setStatus(`Error loading SVG: ${file.name}`, 'error');
+    };
+    img.src = url;
+  },
+
+  async _loadDxfFile(file) {
+    const text = await fileManager.readGcode(file);
+    const segments = dxfParser.parse(text, 1);
+    if (!segments.length) { ui.setStatus('No entities found in DXF.', 'error'); return; }
+    const all = segments.flat();
+    const xs = all.map(p => p.x);
+    const ys = all.map(p => p.y);
+    const mmX4 = safeMinMax(xs), mmY4 = safeMinMax(ys);
+    const minX = mmX4.min, maxX = mmX4.max, minY = mmY4.min, maxY = mmY4.max;
+    const w = maxX - minX || 1, h = maxY - minY || 1;
+    state.dxfSegments = segments;
+    state.dxfText = text;
+    state.dxfName = file.name;
+    state.mode = 'dxf';
+    state.previewScale = 1;
+    state.previewOffX = 0;
+    state.previewOffY = 0;
+    state.resizeBaseW = w;
+    state.resizeBaseH = h;
+    document.getElementById('resizeW').value = w.toFixed(3);
+    const hEl2 = document.getElementById('resizeHDisplay'); if (hEl2) hEl2.textContent = h.toFixed(3);
+    document.getElementById('btnSlice').disabled = false;
+    preview.draw();
+    ui.setStatus(`DXF: ${file.name} — ${segments.length} segments, ${all.length} points`);
   },
 };
 

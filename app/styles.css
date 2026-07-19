@@ -799,6 +799,7 @@ input[type=number] { -moz-appearance: textfield; }
 .hl-unknown { color: #d97706; }
 .hl-blockdel { color: #F48771; font-weight: 700; }
 .hl-lineno { color: #858585; }
+.hl-line-edited { background: rgba(255, 200, 0, 0.12); display: block; }
 
 /* ===================== DROP ZONE ===================== */
 body.drag-over-file { outline: 3px dashed var(--accent); outline-offset: -6px; }

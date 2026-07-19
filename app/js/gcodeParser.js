@@ -64,14 +64,20 @@ const gcodeParser = {
   highlight(text) {
     if (!text) return '';
     return text.replace(/\r/g, '').split('\n').map(line => {
+      const isEdited = line.includes(';edit.gc');
+      let inner;
       // Comment-only line
       if (/^\s*\(/.test(line) || /^\s*;/.test(line)) {
-        return `<span class="hl-comment">${this._escape(line)}</span>`;
+        inner = `<span class="hl-comment">${this._escape(line)}</span>`;
+        return `<span class="hl-line${isEdited ? ' hl-line-edited' : ''}">${inner}</span>`;
       }
       // Strip comments for command analysis
       const body = line.replace(/\(.*?\)/g, '').replace(/;.*$/, '').trim();
       const commentPart = line.includes(';') ? line.substring(line.indexOf(';')) : (line.includes('(') ? line.substring(line.indexOf('(')) : '');
-      if (!body) return this._escape(line) ? `<span class="hl-comment">${this._escape(line)}</span>` : '';
+      if (!body) {
+        inner = this._escape(line) ? `<span class="hl-comment">${this._escape(line)}</span>` : '';
+        return `<span class="hl-line${isEdited ? ' hl-line-edited' : ''}">${inner}</span>`;
+      }
 
       // Strip block delete marker for token analysis
       let hlPrefix = '';
@@ -118,7 +124,7 @@ const gcodeParser = {
       if (commentPart) {
         result += ` <span class="hl-comment">${this._escape(commentPart)}</span>`;
       }
-      return result;
+      return `<span class="hl-line${isEdited ? ' hl-line-edited' : ''}">${result}</span>`;
     }).join('\n');
   },
 
