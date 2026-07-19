@@ -411,6 +411,23 @@ const ui = {
       ui.setStatus(`DXF: ${file.name} — ${segments.length} segments, ${all.length} points`);
     });
 
+    // Open Vector (SVG or DXF — unified button)
+    document.getElementById('fileInputVector').addEventListener('change', async e => {
+      const file = e.target.files[0]; if (!file) return;
+      e.target.value = '';
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (ext === 'svg') {
+        // Reuse SVG handler by dispatching to the same file input
+        document.getElementById('fileInputSvg').files = e.target.files;
+        document.getElementById('fileInputSvg').dispatchEvent(new Event('change'));
+      } else if (ext === 'dxf') {
+        document.getElementById('fileInputDxf').files = e.target.files;
+        document.getElementById('fileInputDxf').dispatchEvent(new Event('change'));
+      } else {
+        ui.setStatus('Unsupported file format.', 'error');
+      }
+    });
+
     // Convert button — single entry point for SVG/DXF → G-code generation
     document.getElementById('btnSlice').addEventListener('click', () => {
       const hasSvg = !!state.svgText;

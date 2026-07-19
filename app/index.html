@@ -21,6 +21,7 @@
   <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputSvg" accept=".svg" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputDxf" accept=".dxf" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
+  <input type="file" id="fileInputVector" accept=".svg,.dxf" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <button id="btnSave"   style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
   <button id="btnSaveAs" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
   <button id="btnUndo"   style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1"></button>
@@ -104,8 +105,7 @@
         <div id="previewProgress" class="preview-progress hidden"><div id="previewProgressTrack"><div id="previewProgressBar"></div></div><span id="previewProgressLabel">Building preview...</span></div>
         <div id="preview-toolbar">
           <span class="ctrl-sep-v"></span>
-          <button class="btn-icon" onclick="document.getElementById('fileInputSvg').click()" title="Open SVG file for conversion">Open SVG</button>
-          <button class="btn-icon" onclick="document.getElementById('fileInputDxf').click()" title="Open DXF file for conversion">Open DXF</button>
+          <button class="btn-icon" onclick="document.getElementById('fileInputVector').click()" title="Open SVG or DXF file for conversion">Open Vector</button>
           <select id="svgViewMode" class="bselect" style="width:65px">
             <option value="outlines">Outlines</option>
             <option value="raster">Raster</option>
@@ -324,8 +324,7 @@
         <span class="section-label">Preview</span>
         <div class="modal-bar-actions">
           <button class="btn-icon" onclick="fileInputGcode.click()" title="Open G-code file">Open G-code</button>
-          <button class="btn-icon" onclick="fileInputSvg.click()" title="Open SVG file">Open SVG</button>
-          <button class="btn-icon" onclick="fileInputDxf.click()" title="Open DXF file">Open DXF</button>
+          <button class="btn-icon" onclick="document.getElementById('fileInputVector').click()" title="Open SVG or DXF file">Open Vector</button>
           <select id="svgViewModeModal" class="bselect" style="width:65px">
             <option value="outlines">Outlines</option>
             <option value="raster">Raster</option>
