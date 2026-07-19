@@ -1101,8 +1101,8 @@ const ui = {
           const prevMoveIdx = moveIndices[prevIdx - 1];
           const prev = state.workingCmds[prevMoveIdx];
           if (prev.params.X === undefined || prev.params.Y === undefined) continue;
-          // Skip rapid-to-rapid and rapid-to-cut transitions (travel moves)
-          if (isRapid(prev, prevMoveIdx) || isRapid(cmd, i)) continue;
+          // Skip rapid commands (travel moves)
+          if (isRapid(cmd, i)) continue;
           const dx = cmd.params.X - prev.params.X;
           const dy = cmd.params.Y - prev.params.Y;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1168,7 +1168,7 @@ const ui = {
         return;
       }
 
-      // Continuous mode (existing behavior)
+      // Continuous mode
       undoRedo.push(state.workingCmds);
       const result = [];
 
@@ -1194,8 +1194,8 @@ const ui = {
           result.push(cmd);
           continue;
         }
-        // Skip rapid-to-rapid and rapid-to-cut transitions (travel moves)
-        if (isRapid(prev, prevMoveIdx) || isRapid(cmd, curMove ? i : -1)) {
+        // Always subdivide cut moves (even after rapids)
+        if (isRapid(cmd, i)) {
           result.push(cmd);
           continue;
         }
@@ -2155,17 +2155,21 @@ const ui = {
     if (hasGcode) {
       const unitsCmd = state.workingCmds.find(c => c.type === 'G20' || c.type === 'G21');
       const modeCmd  = state.workingCmds.find(c => c.type === 'G90' || c.type === 'G91');
-      let units = unitsCmd ? (unitsCmd.type === 'G21' ? 'mm' : 'in') : '?';
-      let mode = modeCmd ? (modeCmd.type === 'G90' ? 'ABS' : 'REL') : '?';
-      const unitsLabel = unitsCmd ? `${unitsCmd.type} (${units})` : '?';
-      const modeLabel = modeCmd ? `${modeCmd.type} (${mode})` : '?';
+      let units = unitsCmd ? (unitsCmd.type === 'G21' ? 'mm' : 'in') : 'mm';
+      let mode = modeCmd ? (modeCmd.type === 'G90' ? 'ABS' : 'REL') : 'ABS';
+      const unitsLabel = unitsCmd ? `${unitsCmd.type} (${units})` : `default (${units})`;
+      const modeLabel = modeCmd ? `${modeCmd.type} (${mode})` : `default (${mode})`;
       if (iUnits) iUnits.textContent = `Units: ${unitsLabel} | Mode: ${modeLabel}`;
       const total = state.workingCmds.length;
       const cuts = state.workingCmds.filter(c => c.type === 'G1' || c.type === 'G01').length;
-      const rapids = state.workingCmds.filter(c => c.type === 'G0' || c.type === 'G00').length;
+      let rapids = state.workingCmds.filter(c => c.type === 'G0' || c.type === 'G00').length;
       const arcs2 = state.workingCmds.filter(c => c.type === 'G2' || c.type === 'G02').length;
       const arcs3 = state.workingCmds.filter(c => c.type === 'G3' || c.type === 'G03').length;
-      if (iLines) iLines.textContent = `Lines: ${total.toLocaleString()}  G1: ${cuts}  G0: ${rapids}  G2: ${arcs2}  G3: ${arcs3}`;
+      let implicit = 0;
+      if (!cuts && !rapids && !arcs2 && !arcs3) {
+        implicit = state.workingCmds.filter(c => c.type === '' && (c.x != null || c.y != null || c.z != null)).length;
+      }
+      if (iLines) iLines.textContent = `Lines: ${total.toLocaleString()}  G1: ${cuts}  G0: ${rapids}  G2: ${arcs2}  G3: ${arcs3}${implicit ? `  Implicit: ${implicit}` : ''}`;
       const segs = preview._segments;
       if (segs && segs.length) {
         let cutDist = 0, rapidDist = 0;
@@ -2194,9 +2198,9 @@ const ui = {
         const analysis = gcodeParser.analyzeFull(state.workingCmds);
         const warns = [];
         if (analysis.unknownCmds.length) warns.push(`Unknown: ${analysis.unknownCmds.join(', ')}`);
-        if (!unitsCmd) warns.push('No G20/G21 (units not set)');
-        if (!modeCmd)  warns.push('No G90/G91 (mode not set)');
-        if (cuts === 0) warns.push('No G1 moves (nothing to cut)');
+        if (!unitsCmd) warns.push('No G20/G21 (assuming mm)');
+        if (!modeCmd)  warns.push('No G90/G91 (assuming ABS)');
+        if (cuts === 0 && !implicit) warns.push('No G1 moves (nothing to cut)');
         iWarn.textContent = warns.length ? warns.join('  |  ') : '';
         iWarn.style.color = warns.length ? '#d97706' : 'var(--text-dim)';
       }
