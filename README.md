@@ -2,7 +2,7 @@
 
 Browser-based G-code editor for laser/CNC. Edit paths, convert SVG/DXF to G-code, preview toolpaths — no install needed.
 
-![Edit.GC screenshot](image/home.png)
+![Edit.GC screenshot](app/image/home.png)
 
 ## Quick start
 
