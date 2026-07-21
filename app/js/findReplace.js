@@ -11,13 +11,16 @@ const findReplace = {
     const findInp = document.getElementById('findInput');
     const repInp = document.getElementById('replaceInput');
 
-    document.getElementById('btnFindClose').onclick = () => this.close();
-    document.getElementById('btnFindNext').onclick = () => this.findNext();
-    document.getElementById('btnFindPrev').onclick = () => this.findPrev();
-    document.getElementById('btnReplace').onclick = () => this.replace();
-    document.getElementById('btnReplaceAll').onclick = () => this.replaceAll();
+    document.getElementById('btnFindClose').addEventListener('click', () => this.close());
+    document.getElementById('btnFindNext').addEventListener('click', () => this.findNext());
+    document.getElementById('btnFindPrev').addEventListener('click', () => this.findPrev());
+    document.getElementById('btnReplace').addEventListener('click', () => this.replace());
+    document.getElementById('btnReplaceAll').addEventListener('click', () => this.replaceAll());
 
-    findInp.addEventListener('input', () => this.search(findInp.value));
+    findInp.addEventListener('input', () => {
+      this.search(findInp.value);
+      if (document.activeElement !== findInp) setTimeout(() => findInp.focus(), 0);
+    });
     findInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.findNext(); } });
     repInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.replace(); } });
 
@@ -69,8 +72,12 @@ const findReplace = {
 
   _getText() {
     const ta = document.getElementById('editorWorking');
-    if (ta && ta.style.display !== 'none') return ta.value;
-    // Virtual editor
+    if (ta) {
+      if (ta.style.display !== 'none') return ta.value;
+      // Virtual editor active — get text from VE, or fall back to textarea
+      if (window.ui && ui._ve) return ui._ve.getText();
+      return ta.value;
+    }
     if (window.ui && ui._ve) return ui._ve.getText();
     return '';
   },
@@ -84,7 +91,8 @@ const findReplace = {
   _getEditor() {
     const ta = document.getElementById('editorWorking');
     if (ta && ta.style.display !== 'none') return ta;
-    return null; // virtual editor
+    if (window.ui && ui._ve) return null;
+    return ta || null;
   },
 
   search(query) {
@@ -132,6 +140,7 @@ const findReplace = {
     this._currentIdx = (this._currentIdx + 1) % this._matches.length;
     this._updateCount();
     this._scrollToCurrent();
+    this._focusInput();
   },
 
   findPrev() {
@@ -139,6 +148,7 @@ const findReplace = {
     this._currentIdx = (this._currentIdx - 1 + this._matches.length) % this._matches.length;
     this._updateCount();
     this._scrollToCurrent();
+    this._focusInput();
   },
 
   _scrollToCurrent() {
@@ -148,13 +158,16 @@ const findReplace = {
     const lineNo = text.substring(0, m.index).split('\n').length;
     const ta = this._getEditor();
     if (ta) {
-      ta.focus();
       ta.setSelectionRange(m.index, m.index + m.length);
       ta.scrollTop = (lineNo - 3) * (parseFloat(getComputedStyle(ta).lineHeight) || 19.2);
     } else if (window.ui && ui._ve) {
-      ui._ve.focus();
       ui._ve.scrollToLine(lineNo - 1);
     }
+  },
+
+  _focusInput() {
+    const inp = document.getElementById('findInput');
+    if (inp) inp.focus();
   },
 
   _highlightMatches() {
@@ -168,12 +181,12 @@ const findReplace = {
     const rep = document.getElementById('replaceInput').value;
     let text = this._getText();
     text = text.substring(0, m.index) + rep + text.substring(m.index + m.length);
-    this._setText(text);
     state.workingCmds = gcodeParser.parse(text);
     ui.refreshWorking();
     const query = document.getElementById('findInput').value;
     this.search(query);
     this.findNext();
+    this._focusInput();
   },
 
   replaceAll() {
@@ -191,11 +204,11 @@ const findReplace = {
     } catch (_) { return; }
     const newText = text.replace(pattern, rep);
     if (newText !== text) {
-      this._setText(newText);
       state.workingCmds = gcodeParser.parse(newText);
       ui.refreshWorking();
       this.search(query);
     }
+    this._focusInput();
   },
 
   _clearHighlights() {

@@ -521,8 +521,31 @@ const ui = {
     });
     document.getElementById('btnRotate90').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code to rotate.', 'error'); return; }
+      // Temporarily remove machine origin offset so rotation is around logical origin
+      const mo = ui._loadMachineOpts();
+      const mx = parseFloat(mo.machineX) || 0;
+      const my = parseFloat(mo.machineY) || 0;
+      let cmds = state.workingCmds.map(c => {
+        if (c.params.X !== undefined || c.params.Y !== undefined) {
+          const p = { ...c.params };
+          if (p.X !== undefined) p.X = parseFloat((p.X - mx).toFixed(4));
+          if (p.Y !== undefined) p.Y = parseFloat((p.Y - my).toFixed(4));
+          return { ...c, params: p, raw: '' };
+        }
+        return c;
+      });
       undoRedo.push(state.workingCmds);
-      let cmds = gcodeParser.rotate(state.workingCmds, 90);
+      cmds = gcodeParser.rotate(cmds, 90);
+      // Re-apply machine origin
+      cmds = cmds.map(c => {
+        if (c.params.X !== undefined || c.params.Y !== undefined) {
+          const p = { ...c.params };
+          if (p.X !== undefined) p.X = parseFloat((p.X + mx).toFixed(4));
+          if (p.Y !== undefined) p.Y = parseFloat((p.Y + my).toFixed(4));
+          return { ...c, params: p, raw: '' };
+        }
+        return c;
+      });
       // Re-center after rotation so X/Y stay non-negative
       const isMotion = (t) => ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(t) || t === null || t === undefined;
       let minX = Infinity, minY = Infinity;
@@ -1048,13 +1071,110 @@ const ui = {
       const minDist = parseFloat(document.getElementById('minDistValue').value);
       if (!minDist || minDist <= 0) { ui.setStatus('Enter a positive distance value.', 'error'); return; }
       const isStartStop = document.getElementById('chkMinDistStartStop').checked;
+      const isArcsOnly = document.getElementById('chkMinDistArcsOnly').checked;
 
-      // Collect indices of cut motion commands (skip G0/G00 rapid moves)
+      const isArcCmd = (c) => {
+        const t = (c.type || '').toUpperCase();
+        if (t === 'G2' || t === 'G02' || t === 'G3' || t === 'G03') return true;
+        if (c.raw && /ARC/i.test(c.raw)) return true;
+        return false;
+      };
+
+      const subdivideArcPoints = (prevParams, cmd, dist) => {
+        const t = (cmd.type || '').toUpperCase();
+        const isSM300Arc = /ARC/i.test(cmd.raw || '');
+        const px = prevParams.X, py = prevParams.Y;
+        const nx = cmd.params.X, ny = cmd.params.Y;
+        let cx, cy, cw;
+
+        if (isSM300Arc) {
+          const arcMatch = (cmd.raw || '').toUpperCase().match(/ARC\s*(-?\d+\.?\d*)/);
+          if (!arcMatch) return [];
+          const angleDeg = parseFloat(arcMatch[1]);
+          const angleRad = Math.abs(angleDeg) * Math.PI / 180;
+          cw = angleDeg > 0;
+          const dx = nx - px, dy = ny - py;
+          const chordLen = Math.sqrt(dx*dx + dy*dy);
+          if (chordLen < 0.001 || angleRad < 0.001) return [];
+          const halfAngle = angleRad / 2;
+          const r = chordLen / (2 * Math.sin(halfAngle));
+          const d = r * Math.cos(halfAngle);
+          const perpX = -dy / chordLen, perpY = dx / chordLen;
+          const midX = (px + nx) / 2, midY = (py + ny) / 2;
+          if (cw) { cx = midX - d * perpX; cy = midY - d * perpY; }
+          else { cx = midX + d * perpX; cy = midY + d * perpY; }
+          const rSq = (px - cx)*(px - cx) + (py - cy)*(py - cy);
+          const radius = Math.sqrt(rSq);
+          if (!isFinite(radius) || radius < 0.000001) return [];
+          let a0 = Math.atan2(py - cy, px - cx);
+          let a1 = Math.atan2(ny - cy, nx - cx);
+          let delta = a1 - a0;
+          if (cw) { if (delta >= 0) delta -= Math.PI * 2; }
+          else { if (delta <= 0) delta += Math.PI * 2; }
+          if (Math.abs(delta) < 0.0000001) return [];
+          const arcLen = Math.abs(delta) * radius;
+          if (arcLen <= dist) return [];
+          const numDiv = Math.ceil(arcLen / dist);
+          const points = [];
+          for (let s = 1; s <= numDiv - 1; s++) {
+            const a = a0 + delta * (s / numDiv);
+            points.push({ X: parseFloat((cx + Math.cos(a) * radius).toFixed(4)), Y: parseFloat((cy + Math.sin(a) * radius).toFixed(4)) });
+          }
+          return points;
+        }
+
+        if (t === 'G2' || t === 'G02' || t === 'G3' || t === 'G03') {
+          const iVal = cmd.params.I !== undefined ? cmd.params.I : cmd.params.C;
+          const jVal = cmd.params.J !== undefined ? cmd.params.J : cmd.params.D;
+          if (iVal === undefined && jVal === undefined) return [];
+          cx = px + (iVal || 0); cy = py + (jVal || 0);
+          cw = (t === 'G2' || t === 'G02');
+        } else {
+          return [];
+        }
+
+        const rSq = (px - cx)*(px - cx) + (py - cy)*(py - cy);
+        const radius = Math.sqrt(rSq);
+        if (!isFinite(radius) || radius < 0.000001) return [];
+        let a0 = Math.atan2(py - cy, px - cx);
+        let a1 = Math.atan2(ny - cy, nx - cx);
+        let delta = a1 - a0;
+        if (cw) { if (delta >= 0) delta -= Math.PI * 2; }
+        else { if (delta <= 0) delta += Math.PI * 2; }
+        if (Math.abs(delta) < 0.0000001) return [];
+        const arcLen = Math.abs(delta) * radius;
+        if (arcLen <= dist) return [];
+        const numDiv = Math.ceil(arcLen / dist);
+        const points = [];
+        for (let s = 1; s <= numDiv - 1; s++) {
+          const a = a0 + delta * (s / numDiv);
+          points.push({ X: parseFloat((cx + Math.cos(a) * radius).toFixed(4)), Y: parseFloat((cy + Math.sin(a) * radius).toFixed(4)) });
+        }
+        return points;
+      };
+
+      // Collect indices of all motion commands (skip G0/G00 rapid moves)
       const moveIndices = [];
       state.workingCmds.forEach((c, i) => {
-        if (c.params.X !== undefined && c.params.Y !== undefined) moveIndices.push(i);
+        if (c.params.X !== undefined && c.params.Y !== undefined) {
+          moveIndices.push(i);
+        }
       });
       if (moveIndices.length < 2) { ui.setStatus('Need at least 2 motion commands with X,Y.', 'error'); return; }
+
+      // For arcs-only mode: compute curve detection threshold
+      let curveThresh = 0;
+      if (isArcsOnly) {
+        let maxMovDist = 0;
+        for (let pi = 1; pi < moveIndices.length; pi++) {
+          const prev = state.workingCmds[moveIndices[pi-1]];
+          const cmd = state.workingCmds[moveIndices[pi]];
+          const dx = cmd.params.X - prev.params.X;
+          const dy = cmd.params.Y - prev.params.Y;
+          maxMovDist = Math.max(maxMovDist, Math.sqrt(dx*dx + dy*dy));
+        }
+        curveThresh = maxMovDist * 0.15;
+      }
 
       // Helper: check if a command is a rapid/travel move (not a cut)
       const hasSM3 = state.workingCmds.some(c => c.type === 'SM3');
@@ -1103,6 +1223,22 @@ const ui = {
           if (prev.params.X === undefined || prev.params.Y === undefined) continue;
           // Skip rapid commands (travel moves)
           if (isRapid(cmd, i)) continue;
+          if (isArcsOnly) {
+            const dx = cmd.params.X - prev.params.X;
+            const dy = cmd.params.Y - prev.params.Y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < curveThresh && dist > 0) {
+              const numDiv = Math.ceil(dist / minDist);
+              if (numDiv > 1) {
+                const stepX = dx / numDiv;
+                const stepY = dy / numDiv;
+                for (let s = 1; s <= numDiv - 1; s++) {
+                  interpPoints.push({ params: { X: parseFloat((prev.params.X + stepX * s).toFixed(4)), Y: parseFloat((prev.params.Y + stepY * s).toFixed(4)) }, type: 'G1' });
+                }
+              }
+            }
+            continue;
+          }
           const dx = cmd.params.X - prev.params.X;
           const dy = cmd.params.Y - prev.params.Y;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1144,6 +1280,16 @@ const ui = {
           }
         }
 
+        // Find modal feed rate from the first cut move for Start/Stop points
+        let modalCutF = 0;
+        for (let k = 0; k < state.workingCmds.length; k++) {
+          const ck = state.workingCmds[k];
+          if (ck.params.F && ck.params.F > 0 && ck.params.F < 5000) { modalCutF = ck.params.F; break; }
+        }
+        if (!modalCutF) modalCutF = 400;
+
+        const blankCmd = () => ({ lineIndex: -1, raw: '', type: null, params: {}, comment: '', isBlank: true, isComment: false, blockDelete: false });
+
         const insertBlock = [];
         for (const pt of interpPoints) {
           // Travel
@@ -1154,11 +1300,14 @@ const ui = {
           travel._newInsert = true;
           // Laser on
           const onCmd = { lineIndex: -1, raw: '', type: pat.on, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
-          // Point (cut)
+          // Point (cut) — ensure it has the original slow feed rate, not fast travel speed
           const point = { lineIndex: -1, raw: '', type: pt.type, params: { ...pt.params }, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
+          if (point.params.F === undefined || point.params.F === 0 || (td?.feedTravel && point.params.F >= td.feedTravel)) {
+            point.params.F = modalCutF;
+          }
           // Laser off
           const offCmd = { lineIndex: -1, raw: '', type: pat.off, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
-          insertBlock.push(travel, onCmd, point, offCmd);
+          insertBlock.push(travel, blankCmd(), onCmd, blankCmd(), point, blankCmd(), offCmd);
         }
 
         result.splice(insertIdx, 0, ...insertBlock);
@@ -1168,39 +1317,64 @@ const ui = {
         return;
       }
 
-      // Continuous mode
-      undoRedo.push(state.workingCmds);
-      const result = [];
+        // Continuous mode
+        undoRedo.push(state.workingCmds);
+        const result = [];
 
-      for (let i = 0; i < state.workingCmds.length; i++) {
-        const cmd = state.workingCmds[i];
-        const curMove = moveIndices.includes(i);
+        for (let i = 0; i < state.workingCmds.length; i++) {
+          const cmd = state.workingCmds[i];
+          const curMove = moveIndices.includes(i);
 
-        if (!curMove) {
-          result.push(cmd);
-          continue;
-        }
+          if (!curMove) {
+            result.push(cmd);
+            continue;
+          }
 
-        // Find previous move index
-        const prevIdx = moveIndices.indexOf(i);
-        if (prevIdx === 0 || prevIdx < 0) {
-          result.push(cmd);
-          continue;
-        }
+          // Find previous move index
+          const prevIdx = moveIndices.indexOf(i);
+          if (prevIdx === 0 || prevIdx < 0) {
+            result.push(cmd);
+            continue;
+          }
 
-        const prevMoveIdx = moveIndices[prevIdx - 1];
-        const prev = state.workingCmds[prevMoveIdx];
-        if (prev.params.X === undefined || prev.params.Y === undefined) {
-          result.push(cmd);
-          continue;
-        }
-        // Always subdivide cut moves (even after rapids)
-        if (isRapid(cmd, i)) {
-          result.push(cmd);
-          continue;
-        }
+          const prevMoveIdx = moveIndices[prevIdx - 1];
+          const prev = state.workingCmds[prevMoveIdx];
+          if (prev.params.X === undefined || prev.params.Y === undefined) {
+            result.push(cmd);
+            continue;
+          }
+          // Always subdivide cut moves (even after rapids)
+          if (isRapid(cmd, i)) {
+            result.push(cmd);
+            continue;
+          }
 
-        const dx = cmd.params.X - prev.params.X;
+          if (isArcsOnly) {
+            const dx = cmd.params.X - prev.params.X;
+            const dy = cmd.params.Y - prev.params.Y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < curveThresh && dist > 0) {
+              const numDiv = Math.ceil(dist / minDist);
+              if (numDiv > 1) {
+                const stepX = dx / numDiv;
+                const stepY = dy / numDiv;
+                for (let s = 1; s <= numDiv - 1; s++) {
+                  const p = { ...cmd.params };
+                  p.X = parseFloat((prev.params.X + stepX * s).toFixed(4));
+                  p.Y = parseFloat((prev.params.Y + stepY * s).toFixed(4));
+                  let raw = cmd.type;
+                  for (const [k, v] of Object.entries(p)) {
+                    raw += ` ${k}${Number.isInteger(v) ? v : parseFloat(v.toFixed(4))}`;
+                  }
+                  result.push({ ...cmd, params: p, raw });
+                }
+              }
+            }
+            result.push(cmd);
+            continue;
+          }
+
+          const dx = cmd.params.X - prev.params.X;
         const dy = cmd.params.Y - prev.params.Y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
@@ -1236,6 +1410,7 @@ const ui = {
     ui._pointsPanelOpen = false;
     ui._markStartIdx = 0;
     ui._pointsSide = null;
+    ui._pointsAxis = 'X';
     ui._pointsList = [];
     ui._focusedPointPos = -1; // index in _pointsList
 
@@ -1373,6 +1548,22 @@ const ui = {
       }
 
       if (!changed) return false;
+      // Update _markStartIdx to the command's new index after reorder
+      if (ui._markStartIdx != null && ui._markStartIdx >= 0) {
+        const oldIdx = ui._markStartIdx;
+        const cmdAtOld = cmds[oldIdx];
+        let found = -1;
+        newCmds.some((c, i) => {
+          if (c.params.X !== undefined && c.params.Y !== undefined &&
+              c.params.X === cmdAtOld.params.X &&
+              c.params.Y === cmdAtOld.params.Y &&
+              c.params.Z === cmdAtOld.params.Z) {
+            found = i; return true;
+          }
+          return false;
+        });
+        if (found >= 0) ui._markStartIdx = found;
+      }
       undoRedo.push(state.workingCmds);
       state.workingCmds = newCmds;
       // Force immediate preview rebuild (skip debounce)
@@ -1411,9 +1602,30 @@ const ui = {
       const cur = ui._pointsSide;
       ui._pointsSide = cur === 'left' ? 'right' : cur === 'right' ? null : 'left';
       const btn = document.getElementById('btnSetSide');
-      if (ui._pointsSide === 'left') { btn.textContent = '? Set Side'; btn.style.background = 'var(--accent2)'; }
-      else if (ui._pointsSide === 'right') { btn.textContent = 'Set Side ?'; btn.style.background = 'var(--accent2)'; }
-      else { btn.textContent = 'Set Side ?'; btn.style.background = ''; }
+      // Detect primary axis from G-code bounds
+      ui._pointsAxis = 'X';
+      if (state.workingCmds && state.workingCmds.length) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const c of state.workingCmds) {
+          if (c.params.X !== undefined) { minX = Math.min(minX, c.params.X); maxX = Math.max(maxX, c.params.X); }
+          if (c.params.Y !== undefined) { minY = Math.min(minY, c.params.Y); maxY = Math.max(maxY, c.params.Y); }
+        }
+        if (isFinite(minX) && isFinite(minY)) {
+          const rangeX = maxX - minX;
+          const rangeY = maxY - minY;
+          ui._pointsAxis = rangeY > rangeX ? 'Y' : 'X';
+        }
+      }
+      if (ui._pointsSide === 'left') {
+        btn.textContent = ui._pointsAxis === 'Y' ? '\u2191 Set Side' : '\u2190 Set Side';
+        btn.style.background = 'var(--accent2)';
+      } else if (ui._pointsSide === 'right') {
+        btn.textContent = ui._pointsAxis === 'Y' ? 'Set Side \u2193' : 'Set Side \u2192';
+        btn.style.background = 'var(--accent2)';
+      } else {
+        btn.textContent = 'Set Side \u2192';
+        btn.style.background = '';
+      }
       const ok = ui._reorderFromMark();
       ui.setStatus(ui._pointsSide ? `Side: ${ui._pointsSide}${ok ? ' ? G-code reordered' : ' ? already reversed'}` : 'Side cleared');
     });
@@ -1513,6 +1725,7 @@ const ui = {
           dwm.value = textCont;
           applyHighlight(document.getElementById('highlightWorkingModalDual'), textCont);
         }
+        preview._segments = null;
         preview.draw(state.workingCmds);
         // Update original modal text (no tags needed)
         const origText = state.originalText || (state.originalCmds.length ? gcodeParser.serialize(state.originalCmds) : '');
@@ -1537,6 +1750,16 @@ const ui = {
       const td = tpl?.data || tpl;
       const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
       const tag = '  ;edit.gc';
+
+      const blankCmd = () => ({ lineIndex: -1, raw: '', type: null, params: {}, comment: '', isBlank: true, isComment: false, blockDelete: false });
+
+      // Find modal feed rate from the first cut move
+      let modalSelF = 0;
+      for (let k = 0; k < state.workingCmds.length; k++) {
+        const ck = state.workingCmds[k];
+        if (ck.params.F && ck.params.F > 0 && ck.params.F < 5000) { modalSelF = ck.params.F; break; }
+      }
+      if (!modalSelF) modalSelF = 400;
 
       let result = [...state.workingCmds];
       // Process in reverse order so splicing doesn't shift remaining indices
@@ -1570,6 +1793,11 @@ const ui = {
         travel.raw = '';
         if (travel.params.S !== undefined) delete travel.params.S;
 
+        // Point (cut) — ensure it has the original slow feed rate, not fast travel speed
+        if (copy.params.F === undefined || copy.params.F === 0 || (td?.feedTravel && copy.params.F >= td.feedTravel)) {
+          copy.params.F = modalSelF;
+        }
+
         // Tag all inserted commands via comment field
         travel.comment = 'edit.gc';
         copy.comment = 'edit.gc';
@@ -1578,7 +1806,7 @@ const ui = {
         // Mark for ;edit.gc tagging
         [travel, onCmd, copy, offCmd].forEach(cmd => cmd._newInsert = true);
 
-        const insertBlock = [travel, onCmd, copy, offCmd];
+        const insertBlock = [travel, blankCmd(), onCmd, blankCmd(), copy, blankCmd(), offCmd];
         result.splice(insertAfter + 1, 0, ...insertBlock);
       }
 

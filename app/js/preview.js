@@ -141,7 +141,7 @@ const preview = {
       let tplToolOn  = tplData?.laserOnCmd  || 'M3,M4';
       let tplToolOff = tplData?.laserOffCmd || 'M5';
       // Auto-detect tool-on/off commands from G-code (SM300, M3/M4, etc.)
-      if (state2 === undefined) {
+      if (!state2) {
         const knownOn  = ['M3','M4','SM3'];
         const knownOff = ['M5','RM3'];
         const detectedOn  = [];
@@ -771,7 +771,7 @@ const preview = {
               }
             } else {
               ctx.strokeStyle = '#2563eb';
-              ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2.5;
               ctx.setLineDash([]);
               for (const seg of segments) {
                 if (!seg || seg.length < 2) return;
@@ -887,8 +887,8 @@ const preview = {
     const originY = toCanvasY(0);
     const isOnScreen = originX > 0 && originX < w && originY > 0 && originY < h;
     if (isFinite(originX) && isFinite(originY) && isOnScreen) {
-      ctx.strokeStyle = 'rgba(220,50,50,0.5)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(220,50,50,0.8)';
+      ctx.lineWidth = 3;
       ctx.setLineDash([5, 4]);
       // X axis (horizontal through origin)
       ctx.beginPath();
@@ -901,21 +901,22 @@ const preview = {
       ctx.lineTo(originX, h - 10);
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.lineWidth = 3;
       // Arrow at positive X end
       const axEnd = w - 10;
       ctx.beginPath();
       ctx.moveTo(axEnd, originY);
-      ctx.lineTo(axEnd - 8, originY - 4);
+      ctx.lineTo(axEnd - 8, originY - 5);
       ctx.moveTo(axEnd, originY);
-      ctx.lineTo(axEnd - 8, originY + 4);
+      ctx.lineTo(axEnd - 8, originY + 5);
       ctx.stroke();
       // Arrow at positive Y end
       const ayEnd = 10;
       ctx.beginPath();
       ctx.moveTo(originX, ayEnd);
-      ctx.lineTo(originX - 4, ayEnd + 8);
+      ctx.lineTo(originX - 5, ayEnd + 8);
       ctx.moveTo(originX, ayEnd);
-      ctx.lineTo(originX + 4, ayEnd + 8);
+      ctx.lineTo(originX + 5, ayEnd + 8);
       ctx.stroke();
       // Labels
       ctx.fillStyle = 'rgba(220,50,50,0.7)';
@@ -1259,15 +1260,23 @@ const preview = {
         const mp = ui._pointsList.find(p => p.idx === ui._markStartIdx);
         if (mp) {
           const mx = toCanvasX(mp.x), my = toCanvasY(mp.y);
-          const axis = ui._pointsAxis || 'X';
-          const fwd = ui._pointsSide === 'right';
-          // Angles: 0=?, p=?, -p/2=?, p/2=? (screen coords, Y flipped from CNC)
-          const angleMap = { X: fwd ? 0 : Math.PI, Y: fwd ? -Math.PI / 2 : Math.PI / 2 };
-          const sideAngle = angleMap[axis];
+          // Determine arrow direction from the actual segment direction at mark point
+          // Segments already reflect the current (possibly reversed) path order
+          let segAngle = 0;
+          if (segments && segments.length) {
+            const markSegIdx = segments.findIndex(s => s.cmdIdx === ui._markStartIdx);
+            if (markSegIdx >= 0) {
+              const s = segments[markSegIdx];
+              const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y;
+              if (Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001) {
+                segAngle = Math.atan2(dy, dx);
+              }
+            }
+          }
           const dpr = window.devicePixelRatio || 1;
           ctx.save();
           ctx.translate(mx, my);
-          ctx.rotate(sideAngle);
+          ctx.rotate(segAngle);
           const arrLen = 18 * dpr;
           ctx.beginPath();
           ctx.moveTo(arrLen, 0);

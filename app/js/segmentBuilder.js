@@ -124,7 +124,7 @@ const segmentBuilder = {
       const prev = { x, y, z };
       // Arc handling (plane-specific)
       if (motionMode === 2 || motionMode === 3) {
-        const cw = motionMode === 2;
+        let cw = motionMode === 2;
         // Determine if we have arc centre info for this plane
         let ax, ay, az, cx, cy, hasCenter;
         if (planeMode === 18) { // XZ
@@ -156,9 +156,38 @@ const segmentBuilder = {
             if (cc) { cx = cc.ca; cy = cc.cb; hasCenter = true; }
             else { hasCenter = false; }
           } else {
-            cx = prev.x + (c.params.I || 0) * unitToMm;
-            cy = prev.y + (c.params.J || 0) * unitToMm;
-            hasCenter = c.params.I !== undefined || c.params.J !== undefined;
+            // SM300 ARC-<angle> MP format: angle-based center calculation
+            const rawUpper = (c.raw || '').toUpperCase();
+            const arcMatch = rawUpper.match(/ARC\s*(-?\d+\.?\d*)/);
+            if (arcMatch) {
+              const angleDeg = parseFloat(arcMatch[1]);
+              const angleRad = Math.abs(angleDeg) * Math.PI / 180;
+              cw = angleDeg > 0;
+              const dx = next.x - prev.x;
+              const dy = next.y - prev.y;
+              const chordLen = Math.sqrt(dx*dx + dy*dy);
+              if (chordLen > 0.001 && angleRad > 0.001) {
+                const halfAngle = angleRad / 2;
+                const r = chordLen / (2 * Math.sin(halfAngle));
+                const d = r * Math.cos(halfAngle);
+                const nx = -dy / chordLen;
+                const ny = dx / chordLen;
+                const midX = (prev.x + next.x) / 2;
+                const midY = (prev.y + next.y) / 2;
+                if (cw) { cx = midX - d * nx; cy = midY - d * ny; }
+                else { cx = midX + d * nx; cy = midY + d * ny; }
+                hasCenter = true;
+              } else {
+                hasCenter = false;
+              }
+            } else {
+              // Standard I,J or SM300 C,D arc center
+              const iVal = c.params.I !== undefined ? c.params.I : c.params.C;
+              const jVal = c.params.J !== undefined ? c.params.J : c.params.D;
+              cx = prev.x + (iVal || 0) * unitToMm;
+              cy = prev.y + (jVal || 0) * unitToMm;
+              hasCenter = iVal !== undefined || jVal !== undefined;
+            }
           }
         }
         if (hasCenter) {
