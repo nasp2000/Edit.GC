@@ -110,7 +110,9 @@ body {
   white-space: nowrap;
 }
 #pointsTable tr:hover td { background: rgba(42,122,240,.06); }
-#pointsTable tr.selected td { background: rgba(42,122,240,.14); font-weight: 600; }
+#pointsTable tr.focused td { background: rgba(42,122,240,.14); font-weight: 600; }
+#pointsTable tr.focused td:first-child::before { content: '>'; font-weight: 700; margin-right: 2px; color: var(--accent); }
+#pointsTable tr.multi-sel td { background: rgba(0,255,136,.1); }
 
 
 .app-col {

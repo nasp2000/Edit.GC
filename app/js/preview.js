@@ -409,7 +409,7 @@ const preview = {
     // Click: point select (only if no drag occurred)
     c.addEventListener('click', e => {
       if (e.button !== 0) return;
-      if (e.clientX !== lastX || e.clientY !== lastY) return;
+      if (Math.abs(e.clientX - lastX) > 3 || Math.abs(e.clientY - lastY) > 3) return;
       if (state.mode === 'gcode') {
         this._selectPointFromClick(e);
       }
@@ -497,10 +497,10 @@ const preview = {
       if (!c) return;
       const px = c.params.X ?? 0;
       const py = c.params.Y ?? 0;
-      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 6, 0, Math.PI * 2);
-      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 4, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,136,0,0.3)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 7, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,255,136,0.4)'; ctx.fill();
     });
     this._setInfo(`W: ${rangeX.toFixed(2)} mm  H: ${rangeY.toFixed(2)} mm`);
   },
@@ -524,6 +524,7 @@ const preview = {
     this._pb.idx = 0;
     this._pb.lastTick = performance.now();
     this._pb.accum = 0;
+    document.getElementById('btnPlay').textContent = 'Play';
     this._tick();
   },
 
@@ -578,7 +579,7 @@ const preview = {
       this._pb.rafId = requestAnimationFrame(() => this._tick());
     } else {
       this._pb.active = false;
-      document.getElementById('btnPlay').textContent = '?';
+      document.getElementById('btnPlay').textContent = 'Play';
     }
   },
 
@@ -1329,10 +1330,10 @@ const preview = {
       const c = commands[idx];
       if (!c) return;
       const px = c.params.X ?? 0, py = c.params.Y ?? 0;
-      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 6, 0, Math.PI * 2);
-      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 4, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,136,0,0.3)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 7, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,255,136,0.4)'; ctx.fill();
     });
 
     this._drawMinimap(ctx, w, h, b, baseFit);
@@ -1578,7 +1579,7 @@ const preview = {
       });
       return;
     }
-    if (bestCmdIdx < 0 || bestDist > 15) return;
+    if (bestCmdIdx < 0 || bestDist > 25) return;
     state.selectedPoints.clear();
     state.selectedPoints.add(bestCmdIdx);
     this._updatePointsInfo();

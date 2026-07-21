@@ -40,6 +40,7 @@ async function setup() {
   browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-web-security'] });
   page = await browser.newPage();
   page.on('dialog', async dialog => { if (dialog.type() === 'confirm') await dialog.accept(); else await dialog.dismiss(); });
+  page.on('console', msg => { if (msg.type() === 'error') console.log(`  [browser] ${msg.text()}`); });
   await page.goto(APP_URL, { waitUntil: 'networkidle0' });
   await page.waitForSelector('#btnSlice');
   await new Promise(r => setTimeout(r, 500));
@@ -117,6 +118,84 @@ async function getCmdCount() {
 
 async function waitForSegments() {
   await page.waitForFunction(() => preview._segments && preview._segments.length > 0, { timeout: 5000 }).catch(() => {});
+}
+
+async function getPointClickCoords(pointIdx) {
+  return await page.evaluate((idx) => {
+    const points = ui._buildPointsList();
+    if (!points || idx >= points.length) return { error: 'no_points', n: points?.length, idx };
+    const p = points[idx];
+    const canvas = document.getElementById('previewCanvas');
+    if (!canvas) return { error: 'no_canvas' };
+    const b = preview._getBounds(state.workingCmds);
+    if (!b) return { error: 'no_bounds' };
+    const { minX, minY, rangeX, rangeY } = b;
+    const w = canvas.width, h = canvas.height;
+    const pad = 40;
+    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
+    const canvasX = pad + (p.x - minX) * baseFit * state.previewScale + state.previewOffX;
+    const canvasY = h - pad - (p.y - minY) * baseFit * state.previewScale + state.previewOffY;
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    return { x: rect.left + canvasX / sx, y: rect.top + canvasY / sy };
+  }, pointIdx);
+}
+
+async function testClickSelectPoint(label) {
+  section(label, `Click to select point (${label})`);
+
+  const n = await page.evaluate(() => state.workingCmds ? state.workingCmds.length : 0);
+  if (n < 5) {
+    assert(`[${label}] Click select prerequisites`, false, `cmd count ${n}`);
+    return;
+  }
+
+  await waitForSegments();
+
+  // Determine how many points are available
+  const ptCount = await page.evaluate(() => {
+    const pts = ui._buildPointsList();
+    return pts ? pts.length : 0;
+  });
+  if (ptCount < 1) {
+    assert(`[${label}] Click select: no points in list`, false, `ptCount=${ptCount}`);
+    return;
+  }
+  const targetIdx = Math.min(2, ptCount - 1);
+
+  // Get click coordinates for the target point
+  const coords = await getPointClickCoords(targetIdx);
+  if (!coords || coords.error) {
+    assert(`[${label}] get coords for pt ${targetIdx}`, false, JSON.stringify(coords));
+    return;
+  }
+
+  // Clear selection first
+  await page.evaluate(() => { state.selectedPoints.clear(); ui._updatePointsPanel(); });
+  await new Promise(r => setTimeout(r, 100));
+
+  // Click at computed coords
+  await page.mouse.click(coords.x, coords.y);
+  await new Promise(r => setTimeout(r, 400));
+
+  // Verify a point is selected
+  const selSize = await page.evaluate(() => state.selectedPoints.size);
+  assert(`[${label}] Click selects a point`, selSize > 0, `selected ${selSize} points`);
+
+  // Get expected cmdIdx for point at targetIdx
+  const expected = await page.evaluate((idx) => {
+    const pts = ui._buildPointsList();
+    return pts.length > idx ? pts[idx].idx : -1;
+  }, targetIdx);
+  const isCorrect = await page.evaluate((eIdx) => state.selectedPoints.has(eIdx), expected);
+  assert(`[${label}] Click selects correct point (pt${targetIdx} -> cmdIdx=${expected})`, isCorrect);
+
+  // Click again on same point should not deselect (single-select stays selected)
+  await page.mouse.click(coords.x, coords.y);
+  await new Promise(r => setTimeout(r, 300));
+  const stillSel = await page.evaluate((eIdx) => state.selectedPoints.has(eIdx), expected);
+  assert(`[${label}] Click same point keeps it selected`, stillSel);
 }
 
 // ===== Test Functions =====
@@ -401,6 +480,25 @@ async function testAddPointsContinuous(label) {
   // Undo
   await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
   await new Promise(r => setTimeout(r, 300));
+
+  // Variation 2: Z offset only, single point
+  await page.evaluate(() => {
+    const points = ui._buildPointsList();
+    state.selectedPoints.clear();
+    if (points.length > 0) state.selectedPoints.add(points[0].idx);
+    document.getElementById('pointsOffsetX').value = '0';
+    document.getElementById('pointsOffsetY').value = '0';
+    document.getElementById('pointsOffsetZ').value = '2';
+  });
+  const cmdBefore2 = await getCmdCount();
+  await page.evaluate(() => { const b = document.getElementById('btnPointsGenerate'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 500));
+  const cmdAfter2 = await getCmdCount();
+  assert(`[${label}] Add Points Cont Z-only: cmd count increased`, cmdAfter2 > cmdBefore2);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
 }
 
 async function testAddPointsStartStop(label) {
@@ -436,6 +534,27 @@ async function testAddPointsStartStop(label) {
   assert(`[${label}] Add Points S/S laser-off`, hasOff);
   assert(`[${label}] Add Points S/S laser-on`, hasOn);
   assert(`[${label}] Add Points S/S travel`, hasG0orTravel);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
+
+  // Variation 2: Z+XY offset, verify blank lines
+  await page.evaluate(() => {
+    const points = ui._buildPointsList();
+    state.selectedPoints.clear();
+    if (points.length > 0) state.selectedPoints.add(points[0].idx);
+    document.getElementById('pointsOffsetX').value = '5';
+    document.getElementById('pointsOffsetY').value = '3';
+    document.getElementById('pointsOffsetZ').value = '1';
+  });
+  const cmdBefore2 = await getCmdCount();
+  await page.evaluate(() => { const b = document.getElementById('btnPointsGenerate'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 500));
+  const cmdAfter2 = await getCmdCount();
+  assert(`[${label}] Add Points S/S XY+Z: cmd count increased`, cmdAfter2 > cmdBefore2);
+  const text2 = await getEditorText();
+  assert(`[${label}] Add Points S/S blank line`, text2.includes('\n\n') || text2.includes(';\n'));
 
   // Undo
   await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
@@ -499,6 +618,18 @@ async function testMinDistContinuous(label) {
   // Undo
   await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
   await new Promise(r => setTimeout(r, 300));
+
+  // Variation 2: very large distance — no new points
+  const cmdBeforeLarge = await getCmdCount();
+  await page.evaluate(() => document.getElementById('minDistValue').value = '9999');
+  await page.evaluate(() => { const b = document.getElementById('btnMinDistApply'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 500));
+  const cmdAfterLarge = await getCmdCount();
+  assert(`[${label}] MinDist Cont large distance: cmd unchanged`, cmdAfterLarge === cmdBeforeLarge);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
 }
 
 async function testMinDistStartStop(label) {
@@ -520,6 +651,18 @@ async function testMinDistStartStop(label) {
   const hasOn = new RegExp('\\b' + (label.includes('SM300') ? 'SM3' : 'M[34]') + '\\b').test(text);
   assert(`[${label}] MinDist S/S laser-off`, hasOff);
   assert(`[${label}] MinDist S/S laser-on`, hasOn);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
+
+  // Variation 2: tiny distance — many new points
+  const cmdBeforeSmall = await getCmdCount();
+  await page.evaluate(() => document.getElementById('minDistValue').value = '0.5');
+  await page.evaluate(() => { const b = document.getElementById('btnMinDistApply'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 500));
+  const cmdAfterSmall = await getCmdCount();
+  assert(`[${label}] MinDist S/S small distance: cmd increased`, cmdAfterSmall > cmdBeforeSmall);
 
   // Undo
   await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
@@ -615,6 +758,23 @@ async function testFullPathVariation(label) {
   // Undo
   await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
   await new Promise(r => setTimeout(r, 300));
+
+  // Variation 3: zero values — should not change output
+  const textBeforeZero = await getEditorText();
+  await page.evaluate(() => {
+    document.getElementById('chkPathVarOutside').checked = true;
+    document.getElementById('chkPathVarInside').checked = true;
+    document.getElementById('pathVarOutside').value = '0';
+    document.getElementById('pathVarInside').value = '0';
+  });
+  await page.evaluate(() => { const b = document.getElementById('btnPathVarApply'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 500));
+  const textAfterZero = await getEditorText();
+  assert(`[${label}] PathVar zero: output unchanged`, textAfterZero === textBeforeZero);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
 }
 
 async function testFullTurnVariation(label) {
@@ -646,6 +806,18 @@ async function testFullTurnVariation(label) {
   await new Promise(r => setTimeout(r, 500));
   const afterNeg = await getEditorText();
   assert(`[${label}] Full Turn negative works`, afterNeg !== beforeNeg);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
+
+  // Variation 3: zero value — should not change output
+  const textBeforeZero = await getEditorText();
+  await page.evaluate(() => { document.getElementById('turnVarValue').value = '0'; });
+  await page.evaluate(() => { const b = document.getElementById('btnTurnVarApply'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 500));
+  const textAfterZero = await getEditorText();
+  assert(`[${label}] Full Turn zero: output unchanged`, textAfterZero === textBeforeZero);
 
   // Undo
   await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
@@ -1188,6 +1360,330 @@ async function testSetSideArrowDirection(label) {
   await waitForSegments();
 }
 
+// ===== Rotate 90/180/270 with machine origin =====
+async function testRotate90(label) {
+  section(label, `Rotate (${label})`);
+
+  // Set G-code directly
+  await page.evaluate(() => {
+    const gcode = [
+      'G0 X0 Y0',
+      'G1 X100 Y0 F300',
+      'G1 X100 Y100',
+      'G1 X0 Y100',
+      'G1 X0 Y0'
+    ].join('\n');
+    state.workingCmds = gcodeParser.parse(gcode);
+    state.originalCmds = state.workingCmds.map(c => ({ ...c }));
+    ui.refreshWorking();
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // Set machine origin
+  const mo = await page.evaluate(() => {
+    const tplName = document.getElementById('templateSelect').value;
+    const key = 'machineOpts_' + tplName;
+    const opts = { machineX: '50', machineY: '30' };
+    localStorage.setItem(key, JSON.stringify(opts));
+    return opts;
+  });
+
+  // Read machine opts so subsequent code gets them
+  await page.evaluate(() => {
+    if (window.ui && ui._loadMachineOpts) ui._loadMachineOpts();
+  });
+
+  // Verify coordinates include machine offset
+  const beforeRot = await page.evaluate(() => {
+    const cmds = state.workingCmds;
+    const c = cmds[1];
+    return { x: c.params.X, y: c.params.Y };
+  });
+  // Original: X100 Y0. After SVG with offset, should be X150 Y30 (100+50, 0+30)
+  // But we set G-code directly, so it's still X100 Y0. The machine origin
+  // only affects the rotate operation, not the base coordinates.
+  assert(`[${label}] Rotate: base coords present`, beforeRot.x === 100 && beforeRot.y === 0,
+    `x=${beforeRot.x} y=${beforeRot.y}`);
+
+  // Rotate 90° (first click)
+  await page.evaluate(() => {
+    document.getElementById('btnRotate90').click();
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  const after90 = await page.evaluate(() => {
+    const c = state.workingCmds[1];
+    return { x: c.params.X, y: c.params.Y };
+  });
+  const rot90ok = Math.abs(after90.x - 100) < 0.1 && Math.abs(after90.y - 100) < 0.1;
+  assert(`[${label}] Rotate 90°: correct with origin`, rot90ok,
+    `x=${after90.x} y=${after90.y}`);
+
+  // Rotate 180° (second click — no undo)
+  await page.evaluate(() => {
+    document.getElementById('btnRotate90').click();
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  const after180 = await page.evaluate(() => {
+    const c = state.workingCmds[1];
+    return { x: c.params.X, y: c.params.Y };
+  });
+  const rot180ok = Math.abs(after180.x - 0) < 0.1 && Math.abs(after180.y - 100) < 0.1;
+  assert(`[${label}] Rotate 180°: correct with origin`, rot180ok,
+    `x=${after180.x} y=${after180.y}`);
+
+  // Rotate 270° (third click — no undo)
+  await page.evaluate(() => {
+    document.getElementById('btnRotate90').click();
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  const after270 = await page.evaluate(() => {
+    const c = state.workingCmds[1];
+    return { x: c.params.X, y: c.params.Y };
+  });
+  const rot270ok = Math.abs(after270.x - 0) < 0.1 && Math.abs(after270.y - 0) < 0.1;
+  assert(`[${label}] Rotate 270°: correct with origin`, rot270ok,
+    `x=${after270.x} y=${after270.y}`);
+
+  // Undo 3 times (90° + 180° + 270°) and clean up
+  for (let u = 0; u < 3; u++) {
+    await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+    await new Promise(r => setTimeout(r, 300));
+  }
+  await page.evaluate(() => { state.workingCmds = state.originalCmds.map(c => ({ ...c })); ui.refreshWorking(); });
+  await new Promise(r => setTimeout(r, 500));
+}
+
+// ===== Add Points "Along Path" axis selector =====
+async function testAlongPath(label) {
+  section(label, `Along Path (${label})`);
+
+  const use45Line = async () => {
+    await page.evaluate(() => {
+      const tpl = templateManager.getActive();
+      const td = tpl?.data || tpl;
+      const on = td?.laserOnCmd || 'M3';
+      const off = td?.laserOffCmd || 'M5';
+      const gcode = [
+        'G0 X0 Y0',
+        on,
+        'G1 X100 Y100 F400',
+        off,
+        'G0 X0 Y0'
+      ].join('\n');
+      state.workingCmds = gcodeParser.parse(gcode);
+      state.originalCmds = state.workingCmds.map(c => ({ ...c }));
+      ui.refreshWorking();
+    });
+    await new Promise(r => setTimeout(r, 800));
+  };
+
+  // Helper to get position at command index
+  const getPos = async (idx) => {
+    return await page.evaluate((i) => {
+      let x = 0, y = 0, isRel = false;
+      for (let j = 0; j <= i && j < state.workingCmds.length; j++) {
+        const c = state.workingCmds[j];
+        if (c.type === 'G91') { isRel = true; continue; }
+        if (c.type === 'G90') { isRel = false; continue; }
+        if (c.type === 'G92') continue;
+        if (c.params.X !== undefined) x = isRel ? x + c.params.X : c.params.X;
+        if (c.params.Y !== undefined) y = isRel ? y + c.params.Y : c.params.Y;
+      }
+      return { x, y };
+    }, idx);
+  };
+
+  await use45Line();
+
+  // The 45° line command index — find the cmd with params X=100 Y=100
+  const lineIdx = await page.evaluate(() => {
+    const cmds = state.workingCmds;
+    return cmds.findIndex(c => c.params.X === 100 && c.params.Y === 100);
+  });
+  assert(`[${label}] AlongPath: found 45 line idx ${lineIdx}`, lineIdx >= 0, `idx=${lineIdx}`);
+
+  // Select that point
+  await page.evaluate((idx) => {
+    state.selectedPoints.clear();
+    state.selectedPoints.add(idx);
+    preview._updatePointsInfo();
+  }, lineIdx);
+  await new Promise(r => setTimeout(r, 300));
+
+  // Set X offset to 10, Y=0
+  await page.evaluate(() => {
+    document.getElementById('pointsOffsetX').value = '10';
+    document.getElementById('pointsOffsetY').value = '0';
+    document.getElementById('pointsOffsetZ').value = '0';
+  });
+
+  // --- Continuous mode (always Along Path) ---
+  await page.evaluate(() => {
+    document.getElementById('chkStartStop').checked = false;
+    document.getElementById('btnPointsGenerate').click();
+  });
+  await new Promise(r => setTimeout(r, 500));
+  await waitForSegments();
+
+  const posCont = await getPos(lineIdx + 1);
+  const sqrt2 = Math.SQRT2;
+  // 10mm along 45° direction = (10/√2, 10/√2) ≈ (7.07, 7.07)
+  const expX = 100 + 10 / sqrt2;
+  const expY = 100 + 10 / sqrt2;
+  const contOk = Math.abs(posCont.x - expX) < 0.5 && Math.abs(posCont.y - expY) < 0.5;
+  assert(`[${label}] Continuous: X10 → (${expX.toFixed(2)},${expY.toFixed(2)})`, contOk,
+    `x=${posCont.x} y=${posCont.y} expected=${expX.toFixed(4)},${expY.toFixed(4)}`);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 400));
+  await waitForSegments();
+
+  // Reset selection
+  await page.evaluate((idx) => {
+    state.selectedPoints.clear();
+    state.selectedPoints.add(idx);
+    preview._updatePointsInfo();
+  }, lineIdx);
+  await new Promise(r => setTimeout(r, 300));
+
+  // --- Continuous mode: Y is ignored, point stays on path ---
+  await page.evaluate(() => {
+    document.getElementById('chkStartStop').checked = false;
+    document.getElementById('pointsOffsetY').value = '5';
+    document.getElementById('btnPointsGenerate').click();
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  const posCont2 = await getPos(lineIdx + 1);
+  const cont2Ok = Math.abs(posCont2.x - expX) < 0.5 && Math.abs(posCont2.y - expY) < 0.5;
+  assert(`[${label}] Continuous: X10 Y5 → Y ignored (${expX.toFixed(2)},${expY.toFixed(2)})`, cont2Ok,
+    `x=${posCont2.x} y=${posCont2.y}`);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 400));
+  await waitForSegments();
+
+  // Reset selection
+  await page.evaluate((idx) => {
+    state.selectedPoints.clear();
+    state.selectedPoints.add(idx);
+    preview._updatePointsInfo();
+  }, lineIdx);
+  await new Promise(r => setTimeout(r, 300));
+
+  // --- Start/Stop mode (world offset, can leave the line) ---
+  await page.evaluate(() => {
+    document.getElementById('chkStartStop').checked = true;
+    document.getElementById('pointsOffsetY').value = '0';
+    document.getElementById('btnPointsGenerate').click();
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  const posSS = await getPos(lineIdx + 6); // travel + blank + on + blank + copy
+  const ssOk = Math.abs(posSS.x - 110) < 0.1 && Math.abs(posSS.y - 100) < 0.1;
+  assert(`[${label}] Start/Stop: X10 → (110,100)`, ssOk,
+    `x=${posSS.x} y=${posSS.y}`);
+
+  // Undo and clean up
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
+  await waitForSegments();
+  await page.evaluate(() => {
+    document.getElementById('chkStartStop').checked = false;
+    document.getElementById('pointsOffsetX').value = '0';
+    document.getElementById('pointsOffsetY').value = '0';
+    document.getElementById('pointsOffsetZ').value = '0';
+    state.workingCmds = state.originalCmds.map(c => ({ ...c }));
+    ui.refreshWorking();
+  });
+  await new Promise(r => setTimeout(r, 500));
+}
+
+// ===== Multi-Select (Tab/Space) + Delete Points =====
+async function testMultiSelectDelete(label) {
+  section(label, `Multi-Select & Delete (${label})`);
+
+  // Helper: get motion command indices
+  const getMotionIdxs = async () => {
+    return await page.evaluate(() => {
+      const res = [];
+      state.workingCmds.forEach((c, i) => {
+        if (/^G[0-3]$|^G0[0-3]$/i.test(c.type) && (c.params.X !== undefined || c.params.Y !== undefined))
+          res.push(i);
+      });
+      return res;
+    });
+  };
+
+  // Ensure multiple motion points exist
+  const motionIdxs = await getMotionIdxs();
+  assert(`[${label}] MultiSel: at least 3 motion points`, motionIdxs.length >= 3,
+    `count=${motionIdxs.length}`);
+
+  // Ensure points panel is open
+  await page.evaluate(() => {
+    if (!ui._pointsPanelOpen) {
+      document.getElementById('btnTogglePointsPanel').click();
+    }
+  });
+  await new Promise(r => setTimeout(r, 300));
+
+  // Select first motion point by clicking in the table
+  await page.evaluate(() => {
+    const tbody = document.getElementById('pointsTableBody');
+    if (tbody && tbody.firstChild) tbody.firstChild.click();
+  });
+  await new Promise(r => setTimeout(r, 300));
+
+  // Tab to second point (should single-select it)
+  await page.evaluate(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+  });
+  await new Promise(r => setTimeout(r, 300));
+
+  const afterTab = await page.evaluate(() => {
+    return { size: state.selectedPoints.size, focused: ui._focusedPointPos };
+  });
+  assert(`[${label}] MultiSel: Tab focuses point`, afterTab.focused === 1,
+    `focused=${afterTab.focused} size=${afterTab.size}`);
+
+  // Space to add second point to multi-selection
+  await page.evaluate(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  });
+  await new Promise(r => setTimeout(r, 300));
+
+  const afterSpace = await page.evaluate(() => {
+    return { size: state.selectedPoints.size };
+  });
+  assert(`[${label}] MultiSel: Space adds to selection`, afterSpace.size > 1,
+    `size=${afterSpace.size}`);
+
+  // Delete selected points
+  await page.evaluate(() => {
+    document.getElementById('btnPointsDelete').click();
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  const afterDel = await page.evaluate(() => {
+    return { len: state.workingCmds.length, selSize: state.selectedPoints.size };
+  });
+  assert(`[${label}] MultiSel: Delete removed points`, afterDel.len < 150,
+    `len=${afterDel.len} selSize=${afterDel.selSize}`);
+  assert(`[${label}] MultiSel: Selection cleared after delete`, afterDel.selSize === 0,
+    `selSize=${afterDel.selSize}`);
+
+  // Undo
+  await page.evaluate(() => { const b = document.getElementById('btnUndo'); if (b && !b.disabled) b.click(); });
+  await new Promise(r => setTimeout(r, 300));
+  await waitForSegments();
+}
+
 // ===== Main Runner =====
 
 async function run() {
@@ -1212,8 +1708,6 @@ async function run() {
     await openPointsPanel();
 
     // Ensure points list is built
-    await page.evaluate(() => { const b = document.getElementById('btnPointsRefresh'); if (b) b.click(); });
-    await new Promise(r => setTimeout(r, 500));
     await waitForSegments();
 
     await testMarkStartSetSide(tpl.name);
@@ -1241,6 +1735,10 @@ async function run() {
     await testArcsOnlyMinDist(tpl.name);
     await testFindReplaceInput(tpl.name);
     await testSetSideArrowDirection(tpl.name);
+    await testRotate90(tpl.name);
+    await testAlongPath(tpl.name);
+    await testMultiSelectDelete(tpl.name);
+    await testClickSelectPoint(tpl.name);
   }
 
   await teardown();

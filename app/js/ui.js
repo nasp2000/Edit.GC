@@ -521,6 +521,7 @@ const ui = {
     });
     document.getElementById('btnRotate90').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code to rotate.', 'error'); return; }
+      const angle = 90;
       // Temporarily remove machine origin offset so rotation is around logical origin
       const mo = ui._loadMachineOpts();
       const mx = parseFloat(mo.machineX) || 0;
@@ -535,7 +536,7 @@ const ui = {
         return c;
       });
       undoRedo.push(state.workingCmds);
-      cmds = gcodeParser.rotate(cmds, 90);
+      cmds = gcodeParser.rotate(cmds, angle);
       // Re-apply machine origin
       cmds = cmds.map(c => {
         if (c.params.X !== undefined || c.params.Y !== undefined) {
@@ -565,7 +566,7 @@ const ui = {
       }
       state.workingCmds = cmds;
       ui.refreshWorking();
-      ui.setStatus('Rotated 90 deg clockwise.');
+      ui.setStatus(`Rotated ${angle} deg clockwise.`);
     });
     document.addEventListener('keydown', e => {
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { document.getElementById('btnUndo').click(); }
@@ -691,7 +692,7 @@ const ui = {
         templateSelector.value = name;
         templateManager.setActive(name);
         ui.updateTemplateIndicator();
-        ui.setStatus(`Template "${name}" extracted. Custom: ${data.customCommands.join(', ') || 'none'}. Laser: ${data.laserOnCmd || '?'}/${data.laserOffCmd || '?'}.`);
+        ui.setStatus(`Template "${name}" extracted. Custom: ${data.customCommands.join(', ') || 'none'}. Tool: ${data.laserOnCmd || '?'}/${data.laserOffCmd || '?'}.`);
       } else {
         ui.setStatus('Error saving template. Open a templates folder first.', 'error');
       }
@@ -707,7 +708,7 @@ const ui = {
       state.templateMeta = { ext: tpl.data.ext, lineEnd: tpl.data.lineEnd };
       ui.updateTemplateIndicator();
       const t = tpl.data;
-      ui.setStatus(`Template "${name}" active. Ext: .${t.ext}, Laser: ${t.laserOnCmd || '?'}/${t.laserOffCmd || '?'}, Tools: ${t.toolCodes.join(', ') || 'none'}.`);
+      ui.setStatus(`Template "${name}" active. Ext: .${t.ext}, Tool: ${t.laserOnCmd || '?'}/${t.laserOffCmd || '?'}, Tools: ${t.toolCodes.join(', ') || 'none'}.`);
     });
 
     // Template select change
@@ -1414,15 +1415,17 @@ const ui = {
     ui._pointsList = [];
     ui._focusedPointPos = -1; // index in _pointsList
 
-    ui._focusPoint = (pos) => {
+    ui._focusPoint = (pos, keepSelection) => {
       const list = ui._pointsList;
       if (!list.length) return;
       if (pos < 0) pos = 0;
       if (pos >= list.length) pos = list.length - 1;
       ui._focusedPointPos = pos;
       const p = list[pos];
-      state.selectedPoints.clear();
-      state.selectedPoints.add(p.idx);
+      if (!keepSelection) {
+        state.selectedPoints.clear();
+        state.selectedPoints.add(p.idx);
+      }
       document.getElementById('pointsOffsetX').value = '0';
       document.getElementById('pointsOffsetY').value = '0';
       document.getElementById('pointsOffsetZ').value = '0';
@@ -1483,13 +1486,14 @@ const ui = {
         count.textContent = '0 points';
         return;
       }
-      count.textContent = `${points.length} points`;
+      count.textContent = `${state.selectedPoints.size} of ${points.length} selected`;
       const frag = document.createDocumentFragment();
       points.forEach((p, pi) => {
         const tr = document.createElement('tr');
         const isFocused = pi === ui._focusedPointPos;
         const isMarkStart = p.idx === ui._markStartIdx;
-        if (isFocused) tr.className = 'selected';
+        const isSelected = state.selectedPoints.has(p.idx);
+        tr.className = isFocused ? 'focused' : isSelected ? 'multi-sel' : '';
         tr.style.cursor = 'pointer';
         tr.dataset.pos = pi;
         let dist = '';
@@ -1508,7 +1512,7 @@ const ui = {
       // re-highlight focused row
       if (ui._focusedPointPos >= 0 && ui._focusedPointPos < points.length) {
         const row = tbody.children[ui._focusedPointPos];
-        if (row) { row.className = 'selected'; row.scrollIntoView({ block: 'nearest' }); }
+        if (row) { row.className = 'focused'; row.scrollIntoView({ block: 'nearest' }); }
       }
     };
 
@@ -1536,6 +1540,8 @@ const ui = {
       }
 
       // Set Side: reverse motion commands and swap G2?G3
+      // Safe because direction is reversed BEFORE any cutting starts —
+      // the entire path is cut in one forward pass in the new direction.
       if (ui._pointsSide) {
         const motionCmds = motionIdxs.map(i => newCmds[i]);
         const reversed = motionCmds.reverse().map(c => {
@@ -1637,12 +1643,6 @@ const ui = {
       });
     });
 
-    document.getElementById('btnPointsRefresh').addEventListener('click', () => {
-      preview.draw(state.workingCmds);
-      ui._updatePointsPanel();
-      ui.setStatus('Preview refreshed.');
-    });
-
     document.getElementById('btnPointsDelete').addEventListener('click', () => {
       if (!state.workingCmds.length || !state.selectedPoints.size) {
         ui.setStatus('Select points on preview first.', 'error'); return;
@@ -1674,6 +1674,44 @@ const ui = {
       const dy = parseFloat(document.getElementById('pointsOffsetY').value) || 0;
       const dz = parseFloat(document.getElementById('pointsOffsetZ').value) || 0;
       const isStartStop = document.getElementById('chkStartStop').checked;
+      const alongPath = document.getElementById('chkAlongPath').checked;
+      // For Along Path: move dx along the segment direction (infinite line)
+      const getDirAt = (idx) => {
+        const segs = preview._segments;
+        if (!segs) return null;
+        const seg = segs.find(s => s.cmdIdx === idx);
+        if (seg) {
+          const dx2 = seg.b.x - seg.a.x, dy2 = seg.b.y - seg.a.y;
+          const len = Math.hypot(dx2, dy2);
+          if (len > 0) return { x: dx2 / len, y: dy2 / len };
+        }
+        const pos = preview._getPosAt(idx);
+        let best = null, bestDist = Infinity;
+        for (const s of segs) {
+          const d = Math.hypot(s.b.x - pos.x, s.b.y - pos.y);
+          if (d < bestDist) { bestDist = d; best = s; }
+        }
+        if (best) {
+          const dx2 = best.b.x - best.a.x, dy2 = best.b.y - best.a.y;
+          const len = Math.hypot(dx2, dy2);
+          if (len > 0) return { x: dx2 / len, y: dy2 / len };
+        }
+        return null;
+      };
+      const applyAlongPath = (copy, idx) => {
+        const dir = getDirAt(idx);
+        if (dir && (dx !== 0 || dy !== 0)) {
+          const pos = preview._getPosAt(idx);
+          // Only use dx (along-path distance); dy is forced to 0 so
+          // the new point always stays on the original line.
+          if (copy.params.X !== undefined) copy.params.X = parseFloat((pos.x + dx * dir.x).toFixed(4));
+          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((pos.y + dx * dir.y).toFixed(4));
+        } else {
+          if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
+          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
+        }
+        if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+      };
       undoRedo.push(state.workingCmds);
       const sorted = [...state.selectedPoints].sort((a, b) => a - b);
       const pat = isStartStop ? (() => {
@@ -1684,16 +1722,14 @@ const ui = {
       })() : null;
 
       if (!isStartStop || !pat) {
-        // Continuous mode: insert offset copy right after each selected point
+        // Continuous mode: always keeps point on path (Along Path)
         const result = [];
         for (let i = 0; i < state.workingCmds.length; i++) {
           result.push(state.workingCmds[i]);
           if (sorted.includes(i)) {
             const c = state.workingCmds[i];
             const copy = JSON.parse(JSON.stringify(c));
-            if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
-            if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
-            if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+            applyAlongPath(copy, i);
             copy.raw = '';
             copy._newInsert = true;
             result.push(copy);
@@ -1767,9 +1803,11 @@ const ui = {
       for (const idx of addPoints) {
         const c = state.workingCmds[idx];
         const copy = JSON.parse(JSON.stringify(c));
-        if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
-        if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
-        if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+        if (alongPath) { applyAlongPath(copy, idx); } else {
+          if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
+          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
+          if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+        }
         copy.raw = '';
 
         // Find next laser-off after this point
@@ -1804,7 +1842,8 @@ const ui = {
         const onCmd = { lineIndex: -1, raw: '', type: pat.on, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
         const offCmd = { lineIndex: -1, raw: '', type: pat.off, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
         // Mark for ;edit.gc tagging
-        [travel, onCmd, copy, offCmd].forEach(cmd => cmd._newInsert = true);
+        const tagCmds = [travel, onCmd, copy, offCmd];
+        tagCmds.forEach(cmd => cmd._newInsert = true);
 
         const insertBlock = [travel, blankCmd(), onCmd, blankCmd(), copy, blankCmd(), offCmd];
         result.splice(insertAfter + 1, 0, ...insertBlock);
@@ -1892,8 +1931,8 @@ const ui = {
         e.preventDefault();
         document.getElementById('btnSaveAs').click();
       }
-      // Space ? Play/Pause (unless in input/textarea)
-      if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      // Space ? Play/Pause (unless in input/textarea or points panel open)
+      if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !ui._pointsPanelOpen) {
         e.preventDefault();
         if (preview._pb.active && !preview._pb.paused) preview.pause();
         else preview.play();
@@ -1930,27 +1969,42 @@ const ui = {
         e.preventDefault();
         preview.fitView();
       }
-      // Tab / Shift+Tab ? navigate points in table
+      // Tab / Shift+Tab ? navigate points in table (keep selection)
       if (e.key === 'Tab' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const list = ui._pointsList;
         if (!list.length) return;
         if (ui._focusedPointPos < 0) {
-          ui._focusPoint(e.shiftKey ? list.length - 1 : 0);
+          ui._focusPoint(e.shiftKey ? list.length - 1 : 0, true);
         } else {
-          ui._focusPoint(e.shiftKey ? ui._focusedPointPos - 1 : ui._focusedPointPos + 1);
+          ui._focusPoint(e.shiftKey ? ui._focusedPointPos - 1 : ui._focusedPointPos + 1, true);
         }
       }
-      // Arrow Up/Down ? navigate points in table
+      // Arrow Up/Down ? navigate points in table (keep selection)
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && ui._pointsPanelOpen && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const list = ui._pointsList;
         if (!list.length) return;
         if (e.key === 'ArrowUp') {
-          ui._focusPoint(ui._focusedPointPos <= 0 ? 0 : ui._focusedPointPos - 1);
+          ui._focusPoint(ui._focusedPointPos <= 0 ? 0 : ui._focusedPointPos - 1, true);
         } else {
-          ui._focusPoint(ui._focusedPointPos >= list.length - 1 ? list.length - 1 : ui._focusedPointPos + 1);
+          ui._focusPoint(ui._focusedPointPos >= list.length - 1 ? list.length - 1 : ui._focusedPointPos + 1, true);
         }
+      }
+      // Space ? toggle multi-select of focused point (only when points panel open)
+      if (e.key === ' ' && ui._pointsPanelOpen && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        const list = ui._pointsList;
+        if (!list.length || ui._focusedPointPos < 0 || ui._focusedPointPos >= list.length) return;
+        const idx = list[ui._focusedPointPos].idx;
+        if (state.selectedPoints.has(idx) && state.selectedPoints.size > 1) {
+          state.selectedPoints.delete(idx);
+        } else {
+          state.selectedPoints.add(idx);
+        }
+        preview._updatePointsInfo();
+        preview.draw(state.workingCmds);
+        ui._updatePointsPanel();
       }
     });
 
@@ -2557,18 +2611,18 @@ const ui = {
     let html = '';
     optDefs.forEach(group => {
       html += `<span class="clabel" style="width:100%;font-weight:600;margin-top:4px">${group.section}</span>`;
-      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;width:100%">';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;width:100%">';
       group.options.forEach(opt => {
         const val = saved[opt.id] != null ? saved[opt.id] : opt.default;
-        if (opt.type === 'number') {
-          html += `<label class="clabel mo-container" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap">${opt.label}`;
+          if (opt.type === 'number') {
+            html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label}`;
           html += `<input type="number" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:70px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
           html += `<span style="font-size:9px;color:var(--text-dim)">${opt.unit || ''}</span>`;
           html += '</label>';
           return;
         }
         const isCustom = !opt.values.some(v => String(v) === String(val));
-        html += `<label class="clabel mo-container" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap">${opt.label}`;
+        html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label}`;
         html += `<select class="bselect" data-opt-id="${opt.id}" style="width:auto;min-width:0;max-width:100px;height:18px;font-size:10px">`;
         opt.values.forEach(v => {
           const sel = String(v) === String(val) ? ' selected' : '';
@@ -2583,6 +2637,21 @@ const ui = {
       html += '</div>';
     });
     body.innerHTML = html;
+    // Add Defaults button
+    const btnDiv = document.createElement('div');
+    btnDiv.style.cssText = 'display:flex;width:100%;margin-top:4px';
+    const btn = document.createElement('button');
+    btn.className = 'btn-action';
+    btn.textContent = 'Defaults';
+    btn.title = 'Reset all machine options to defaults for this template';
+    btn.addEventListener('click', () => {
+      const key = ui._getMachineOptsKey();
+      localStorage.removeItem(key);
+      ui._populateMachineOptions();
+      ui.setStatus('Machine options reset to defaults.');
+    });
+    btnDiv.appendChild(btn);
+    body.appendChild(btnDiv);
     body.querySelectorAll('select[data-opt-id]').forEach(sel => {
       sel.addEventListener('change', () => {
         const container = sel.closest('.mo-container');

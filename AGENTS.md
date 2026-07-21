@@ -18,6 +18,11 @@
    ```
 3. Verify all tests pass before reporting completion
 
+## Version
+- Version format: `v1.000` in `index.html` header
+- When user says "commit and push", increment version by 1 (e.g., v1.000 → v1.001 → v1.002)
+- Only increment when user explicitly says to commit and push
+
 ## Code style
 - No comments in JS files (unless absolutely necessary)
 - Use existing patterns (look at neighboring code)
