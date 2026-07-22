@@ -1674,8 +1674,7 @@ const ui = {
       const dy = parseFloat(document.getElementById('pointsOffsetY').value) || 0;
       const dz = parseFloat(document.getElementById('pointsOffsetZ').value) || 0;
       const isStartStop = document.getElementById('chkStartStop').checked;
-      const alongPath = document.getElementById('chkAlongPath').checked;
-      // For Along Path: move dx along the segment direction (infinite line)
+      // For Along Path (Continuous): move dx along the segment direction
       const getDirAt = (idx) => {
         const segs = preview._segments;
         if (!segs) return null;
@@ -1803,11 +1802,9 @@ const ui = {
       for (const idx of addPoints) {
         const c = state.workingCmds[idx];
         const copy = JSON.parse(JSON.stringify(c));
-        if (alongPath) { applyAlongPath(copy, idx); } else {
-          if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
-          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
-          if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
-        }
+        if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
+        if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
+        if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
         copy.raw = '';
 
         // Find next laser-off after this point
