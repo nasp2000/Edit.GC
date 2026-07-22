@@ -1542,44 +1542,36 @@ const ui = {
       // Set Side: reverse direction, preserving 100% of original path
       if (ui._pointsSide) {
         const motionCmds = motionIdxs.map(i => newCmds[i]);
-        // Detect if path is closed: first non-G0 dest == last non-G0 dest
-        const firstNonG0 = motionCmds.find(c => !/^G0/i.test(c.type) && (c.type === '' || c.type === undefined || /^G[1-3]/i.test(c.type)));
-        const lastNonG0  = [...motionCmds].reverse().find(c => !/^G0/i.test(c.type) && (c.type === '' || c.type === undefined || /^G[1-3]/i.test(c.type)));
+        const hasImplicit = cmds.some(c => (c.type === '' || c.type === undefined) && c.params && (c.params.X !== undefined || c.params.Y !== undefined));
+
+        // Detect closed path: first non-G0 dest ≈ last non-G0 dest
         let isClosed = false;
-        if (firstNonG0 && lastNonG0 && firstNonG0.params.X !== undefined && lastNonG0.params.X !== undefined) {
-          isClosed = Math.abs(firstNonG0.params.X - lastNonG0.params.X) < 0.001 &&
-                     Math.abs(firstNonG0.params.Y - lastNonG0.params.Y) < 0.001;
+        if (!hasImplicit) {
+          const firstNonG0 = motionCmds.find(c => !/^G0/i.test(c.type));
+          const lastNonG0  = [...motionCmds].reverse().find(c => !/^G0/i.test(c.type));
+          if (firstNonG0 && lastNonG0 && firstNonG0.params.X !== undefined && lastNonG0.params.X !== undefined) {
+            isClosed = Math.abs(firstNonG0.params.X - lastNonG0.params.X) < 0.001 &&
+                       Math.abs(firstNonG0.params.Y - lastNonG0.params.Y) < 0.001;
+          }
         }
 
-        // Reverse all motion commands — previous end becomes new start
-        let reversed = motionCmds.reverse().map(c => {
+        const reversed = motionCmds.reverse().map(c => {
           if (/^G2/i.test(c.type)) return { ...c, type: 'G3', raw: c.raw.replace(/^G2/i, 'G3') };
           if (/^G3/i.test(c.type)) return { ...c, type: 'G2', raw: c.raw.replace(/^G3/i, 'G2') };
           return c;
         });
 
-        // Fix first travel G0: should go to original first cut's destination (path start)
-        const firstCut = motionCmds.find(c => !/^G0/i.test(c.type));
-        const lastCut  = [...motionCmds].reverse().find(c => !/^G0/i.test(c.type));
-        if (reversed[0] && /^G0/i.test(reversed[0].type) && firstCut) {
-          reversed[0] = { ...reversed[0], params: { ...reversed[0].params, X: firstCut.params.X, Y: firstCut.params.Y } };
-        }
-        // Fix last travel G0: should go to (0,0) or wherever the original first G0 went
-        const origFirstG0 = motionCmds.find(c => /^G0/i.test(c.type));
-        if (reversed[reversed.length - 1] && /^G0/i.test(reversed[reversed.length - 1].type)) {
-          if (origFirstG0 && origFirstG0.params.X !== undefined) {
-            reversed[reversed.length - 1] = { ...reversed[reversed.length - 1], params: { ...origFirstG0.params } };
-          }
-        }
+        // Replace original motions with reversed
+        motionIdxs.forEach((i, idx) => { newCmds[i] = reversed[idx]; });
 
-        // For closed paths: append closing move so the path stays closed
+        // For closed paths: append closing move so path stays 100% closed
         if (isClosed && reversed.length > 1) {
-          reversed.push({ ...reversed[0] });
+          const firstM = motionIdxs[0];
+          const lastM = motionIdxs[motionIdxs.length - 1];
+          const closeCmd = { ...reversed[0] };
+          closeCmd._newInsert = true;
+          newCmds.splice(lastM + 1, 0, closeCmd);
         }
-
-        // Replace original motion block with the properly reversed block
-        const first = motionIdxs[0], last = motionIdxs[motionIdxs.length - 1];
-        newCmds.splice(first, last - first + 1, ...reversed);
         changed = true;
       }
 
