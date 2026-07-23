@@ -928,6 +928,33 @@ const preview = {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.fillText('Y', originX, ayEnd + 2);
+      // Scale markers along X axis
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const step = 10;
+      const startX = Math.ceil(0 / step) * step;
+      const endX = Math.floor(maxX / step) * step;
+      for (let v = startX; v <= endX; v += step) {
+        const px = toCanvasX(v);
+        if (px > 10 && px < w - 10) {
+          ctx.fillText(String(v), px, originY + 5);
+          ctx.beginPath(); ctx.moveTo(px, originY - 4); ctx.lineTo(px, originY + 4); ctx.stroke();
+        }
+      }
+      // Scale markers along Y axis
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      const startY = Math.ceil(0 / step) * step;
+      const endY = Math.floor(maxY / step) * step;
+      for (let v = startY; v <= endY; v += step) {
+        const py = toCanvasY(v);
+        if (py > 10 && py < h - 10) {
+          ctx.fillText(String(v), originX - 6, py);
+          ctx.beginPath(); ctx.moveTo(originX - 4, py); ctx.lineTo(originX + 4, py); ctx.stroke();
+        }
+      }
       // Origin circle
       ctx.fillStyle = 'rgba(220,50,50,0.4)';
       ctx.beginPath(); ctx.arc(originX, originY, 3, 0, Math.PI * 2); ctx.fill();
@@ -1021,6 +1048,7 @@ const preview = {
     const toolOffBatch = { ax: [], ay: [], bx: [], by: [] };
     const rapidBatch  = { ax: [], ay: [], bx: [], by: [] };
     const feedBatches = {};
+    const customBatches = {}; // speed/power assigned colors
     let hasToolOn = false, hasToolOff = false;
     const fileHasToolOn = segments.slice(0, segsToDraw).some(s => s.toolOn);
     // Pre-scan: find average cut feed for SM300-style travel detection
@@ -1057,6 +1085,16 @@ const preview = {
         hasToolOff = true;
         toolOffBatch.ax.push(ax); toolOffBatch.ay.push(ay);
         toolOffBatch.bx.push(bx); toolOffBatch.by.push(by);
+      }
+      // Check speed/power custom color assignment
+      const spRows = window.ui && window.ui._speedPowerRows;
+      if (spRows) for (let ri = 0; ri < spRows.length; ri++) {
+        if (spRows[ri].assignedPoints.includes(s.cmdIdx)) {
+          if (!customBatches[ri]) customBatches[ri] = { color: spRows[ri].color, ax: [], ay: [], bx: [], by: [] };
+          customBatches[ri].ax.push(ax); customBatches[ri].ay.push(ay);
+          customBatches[ri].bx.push(bx); customBatches[ri].by.push(by);
+          break;
+        }
       }
     }
     // Draw all segments with progressive erase alpha
@@ -1113,6 +1151,22 @@ const preview = {
         ctx.lineWidth = isRaster ? 3 : 1.2;
         ctx.beginPath();
         for (let j = 0; j < toolOffBatch.ax.length; j++) { ctx.moveTo(toolOffBatch.ax[j], toolOffBatch.ay[j]); ctx.lineTo(toolOffBatch.bx[j], toolOffBatch.by[j]); }
+        ctx.stroke();
+      }
+      // Custom color batches (speed/power assigned segments)
+      for (const [ri, batch] of Object.entries(customBatches)) {
+        if (!batch.ax.length) continue;
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = batch.color + '99';
+        ctx.lineWidth = glowWidth;
+        ctx.beginPath();
+        for (let j = 0; j < batch.ax.length; j++) { ctx.moveTo(batch.ax[j], batch.ay[j]); ctx.lineTo(batch.bx[j], batch.by[j]); }
+        ctx.stroke();
+        ctx.globalAlpha = eraseAlpha;
+        ctx.strokeStyle = batch.color;
+        ctx.lineWidth = isRaster ? 3 : 2.5;
+        ctx.beginPath();
+        for (let j = 0; j < batch.ax.length; j++) { ctx.moveTo(batch.ax[j], batch.ay[j]); ctx.lineTo(batch.bx[j], batch.by[j]); }
         ctx.stroke();
       }
     ctx.restore();

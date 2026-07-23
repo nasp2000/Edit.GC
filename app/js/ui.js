@@ -621,7 +621,20 @@ const ui = {
 
     document.getElementById('resizeW').addEventListener('input', () => {
       _updateScaleFromW();
-      if (state.mode === 'gcode') return;
+      if (state.mode === 'gcode') {
+        // Scale G-code in real-time
+        const tw = parseFloat(document.getElementById('resizeW').value);
+        if (!tw || !state.resizeBaseW || !state.workingCmds.length) return;
+        const ratio = tw / state.resizeBaseW;
+        if (Math.abs(ratio - 1) < 0.0001) return;
+        state.workingCmds = gcodeParser.scaleCommands(state.workingCmds.map(c => ({...c})), ratio);
+        state.resizeBaseW = tw;
+        state.previewScale *= ratio;
+        preview._segments = null;
+        preview.draw(state.workingCmds);
+        ui.refreshWorking();
+        return;
+      }
       // Live preview update for SVG/DXF modes only
       const tw = parseFloat(document.getElementById('resizeW').value);
       if (!tw || !state.resizeBaseW) return;
@@ -718,6 +731,12 @@ const ui = {
         templateManager.setActive(name);
         const tpl = templateManager.getTemplate(name);
         if (tpl) state.templateMeta = { ext: tpl.data.ext, lineEnd: tpl.data.lineEnd };
+        // Refresh speed/power widget for SM300 detection
+        if (window.ui && window.ui._speedPowerInit) {
+          const table = document.getElementById('speedPowerTable');
+          if (table) while (table.children.length > 3) table.removeChild(table.lastChild);
+          window.ui._speedPowerInit();
+        }
       } else {
         templateManager.setActive(null);
         state.templateMeta = null;
@@ -1064,6 +1083,156 @@ const ui = {
 
       ui.refreshWorking();
       ui.setStatus(`Full Turn Path Variation: ?${val}mm alternating perpendicular to segments applied.`);
+    });
+
+    // ---- Speed/Power Control (3 colors × 3 rows) ------------------------------------------------
+    const SPEED_PRESETS = [1000,2000,3000,4000,5000,6000,7000,8000,9000,10000];
+    const POWER_PRESETS = [10,20,30,40,50,60,70,80,90,100];
+    const SPEED_POWER_COLORS = ['#F97316','#EC4899','#84CC16'];
+    ui._speedPowerRows = SPEED_POWER_COLORS.map((c, ri) => ({
+      color: c, speed: SPEED_PRESETS[ri] || 3000, power: POWER_PRESETS[ri] || 50,
+      speedCustom: false, powerCustom: false, assignedPoints: []
+    }));
+    ui._speedPowerInit = () => {
+      const table = document.getElementById('speedPowerTable');
+      if (!table) return;
+      const tpl = templateManager.getActive(); const td = tpl?.data || tpl;
+      const isSM = /SM3/i.test(td?.laserOnCmd || '');
+      const label = document.getElementById('speedPowerPowerLabel');
+      if (label) label.textContent = isSM ? 'Power (Machine Options)' : 'Power (S)';
+      for (let ri = 0; ri < 3; ri++) {
+        const row = ui._speedPowerRows[ri];
+        if (isSM) {
+          // SM300: speed per-point, power is global (Machine Options)
+          // Show speed dropdown + color indicator, hide power
+          const colorCell = document.createElement('span');
+          colorCell.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:2px;background:${row.color};color:#fff;font-size:9px;font-weight:700;width:18px;height:24px;flex-shrink:0`;
+          colorCell.textContent = ri + 1;
+          colorCell.title = 'Click or press ' + (ri + 1) + ' to assign to focused point';
+          colorCell.dataset.speedRow = ri;
+          colorCell.addEventListener('click', () => ui._speedPowerAssignRow(ri));
+          const speedSel = document.createElement('select');
+          speedSel.className = 'bselect';
+          speedSel.style.cssText = 'width:100%;height:24px;font-size:11px';
+          row.speed = SPEED_PRESETS[ri] || 3000;
+          SPEED_PRESETS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; speedSel.appendChild(o); });
+          const custOpt = document.createElement('option'); custOpt.value = 'custom'; custOpt.textContent = 'Custom'; speedSel.appendChild(custOpt);
+          speedSel.value = row.speed;
+          speedSel.addEventListener('change', () => {
+            if (speedSel.value === 'custom') { row.speedCustom = true; row.speed = ''; speedSel.style.display = 'none'; speedInput.style.display = ''; speedInput.focus(); }
+            else { row.speedCustom = false; row.speed = parseFloat(speedSel.value); speedSel.style.display = ''; speedInput.style.display = 'none'; }
+          });
+          const speedInput = document.createElement('input');
+          speedInput.type = 'number'; speedInput.className = 'cinput';
+          speedInput.style.cssText = 'width:100%;height:24px;font-size:11px;display:none';
+          speedInput.placeholder = 'F';
+          speedInput.addEventListener('change', () => { row.speed = parseFloat(speedInput.value) || 0; });
+          speedInput.addEventListener('blur', () => { if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || SPEED_PRESETS[ri]; row.speedCustom = false; } });
+          const infoSpan = document.createElement('span');
+          infoSpan.style.cssText = 'font-size:9px;color:var(--text-dim);display:flex;align-items:center;padding:0 2px';
+          infoSpan.textContent = 'Machine Options';
+          row.power = 0;
+          table.appendChild(colorCell);
+          const spWrap = document.createElement('span'); spWrap.style.cssText = 'display:flex;gap:1px;width:100%'; spWrap.appendChild(speedSel); spWrap.appendChild(speedInput); table.appendChild(spWrap);
+          table.appendChild(infoSpan);
+          continue;
+        }
+        const colorCell = document.createElement('span');
+        colorCell.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:2px;background:${row.color};color:#fff;font-size:9px;font-weight:700;width:18px;height:18px;flex-shrink:0`;
+        colorCell.textContent = ri + 1;
+        colorCell.title = 'Click or press ' + (ri + 1) + ' to assign to focused point';
+        colorCell.dataset.speedRow = ri;
+        colorCell.addEventListener('click', () => ui._speedPowerAssignRow(ri));
+        const speedSel = document.createElement('select');
+        speedSel.className = 'bselect';
+        speedSel.style.cssText = 'width:100%;height:24px;font-size:11px';
+        SPEED_PRESETS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; speedSel.appendChild(o); });
+        const custOpt = document.createElement('option'); custOpt.value = 'custom'; custOpt.textContent = 'Custom'; speedSel.appendChild(custOpt);
+        speedSel.value = row.speed;
+        speedSel.addEventListener('change', () => {
+          if (speedSel.value === 'custom') { row.speedCustom = true; row.speed = ''; speedSel.style.display = 'none'; speedInput.style.display = ''; speedInput.focus(); }
+          else { row.speedCustom = false; row.speed = parseFloat(speedSel.value); speedSel.style.display = ''; speedInput.style.display = 'none'; }
+        });
+        const speedInput = document.createElement('input');
+        speedInput.type = 'number'; speedInput.className = 'cinput';
+        speedInput.style.cssText = 'width:100%;height:24px;font-size:11px;display:none';
+        speedInput.placeholder = 'F';
+        speedInput.addEventListener('change', () => { row.speed = parseFloat(speedInput.value) || 0; });
+        speedInput.addEventListener('blur', () => { if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || SPEED_PRESETS[ri]; row.speedCustom = false; } });
+        table.appendChild(colorCell);
+        const spWrap = document.createElement('span'); spWrap.style.cssText = 'display:flex;gap:1px;width:100%'; spWrap.appendChild(speedSel); spWrap.appendChild(speedInput); table.appendChild(spWrap);
+        if (isSM) {
+          const infoSpan = document.createElement('span');
+          infoSpan.style.cssText = 'font-size:7px;color:var(--text-dim);display:flex;align-items:center;padding:0 2px';
+          infoSpan.textContent = 'Machine Options';
+          table.appendChild(infoSpan);
+          row.power = 0;
+        } else {
+          const powerSel = document.createElement('select');
+          powerSel.className = 'bselect';
+          powerSel.style.cssText = 'width:100%;height:24px;font-size:11px';
+          POWER_PRESETS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v + '%'; powerSel.appendChild(o); });
+          const custOpt2 = document.createElement('option'); custOpt2.value = 'custom'; custOpt2.textContent = 'Custom'; powerSel.appendChild(custOpt2);
+          powerSel.value = row.power;
+          powerSel.addEventListener('change', () => {
+            if (powerSel.value === 'custom') { row.powerCustom = true; row.power = ''; powerSel.style.display = 'none'; powerInput.style.display = ''; powerInput.focus(); }
+            else { row.powerCustom = false; row.power = parseFloat(powerSel.value); powerSel.style.display = ''; powerInput.style.display = 'none'; }
+          });
+          const powerInput = document.createElement('input');
+          powerInput.type = 'number'; powerInput.className = 'cinput';
+          powerInput.style.cssText = 'width:100%;height:24px;font-size:11px;display:none';
+          powerInput.placeholder = 'S';
+          powerInput.addEventListener('change', () => { row.power = parseFloat(powerInput.value) || 0; });
+          powerInput.addEventListener('blur', () => { if (!powerInput.value) { powerInput.style.display = 'none'; powerSel.style.display = ''; powerSel.value = row.power || POWER_PRESETS[ri]; row.powerCustom = false; } });
+          const pwWrap = document.createElement('span'); pwWrap.style.cssText = 'display:flex;gap:1px;width:100%'; pwWrap.appendChild(powerSel); pwWrap.appendChild(powerInput); table.appendChild(pwWrap);
+        }
+      }
+    };
+    ui._speedPowerAssignRow = (ri) => {
+      if (!ui._pointsList || ui._focusedPointPos < 0 || ui._focusedPointPos >= ui._pointsList.length) {
+        ui.setStatus('Focus a point first (Tab to navigate).', 'error'); return;
+      }
+      const idx = ui._pointsList[ui._focusedPointPos].idx;
+      const row = ui._speedPowerRows[ri];
+      ui._speedPowerRows.forEach(r => { r.assignedPoints = r.assignedPoints.filter(p => p !== idx); });
+      row.assignedPoints.push(idx);
+      state.selectedPoints.add(idx);
+      preview._updatePointsInfo();
+      preview.draw(state.workingCmds);
+      ui._updatePointsPanel();
+      ui.setStatus(`Point ${idx + 1} assigned to color ${ri + 1} (F:${row.speed} S:${row.power})`);
+    };
+    document.getElementById('btnSpeedPowerApply').addEventListener('click', () => {
+      if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
+      const tpl = templateManager.getActive(); const td = tpl?.data || tpl;
+      const isSM = /SM3/i.test(td?.laserOnCmd || '');
+      let changed = false;
+      ui._speedPowerRows.forEach(row => {
+        row.assignedPoints.forEach(idx => {
+          const c = state.workingCmds[idx];
+          if (!c || !c.params) return;
+          if (row.speed) { c.params.F = row.speed; changed = true; }
+          if (!isSM && row.power) { c.params.S = row.power; changed = true; }
+        });
+      });
+      if (changed) {
+        preview._segments = null;
+        preview.draw(state.workingCmds);
+        ui.refreshWorking();
+        ui.setStatus('Speed/power applied to assigned points.');
+      } else {
+        ui.setStatus('No points assigned. Select points first with Tab + color click.', 'error');
+      }
+    });
+    // In keydown, add keys 1,2,3 to assign speed/power colors
+    const origKeydown = document.onkeydown;
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      if (e.key === '1' || e.key === '2' || e.key === '3') {
+        if (document.getElementById('speedPowerContent')?.style.display !== 'none') {
+          ui._speedPowerAssignRow(parseInt(e.key) - 1);
+        }
+      }
     });
 
     // ---- Add Point at Minimum Distance ----------------------------------------------------------
@@ -1516,7 +1685,7 @@ const ui = {
       }
     };
 
-    ui._reorderFromMark = () => {
+    ui._reorderFromMark = (skipMarkStart) => {
       const cmds = state.workingCmds;
       if (!cmds || !cmds.length) return false;
       // Motion: standard G0-G3 OR implicit (SM300: type='' with X/Y params)
@@ -1529,13 +1698,66 @@ const ui = {
       let changed = false;
 
       // Mark Start: rotate motion commands so marked point is first
-      if (ui._markStartIdx != null && ui._markStartIdx >= 0) {
+      if (!skipMarkStart && ui._markStartIdx != null && ui._markStartIdx >= 0) {
         const markPos = motionIdxs.findIndex(i => i >= ui._markStartIdx);
         if (markPos > 0) {
           const motionCmds = motionIdxs.map(i => newCmds[i]);
           const rotated = motionCmds.slice(markPos).concat(motionCmds.slice(0, markPos));
           motionIdxs.forEach((i, idx) => { newCmds[i] = rotated[idx]; });
           changed = true;
+        }
+        // After rotation, ensure first motion is a G0 travel (never cut from X0Y0
+        // with tool on). Insert G0 travel before the first cut command.
+        if (changed && motionIdxs.length > 0 && !cmds.some(c => (c.type === '' || c.type === undefined) && c.params && (c.params.X !== undefined || c.params.Y !== undefined))) {
+          const firstIdx = motionIdxs[0];
+          const firstCmd = newCmds[firstIdx];
+          if (firstCmd && !/^G0/i.test(firstCmd.type)) {
+            const travel = { type: 'G0', params: { X: firstCmd.params.X, Y: firstCmd.params.Y }, raw: '', isComment: false, isBlank: false };
+            if (firstCmd.params.Z !== undefined) travel.params.Z = firstCmd.params.Z;
+            newCmds.splice(firstIdx, 0, travel);
+            // Update motionIdxs: shift existing indices + prepend travel index
+            for (let k = 0; k < motionIdxs.length; k++) {
+              if (motionIdxs[k] >= firstIdx) motionIdxs[k]++;
+            }
+            motionIdxs.unshift(firstIdx);
+          }
+        }
+        // For closed paths after Mark Start: ensure Start = End (both at mark point)
+        if (changed && motionIdxs.length > 1 && !ui._pointsSide) {
+          const hasImplicit = cmds.some(c => (c.type === '' || c.type === undefined) && c.params && (c.params.X !== undefined));
+          const allMotions = motionIdxs.map(i => newCmds[i]);
+          // Find first cut destination (the mark point)
+          let firstCutDest = null;
+          if (hasImplicit) {
+            // SM300: first motion = first cut (no G0/G1 distinction)
+            const firstMc = allMotions[0];
+            if (firstMc && firstMc.params.X !== undefined) firstCutDest = { x: firstMc.params.X, y: firstMc.params.Y };
+          } else {
+            const firstNonG0 = allMotions.find(c => c && !/^G0/i.test(c.type));
+            if (firstNonG0 && firstNonG0.params.X !== undefined) firstCutDest = { x: firstNonG0.params.X, y: firstNonG0.params.Y };
+          }
+          if (firstCutDest) {
+            // Fix last non-G0 (cut) to close at firstCutDest
+            const lastNonG0Idx = hasImplicit
+              ? motionIdxs[motionIdxs.length - 1]
+              : [...motionIdxs].reverse().find(i => newCmds[i] && !/^G0/i.test(newCmds[i].type) && newCmds[i].params && newCmds[i].params.X !== undefined);
+            if (lastNonG0Idx !== undefined) {
+              const c = newCmds[lastNonG0Idx];
+              if (Math.abs(c.params.X - firstCutDest.x) > 0.001 || Math.abs(c.params.Y - firstCutDest.y) > 0.001) {
+                newCmds[lastNonG0Idx] = { ...c, params: { ...c.params, X: firstCutDest.x, Y: firstCutDest.y } };
+              }
+            }
+            // Fix last G0 travel to go back to firstCutDest (non-SM300 only)
+            if (!hasImplicit) {
+              const lastG0Idx = [...motionIdxs].reverse().find(i => /^G0/i.test(newCmds[i]?.type || '') && newCmds[i].params && newCmds[i].params.X !== undefined);
+              if (lastG0Idx !== undefined) {
+                const g0 = newCmds[lastG0Idx];
+                if (Math.abs(g0.params.X - firstCutDest.x) > 0.001 || Math.abs(g0.params.Y - firstCutDest.y) > 0.001) {
+                  newCmds[lastG0Idx] = { ...g0, params: { ...g0.params, X: firstCutDest.x, Y: firstCutDest.y } };
+                }
+              }
+            }
+          }
         }
       }
 
@@ -1544,9 +1766,25 @@ const ui = {
         const motionCmds = motionIdxs.map(i => newCmds[i]);
         const hasImplicit = cmds.some(c => (c.type === '' || c.type === undefined) && c.params && (c.params.X !== undefined || c.params.Y !== undefined));
 
-        // Detect closed path: first non-G0 dest ≈ last non-G0 dest
+        // Detect closed path: last cut returns to travel start position
         let isClosed = false;
-        if (!hasImplicit) {
+        if (hasImplicit) {
+          // SM300: compare travel start (first motion) with last cut between SM3/RM3
+          const sm3Idx = cmds.findIndex(c => /SM3/i.test(c.type));
+          const rm3Idx = cmds.findIndex(c => /RM3/i.test(c.type));
+          if (sm3Idx >= 0 && rm3Idx > sm3Idx && motionCmds.length > 2) {
+            const cutIdxs = motionIdxs.filter(i => i > sm3Idx && i < rm3Idx);
+            if (cutIdxs.length > 0) {
+              const travelStart = motionCmds[0]; // first motion = travel to start
+              const lastCut = newCmds[cutIdxs[cutIdxs.length - 1]];
+              isClosed = travelStart && lastCut &&
+                         Math.abs(travelStart.params.X - lastCut.params.X) < 0.001 &&
+                         Math.abs(travelStart.params.Y - lastCut.params.Y) < 0.001;
+            }
+          }
+        } else {
+          // Non-SM300: compare first non-G0 (first cut) vs last non-G0 (last cut)
+          // Works for circles (G2/G3 full arc), not for rectangles
           const firstNonG0 = motionCmds.find(c => !/^G0/i.test(c.type));
           const lastNonG0  = [...motionCmds].reverse().find(c => !/^G0/i.test(c.type));
           if (firstNonG0 && lastNonG0 && firstNonG0.params.X !== undefined && lastNonG0.params.X !== undefined) {
@@ -1576,21 +1814,9 @@ const ui = {
       }
 
       if (!changed) return false;
-      // Update _markStartIdx to the command's new index after reorder
-      if (ui._markStartIdx != null && ui._markStartIdx >= 0) {
-        const oldIdx = ui._markStartIdx;
-        const cmdAtOld = cmds[oldIdx];
-        let found = -1;
-        newCmds.some((c, i) => {
-          if (c.params.X !== undefined && c.params.Y !== undefined &&
-              c.params.X === cmdAtOld.params.X &&
-              c.params.Y === cmdAtOld.params.Y &&
-              c.params.Z === cmdAtOld.params.Z) {
-            found = i; return true;
-          }
-          return false;
-        });
-        if (found >= 0) ui._markStartIdx = found;
+      // Update _markStartIdx to point to first motion (new starting point after reorder)
+      if (ui._markStartIdx != null && motionIdxs.length > 0) {
+        ui._markStartIdx = motionIdxs[0];
       }
       undoRedo.push(state.workingCmds);
       state.workingCmds = newCmds;
@@ -1654,8 +1880,8 @@ const ui = {
         btn.textContent = 'Set Side \u2192';
         btn.style.background = '';
       }
-      const ok = ui._reorderFromMark();
-      ui.setStatus(ui._pointsSide ? `Side: ${ui._pointsSide}${ok ? ' ? G-code reordered' : ' ? already reversed'}` : 'Side cleared');
+      const ok = ui._reorderFromMark(true);
+      ui.setStatus(ui._pointsSide ? `Side: ${ui._pointsSide}${ok ? ' ⟲ G-code reordered' : ' ⟲ already reversed'}` : 'Side cleared');
     });
 
     document.getElementById('pointsStep').addEventListener('change', function() {
@@ -2034,6 +2260,7 @@ const ui = {
     templateManager.loadBuiltin();
     preview.init(document.getElementById('previewCanvas'));
     ui.refreshTemplateList();
+    ui._speedPowerInit();
     settings.applyAll();
     // Clean corrupted machineOpts (empty strings from old _getSelectedMachineOpts bug)
     try {

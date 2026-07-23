@@ -15,7 +15,7 @@
   <header id="banner">
     <span class="banner-title">Edit<span class="banner-dot">.</span>GC</span>
     <span class="banner-sub">G-code Editor</span>
-    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.001</span>
+    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.002</span>
   </header>
 
   <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
@@ -370,6 +370,18 @@
         <span style="font-size:9px;color:var(--text-dim)">mm</span>
         <button class="btn-action" id="btnTurnVarApply" style="flex:none">Apply</button>
         <span class="step-label" style="margin-left:auto">Step</span><select id="turnVarStep" class="bselect step-select" style="width:50px;height:18px;font-size:10px"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
+      </div>
+    </div>
+    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
+      <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600" title="Assign speed/power presets to selected points by color">Speed & Power Control</span>
+    </div>
+    <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="speedPowerContent">
+      <span class="clabel" style="width:100%">Assign F (speed) / S (power) to points by color <button class="btn-action" id="btnSpeedPowerApply" style="float:right;font-size:10px;height:20px">Apply</button></span>
+      <span class="clabel" style="width:100%;font-size:11px;margin-top:-2px">Tab navigate | click row or press 1-2-3 to assign</span>
+      <div id="speedPowerTable" style="display:grid;grid-template-columns:24px 80px 80px;gap:2px;width:100%;font-size:11px">
+        <span></span>
+        <span style="font-weight:600;text-align:center;font-size:10px">Speed (F)</span>
+        <span style="font-weight:600;text-align:center;font-size:10px" id="speedPowerPowerLabel">Power (S)</span>
       </div>
     </div>
   </div>
