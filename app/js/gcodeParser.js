@@ -155,7 +155,7 @@ const gcodeParser = {
     const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
     const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
     const onTypes = (tpl && tpl.data ? (tpl.data.laserOnCmd || 'M3,M4') : 'M3,M4').split(',').map(baseCmd);
-    const laserOnCmds = commands.filter(c => onTypes.includes((c.type || '').toUpperCase())).map(c => c.type);
+    const laserOnCmds = commands.filter(c => onTypes.includes(baseCmd(c.type || ''))).map(c => c.type);
 
     return {
       header,
@@ -210,37 +210,76 @@ const gcodeParser = {
   applyOffset(commands, offsets, opts) {
     const { laserOnly = false } = opts || {};
     const axes = ['X','Y','Z','A','B','C'];
-    const isMotion = (t) => ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(t) || t === null || t === undefined;
-    return commands.map(c => {
-      if (!isMotion(c.type)) return c;
-      if (laserOnly && !((c.params.S && c.params.S > 0) || c.type === '' || c.type === null || c.type === undefined)) return c;
-      const p = { ...c.params };
-      for (const k of axes) {
-        if (p[k] !== undefined && offsets[k] !== undefined) {
-          p[k] = parseFloat((p[k] + offsets[k]).toFixed(4));
-        }
+    const isMotion = (t, c) => ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(t) || t === null || t === undefined ||
+      /ARC/i.test(t || '') || (c?.params && ['X','Y','Z'].some(a => c.params[a] !== undefined));
+    const { from = -1, to = -1 } = opts || {};
+    let x = 0, y = 0, z = 0, isRel = false, unitToMm = 1;
+    let offsetX = 0, offsetY = 0, offsetZ = 0;
+    return commands.map((c, i) => {
+      const t = (c.type || '').toUpperCase();
+      if (t === 'G91') { isRel = true; return c; }
+      if (t === 'G90') { isRel = false; return c; }
+      if (t === 'G20') { unitToMm = 25.4; return c; }
+      if (t === 'G21') { unitToMm = 1; return c; }
+      if (t === 'G92') {
+        if (c.params.X !== undefined) offsetX = x - c.params.X * unitToMm;
+        if (c.params.Y !== undefined) offsetY = y - c.params.Y * unitToMm;
+        if (c.params.Z !== undefined) offsetZ = z - c.params.Z * unitToMm;
+        return c;
       }
+      if (!isMotion(c.type, c)) return c;
+      const hasRange = from < 0 || to < 0 || (i >= from && i <= to);
+      const allowed = !laserOnly || ((c.params.S && c.params.S > 0) || c.type === '' || c.type === null || c.type === undefined);
+      const prev = { x, y, z };
+      const next = { x, y, z };
+      if (c.params.X !== undefined) { const v = c.params.X * unitToMm; next.x = isRel ? x + v : v + offsetX; }
+      if (c.params.Y !== undefined) { const v = c.params.Y * unitToMm; next.y = isRel ? y + v : v + offsetY; }
+      if (c.params.Z !== undefined) { const v = c.params.Z * unitToMm; next.z = isRel ? z + v : v + offsetZ; }
+      let target = next;
+      if (hasRange && allowed) {
+        target = {
+          x: next.x + (offsets.X || 0),
+          y: next.y + (offsets.Y || 0),
+          z: next.z + (offsets.Z || 0)
+        };
+      }
+      const p = { ...c.params };
+      if (c.params.X !== undefined) p.X = parseFloat(((isRel ? target.x - prev.x : target.x - offsetX) / unitToMm).toFixed(4));
+      if (c.params.Y !== undefined) p.Y = parseFloat(((isRel ? target.y - prev.y : target.y - offsetY) / unitToMm).toFixed(4));
+      if (c.params.Z !== undefined) p.Z = parseFloat(((isRel ? target.z - prev.z : target.z - offsetZ) / unitToMm).toFixed(4));
+      for (const k of ['A','B','C']) {
+        if (p[k] !== undefined && hasRange && allowed && offsets[k] !== undefined) p[k] = parseFloat((p[k] + offsets[k]).toFixed(4));
+      }
+      x = target.x; y = target.y; z = target.z;
       return { ...c, params: p, raw: '' };
     });
   },
 
   scaleCommands(commands, factor) {
     return commands.map(c => {
-      if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
+      const implicitMotion = (c.type === '' || c.type === null || c.type === undefined) &&
+        Object.keys(c.params || {}).some(k => ['X','Y','Z','I','J','C','D','K'].includes(k));
+      const customMotion = /ARC/i.test(c.type || '') && Object.keys(c.params || {}).some(k => ['X','Y','Z'].includes(k));
+      if (!implicitMotion && !customMotion && !['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
       const p = { ...c.params };
-      ['X','Y','I','J'].forEach(k => { if (p[k] !== undefined) p[k] = parseFloat((p[k] * factor).toFixed(4)); });
+      ['X','Y','I','J','C','D'].forEach(k => { if (p[k] !== undefined) p[k] = parseFloat((p[k] * factor).toFixed(4)); });
       return { ...c, params: p, raw: '' };
     });
   },
 
   scaleCommandsXY(commands, fx, fy) {
     return commands.map(c => {
-      if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
+      const implicitMotion = (c.type === '' || c.type === null || c.type === undefined) &&
+        Object.keys(c.params || {}).some(k => ['X','Y','Z','I','J','C','D','K'].includes(k));
+      const customMotion = /ARC/i.test(c.type || '') && Object.keys(c.params || {}).some(k => ['X','Y','Z'].includes(k));
+      if (!implicitMotion && !customMotion && !['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
       const p = { ...c.params };
       if (p.X !== undefined) p.X = parseFloat((p.X * fx).toFixed(4));
       if (p.Y !== undefined) p.Y = parseFloat((p.Y * fy).toFixed(4));
       if (p.I !== undefined) p.I = parseFloat((p.I * fx).toFixed(4));
       if (p.J !== undefined) p.J = parseFloat((p.J * fy).toFixed(4));
+      if (p.C !== undefined) p.C = parseFloat((p.C * fx).toFixed(4));
+      if (p.D !== undefined) p.D = parseFloat((p.D * fy).toFixed(4));
       return { ...c, params: p, raw: '' };
     });
   },
@@ -263,20 +302,24 @@ const gcodeParser = {
 
   mirrorX(commands) {
     return commands.map(c => {
-      if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
+      const isMotion = ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(c.type) || /ARC/i.test(c.type || '');
+      if (!isMotion || !Object.keys(c.params || {}).some(k => ['X','Y','Z'].includes(k))) return c;
       const p = { ...c.params };
       if (p.Y !== undefined) p.Y = parseFloat((-p.Y).toFixed(4));
       if (p.J !== undefined) p.J = parseFloat((-p.J).toFixed(4));
+      if (p.D !== undefined) p.D = parseFloat((-p.D).toFixed(4));
       return { ...c, params: p, raw: '' };
     });
   },
 
   mirrorY(commands) {
     return commands.map(c => {
-      if (!['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) return c;
+      const isMotion = ['G0','G00','G1','G01','G2','G02','G3','G03',''].includes(c.type) || /ARC/i.test(c.type || '');
+      if (!isMotion || !Object.keys(c.params || {}).some(k => ['X','Y','Z'].includes(k))) return c;
       const p = { ...c.params };
       if (p.X !== undefined) p.X = parseFloat((-p.X).toFixed(4));
       if (p.I !== undefined) p.I = parseFloat((-p.I).toFixed(4));
+      if (p.C !== undefined) p.C = parseFloat((-p.C).toFixed(4));
       return { ...c, params: p, raw: '' };
     });
   },
@@ -286,8 +329,9 @@ const gcodeParser = {
     // Use exact integer rotations for 90? multiples to avoid floating-point drift
     return commands.map(c => {
       const isMotion = /^G[0-3]$|^G0[0-3]$/i.test(c.type);
-      const isImplicit = (c.type === '' || c.type === undefined) && (c.params?.X !== undefined || c.params?.Y !== undefined);
-      if (!isMotion && !isImplicit) return c;
+      const isImplicit = (c.type === '' || c.type === undefined) && (c.params?.X !== undefined || c.params?.Y !== undefined || c.params?.Z !== undefined);
+      const isCustomMotion = /ARC/i.test(c.type || '') && (c.params?.X !== undefined || c.params?.Y !== undefined || c.params?.Z !== undefined);
+      if (!isMotion && !isImplicit && !isCustomMotion) return c;
       const p = { ...c.params };
       if (p.X !== undefined || p.Y !== undefined) {
         let x = p.X || 0, y = p.Y || 0;
@@ -306,6 +350,15 @@ const gcodeParser = {
         }
         p.I = parseFloat(i.toFixed(4));
         p.J = parseFloat(j.toFixed(4));
+      }
+      if (p.C !== undefined || p.D !== undefined) {
+        let cx = p.C || 0, cy = p.D || 0;
+        for (let r = 0; r < steps / 90; r++) {
+          const ncx = -cy, ncy = cx;
+          cx = ncx; cy = ncy;
+        }
+        p.C = parseFloat(cx.toFixed(4));
+        p.D = parseFloat(cy.toFixed(4));
       }
       return { ...c, params: p, raw: '' };
     });

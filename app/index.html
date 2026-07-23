@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -15,7 +15,7 @@
   <header id="banner">
     <span class="banner-title">Edit<span class="banner-dot">.</span>GC</span>
     <span class="banner-sub">G-code Editor</span>
-    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.002</span>
+    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.003</span>
   </header>
 
   <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
@@ -246,6 +246,9 @@
         <span class="step-label">Step</span><select id="pointsStep" class="bselect step-select"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
         <button class="btn-action" id="btnPointsDelete" title="Delete selected points" style="width:50px;padding:2px 6px;font-size:11px;color:#c00">Del</button>
       </div>
+      <div style="width:100%;display:flex;gap:3px;align-items:center;margin-top:4px">
+        <span style="font-size:9px;color:var(--text-dim);width:100%">X Y Z offset — adds point with travel + tool on/off (Start/Stop)</span>
+      </div>
       <div style="width:100%;display:flex;gap:3px;align-items:center">
         <span class="clabel" style="flex:none">X</span>
         <input type="number" id="pointsOffsetX" class="cinput" style="flex:1;height:18px;font-size:10px" value="0" step="any" />
@@ -261,13 +264,18 @@
         <button class="btn-icon" data-step-for="pointsOffsetZ" data-step-sel="pointsStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
       </div>
       <div style="width:100%;display:flex;gap:3px;align-items:center;margin-top:4px">
-        <label class="toggle-switch" title="Start/Stop: adds Tool ON + point + Tool OFF">
-          <input type="checkbox" id="chkStartStop">
-          <span class="toggle-slider"></span>
-        </label>
-        <span id="toggleStartStopLabel" style="font-size:9px;color:var(--text-dim);min-width:42px;text-align:center">Continuous</span>
-        <button class="btn-action" id="btnPointsGenerate" title="Add selected points to G-code with offset" style="margin-left:auto">Apply</button>
+        <span style="font-size:9px;color:var(--text-dim);width:100%">Along Path — distance along path contours (ignores X/Y/Z)</span>
       </div>
+      <div style="width:100%;display:flex;gap:3px;align-items:center;margin-top:2px">
+        <span class="clabel" style="flex:none;font-size:10px">Along Path</span>
+        <input type="number" id="pointsAlongPath" class="cinput" style="flex:1;height:18px;font-size:10px" value="0" step="any" min="0" />
+        <button class="btn-icon" data-step-for="pointsAlongPath" data-step-sel="pointsStep" title="Up" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▲</button>
+        <button class="btn-icon" data-step-for="pointsAlongPath" data-step-sel="pointsStep" data-down="1" title="Down" style="height:16px;width:16px;padding:0;font-size:8px;line-height:1">▼</button>
+        <span style="font-size:9px;color:var(--text-dim)">mm</span>
+        <button class="btn-action" id="btnPointsGenerate" title="Add selected points to G-code" style="margin-left:auto">Apply</button>
+      </div>
+      <input type="checkbox" id="chkMinDistStartStop" style="display:none" />
+      <input type="checkbox" id="chkStartStop" style="display:none" checked />
     </div>
 
     <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'&#9654;':'&#9660;'">
@@ -285,12 +293,7 @@
         <span class="step-label" style="margin-left:auto">Step</span><select id="minDistStep" class="bselect step-select" style="width:50px;height:18px;font-size:10px"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
       </div>
       <div style="width:100%;display:flex;gap:3px;align-items:center;margin-top:4px">
-        <label class="toggle-switch" title="Start/Stop: adds Tool ON + point + Tool OFF">
-          <input type="checkbox" id="chkMinDistStartStop">
-          <span class="toggle-slider"></span>
-        </label>
-        <span id="toggleMinDistLabel" style="font-size:9px;color:var(--text-dim);min-width:42px;text-align:center">Continuous</span>
-        <label class="toggle-switch" title="Detects arcs in the drawing from G-code (without G2/G3) and adds more points in those zones" style="opacity:0.7;margin-left:6px">
+        <label class="toggle-switch" title="Detects arcs in the drawing from G-code (without G2/G3) and adds more points in those zones" style="opacity:0.7">
           <input type="checkbox" id="chkMinDistArcsOnly">
           <span class="toggle-slider"></span>
         </label>

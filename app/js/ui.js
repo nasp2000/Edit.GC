@@ -43,6 +43,7 @@ const ui = {
       ui.setStatus(statusMsg);
       ui.syncModals();
       ui.updateFooterInfo();
+      ui.updateResizePanel();
       recentFiles.add(file.name, 'G-code', text);
       const _rs = document.getElementById('recentFilesSelect');
       if (_rs) recentFiles.populateSelect(_rs);
@@ -224,12 +225,14 @@ const ui = {
         if (this._idx < 0 || !this._matches.length) return;
         const m = this._matches[this._idx];
         const ta = this.el; if (!ta) return;
-        ta.focus();
         ta.selectionStart = m.index; ta.selectionEnd = m.index + m.length;
         const lines = ta.value.substring(0, m.index).split('\n');
         const line = lines.length;
         const lineH = 19.2;
         ta.scrollTop = Math.max(0, (line - 5) * lineH);
+      },
+      _commit(ta) {
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
       },
       findNext() {
         if (!this._matches.length) return;
@@ -251,6 +254,7 @@ const ui = {
         const before = ta.value.substring(0, m.index);
         const after = ta.value.substring(m.index + m.length);
         ta.value = before + rep + after;
+        this._commit(ta);
         this._matches.splice(this._idx, 1);
         if (this._idx >= this._matches.length) this._idx = this._matches.length - 1;
         document.getElementById('mFindCount').textContent = (this._idx + 1) + '/' + this._matches.length;
@@ -264,6 +268,7 @@ const ui = {
           const after = ta.value.substring(m.index + m.length);
           ta.value = before + rep + after;
         }
+        this._commit(ta);
         this._matches = []; this._idx = -1;
         document.getElementById('mFindCount').textContent = '0/0';
       }
@@ -280,6 +285,13 @@ const ui = {
       mFindInp.addEventListener('input', function() { modalFind.search(this.value); });
       mFindInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); modalFind.findNext(); } });
     }
+    ['mFindRegex', 'mFindCase'].forEach(id => {
+      const option = document.getElementById(id);
+      if (option) option.addEventListener('change', () => {
+        modalFind.search(document.getElementById('mFindInput').value);
+        document.getElementById('mFindInput').focus();
+      });
+    });
     const mRepInp = document.getElementById('mReplaceInput');
     if (mRepInp) mRepInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); modalFind.replace(); modalFind.search(document.getElementById('mFindInput').value); } });
 
@@ -435,6 +447,7 @@ const ui = {
         applyHighlight(document.getElementById('highlightWorking'), gcode);
         ui.setProgress(90, 'Rendering...');
         preview.resize();
+        ui.updateResizePanel();
         ui.syncModals();
         ui.updateFooterInfo();
         ui.setProgress(100, 'Done');
@@ -589,7 +602,7 @@ const ui = {
     });
 
     // ---- Scale widget ? single W input, aspect ratio locked ----
-    const _getBounds = () => preview._getBounds(state.workingCmds);
+    const _getBounds = () => preview._getCutBounds() || preview._getBounds(state.workingCmds);
 
     const _updateScaleFromW = () => {
       const w = parseFloat(document.getElementById('resizeW').value);
@@ -622,16 +635,15 @@ const ui = {
     document.getElementById('resizeW').addEventListener('input', () => {
       _updateScaleFromW();
       if (state.mode === 'gcode') {
-        // Scale G-code in real-time
         const tw = parseFloat(document.getElementById('resizeW').value);
         if (!tw || !state.resizeBaseW || !state.workingCmds.length) return;
         const ratio = tw / state.resizeBaseW;
         if (Math.abs(ratio - 1) < 0.0001) return;
         state.workingCmds = gcodeParser.scaleCommands(state.workingCmds.map(c => ({...c})), ratio);
         state.resizeBaseW = tw;
-        state.previewScale *= ratio;
+        state.resizeBaseH *= ratio;
+        state._boundsCache = null;
         preview._segments = null;
-        preview.draw(state.workingCmds);
         ui.refreshWorking();
         return;
       }
@@ -878,20 +890,26 @@ const ui = {
       }
 
       // Find first tool-on command (G1/G2/G3 with S>0, or first non-G0 motion for SM300)
-      const firstToolOn = state.workingCmds.find(c =>
+      const firstToolOnIdx = state.workingCmds.findIndex(c =>
         ['G1','G01','G2','G02','G3','G03'].includes(c.type) && c.params.S && c.params.S > 0
-      ) || state.workingCmds.find(c =>
-        (['G1','G01','G2','G02','G3','G03',''].includes(c.type)) && !c.isComment && !c.isBlank &&
-        c.params.X !== undefined && c.params.Y !== undefined &&
-        !['G0','G00'].includes(c.type) && c.type !== 'G0' && c.type !== 'G00'
       );
-      if (!firstToolOn) { ui.setStatus('No tool-on motion commands found.', 'error'); return; }
+      const fallbackToolOnIdx = firstToolOnIdx >= 0 ? firstToolOnIdx : state.workingCmds.findIndex(c => {
+        const type = (c.type || '').toUpperCase();
+        const isMotion = ['G1','G01','G2','G02','G3','G03',''].includes(type) || /ARC/i.test(type);
+        return isMotion && !c.isComment && !c.isBlank &&
+          (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined) &&
+          !['G0','G00'].includes(type);
+      });
+      if (fallbackToolOnIdx < 0) { ui.setStatus('No tool-on motion commands found.', 'error'); return; }
+      const firstToolOn = state.workingCmds[fallbackToolOnIdx];
+      const firstToolOnPos = preview._getPosAt(fallbackToolOnIdx);
 
       // Calculate delta = target - current for each axis
       const offsets = {};
       for (const a of Object.keys(target)) {
-        if (firstToolOn.params[a] !== undefined) {
-          offsets[a] = target[a] - firstToolOn.params[a];
+        const key = a.toLowerCase();
+        if (firstToolOn.params[a] !== undefined && firstToolOnPos[key] !== undefined) {
+          offsets[a] = target[a] - firstToolOnPos[key];
         }
       }
       if (!Object.keys(offsets).length) { ui.setStatus('No matching axes on first tool-on point.', 'error'); return; }
@@ -931,16 +949,9 @@ const ui = {
         ui.setStatus('From line must be = To line.', 'error'); return;
       }
       undoRedo.push(state.workingCmds);
-      state.workingCmds = state.workingCmds.map((c, i) => {
-        const inRange = from < 0 || to < 0 || (i >= from && i <= to);
-        if (!inRange) return c;
-        if (c.params[axis] === undefined) return c;
-        const p = { ...c.params };
-        p[axis] = parseFloat((p[axis] - val).toFixed(4));
-        return { ...c, params: p, raw: '' };
-      });
+      state.workingCmds = gcodeParser.applyOffset(state.workingCmds, { [axis]: val }, { from, to });
       ui.refreshWorking();
-      ui.setStatus(`Batch: ${axis} ${val >= 0 ? '-' : '+'}${Math.abs(val)} applied${from >= 0 ? ` to lines ${from}?${to}` : ''}.`);
+      ui.setStatus(`Batch: ${axis} ${val >= 0 ? '+' : '-'}${Math.abs(val)} applied${from >= 0 ? ` to lines ${from}?${to}` : ''}.`);
     });
 
     // ---- Full Path Variation ------------------------------------------------------------------
@@ -953,7 +964,8 @@ const ui = {
       const insideVal = parseFloat(document.getElementById('pathVarInside').value) || 0;
 
       // Collect all motion commands with X,Y coords
-      const moves = state.workingCmds.filter(c => c.params.X !== undefined && c.params.Y !== undefined);
+      const moves = state.workingCmds.filter(c => c.params.X !== undefined && c.params.Y !== undefined &&
+        !/^G0?[23]$/i.test(c.type || '') && !/ARC/i.test(c.raw || c.type || ''));
       if (moves.length < 2) { ui.setStatus('Need at least 2 motion commands with X,Y.', 'error'); return; }
 
       // Compute bounding box
@@ -1053,7 +1065,8 @@ const ui = {
       if (!val) { ui.setStatus('Enter a non-zero variation value.', 'error'); return; }
 
       // Find all motion commands with X,Y coords
-      const moves = state.workingCmds.filter(c => c.params.X !== undefined);
+      const moves = state.workingCmds.filter(c => c.params.X !== undefined &&
+        !/^G0?[23]$/i.test(c.type || '') && !/ARC/i.test(c.raw || c.type || ''));
       if (moves.length < 2) { ui.setStatus('Need at least 2 motion commands with X coordinate.', 'error'); return; }
 
       undoRedo.push(state.workingCmds);
@@ -1240,7 +1253,6 @@ const ui = {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       const minDist = parseFloat(document.getElementById('minDistValue').value);
       if (!minDist || minDist <= 0) { ui.setStatus('Enter a positive distance value.', 'error'); return; }
-      const isStartStop = document.getElementById('chkMinDistStartStop').checked;
       const isArcsOnly = document.getElementById('chkMinDistArcsOnly').checked;
 
       const isArcCmd = (c) => {
@@ -1379,114 +1391,6 @@ const ui = {
         return false;
       };
 
-      if (isStartStop) {
-        // Start/Stop mode: collect interpolated points, wrap each with travel+laser-on/off
-        const interpPoints = [];
-        for (let i = 0; i < state.workingCmds.length; i++) {
-          const cmd = state.workingCmds[i];
-          const curMove = moveIndices.includes(i);
-          if (!curMove) continue;
-          const prevIdx = moveIndices.indexOf(i);
-          if (prevIdx === 0 || prevIdx < 0) continue;
-          const prevMoveIdx = moveIndices[prevIdx - 1];
-          const prev = state.workingCmds[prevMoveIdx];
-          if (prev.params.X === undefined || prev.params.Y === undefined) continue;
-          // Skip rapid commands (travel moves)
-          if (isRapid(cmd, i)) continue;
-          if (isArcsOnly) {
-            const dx = cmd.params.X - prev.params.X;
-            const dy = cmd.params.Y - prev.params.Y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < curveThresh && dist > 0) {
-              const numDiv = Math.ceil(dist / minDist);
-              if (numDiv > 1) {
-                const stepX = dx / numDiv;
-                const stepY = dy / numDiv;
-                for (let s = 1; s <= numDiv - 1; s++) {
-                  interpPoints.push({ params: { X: parseFloat((prev.params.X + stepX * s).toFixed(4)), Y: parseFloat((prev.params.Y + stepY * s).toFixed(4)) }, type: 'G1' });
-                }
-              }
-            }
-            continue;
-          }
-          const dx = cmd.params.X - prev.params.X;
-          const dy = cmd.params.Y - prev.params.Y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist <= minDist) continue;
-          const numDiv = Math.ceil(dist / minDist);
-          const stepX = dx / numDiv;
-          const stepY = dy / numDiv;
-          for (let s = 1; s <= numDiv - 1; s++) {
-            const p = { ...cmd.params };
-            p.X = parseFloat((prev.params.X + stepX * s).toFixed(4));
-            p.Y = parseFloat((prev.params.Y + stepY * s).toFixed(4));
-            interpPoints.push({ params: p, type: cmd.type });
-          }
-        }
-
-        if (!interpPoints.length) {
-          ui.setStatus('No intermediate points to add.', 'error');
-          return;
-        }
-
-        // Get laser pattern
-        const tpl = templateManager.getActive();
-        const td = tpl?.data || tpl;
-        const pat = (td?.laserOnCmd && td?.laserOffCmd)
-          ? { on: td.laserOnCmd, off: td.laserOffCmd }
-          : ui._detectLaserPatterns();
-        const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
-        const smZ = isSM300 ? (td?.focusZ || -220) : 0;
-
-        undoRedo.push(state.workingCmds);
-        let result = [...state.workingCmds];
-
-        // Find insert index: after last motion command (before footer)
-        let insertIdx = state.workingCmds.length;
-        for (let j = state.workingCmds.length - 1; j >= 0; j--) {
-          if (state.workingCmds[j].params.X !== undefined && state.workingCmds[j].params.Y !== undefined) {
-            insertIdx = j + 1;
-            break;
-          }
-        }
-
-        // Find modal feed rate from the first cut move for Start/Stop points
-        let modalCutF = 0;
-        for (let k = 0; k < state.workingCmds.length; k++) {
-          const ck = state.workingCmds[k];
-          if (ck.params.F && ck.params.F > 0 && ck.params.F < 5000) { modalCutF = ck.params.F; break; }
-        }
-        if (!modalCutF) modalCutF = 400;
-
-        const blankCmd = () => ({ lineIndex: -1, raw: '', type: null, params: {}, comment: '', isBlank: true, isComment: false, blockDelete: false });
-
-        const insertBlock = [];
-        for (const pt of interpPoints) {
-          // Travel
-          const travel = { lineIndex: -1, raw: '', type: isSM300 ? '' : 'G0', params: { X: pt.params.X, Y: pt.params.Y }, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
-          travel.params.F = td?.feedTravel || (isSM300 ? 5000 : 8000);
-          if (isSM300 && pt.params.Z !== undefined) travel.params.Z = pt.params.Z;
-          else if (isSM300) travel.params.Z = smZ;
-          travel._newInsert = true;
-          // Laser on
-          const onCmd = { lineIndex: -1, raw: '', type: pat.on, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
-          // Point (cut) — ensure it has the original slow feed rate, not fast travel speed
-          const point = { lineIndex: -1, raw: '', type: pt.type, params: { ...pt.params }, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
-          if (point.params.F === undefined || point.params.F === 0 || (td?.feedTravel && point.params.F >= td.feedTravel)) {
-            point.params.F = modalCutF;
-          }
-          // Laser off
-          const offCmd = { lineIndex: -1, raw: '', type: pat.off, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false, _newInsert: true };
-          insertBlock.push(travel, blankCmd(), onCmd, blankCmd(), point, blankCmd(), offCmd);
-        }
-
-        result.splice(insertIdx, 0, ...insertBlock);
-        state.workingCmds = result;
-        ui.refreshWorking();
-        ui.setStatus(`Add Point at Minimum Distance (Start/Stop): ${interpPoints.length} points added.`);
-        return;
-      }
-
         // Continuous mode
         undoRedo.push(state.workingCmds);
         const result = [];
@@ -1616,15 +1520,10 @@ const ui = {
           points.push({ idx: s.cmdIdx, x: s.b.x, y: s.b.y, z: s.b.z || 0 });
         }
       } else {
-        let cx = 0, cy = 0, cz = 0, isRel = false;
         cmds.forEach((c, i) => {
-          if (c.type === 'G91') { isRel = true; return; }
-          if (c.type === 'G90') { isRel = false; return; }
-          if (c.params.X !== undefined) cx = isRel ? cx + c.params.X : c.params.X;
-          if (c.params.Y !== undefined) cy = isRel ? cy + c.params.Y : c.params.Y;
-          if (c.params.Z !== undefined) cz = isRel ? cz + c.params.Z : c.params.Z;
           if (c.params.X === undefined && c.params.Y === undefined && c.params.Z === undefined) return;
-          points.push({ idx: i, x: cx, y: cy, z: cz });
+          const p = preview._getPosAt(i);
+          points.push({ idx: i, x: p.x, y: p.y, z: p.z });
         });
       }
       // Filter: keep first point always, then only points that moved from previous
@@ -1689,9 +1588,18 @@ const ui = {
       const cmds = state.workingCmds;
       if (!cmds || !cmds.length) return false;
       // Motion: standard G0-G3 OR implicit (SM300: type='' with X/Y params)
-      const isMotion = t => /^G[0-3]$|^G0[0-3]$/i.test(t) || (t === '' || t === undefined);
+      const isMotion = t => /^G[0-3]$|^G0[0-3]$/i.test(t) || /ARC/i.test(t || '') || (t === '' || t === undefined);
+      // Exclude return travel after last tool-off (M5/RM3)
+      let lastOffIdx = -1;
+      for (let i = cmds.length - 1; i >= 0; i--) {
+        const t = (cmds[i].type || '').toUpperCase();
+        if (/^M5$|^RM3$/.test(t) || /RM3/i.test(t)) { lastOffIdx = i; break; }
+      }
       const motionIdxs = [];
-      cmds.forEach((c, i) => { if (isMotion(c.type) && c.params && (c.params.X !== undefined || c.params.Y !== undefined)) motionIdxs.push(i); });
+      cmds.forEach((c, i) => {
+        if (lastOffIdx >= 0 && i > lastOffIdx) return;
+        if (isMotion(c.type) && c.params && (c.params.X !== undefined || c.params.Y !== undefined)) motionIdxs.push(i);
+      });
       if (motionIdxs.length < 2) return false;
 
       let newCmds = cmds.map(c => ({ ...c, params: c.params ? { ...c.params } : {} }));
@@ -1712,7 +1620,7 @@ const ui = {
           const firstIdx = motionIdxs[0];
           const firstCmd = newCmds[firstIdx];
           if (firstCmd && !/^G0/i.test(firstCmd.type)) {
-            const travel = { type: 'G0', params: { X: firstCmd.params.X, Y: firstCmd.params.Y }, raw: '', isComment: false, isBlank: false };
+          const travel = { type: 'G0', params: { X: firstCmd.params.X, Y: firstCmd.params.Y, F: 8000 }, raw: '', isComment: false, isBlank: false };
             if (firstCmd.params.Z !== undefined) travel.params.Z = firstCmd.params.Z;
             newCmds.splice(firstIdx, 0, travel);
             // Update motionIdxs: shift existing indices + prepend travel index
@@ -1813,6 +1721,32 @@ const ui = {
         changed = true;
       }
 
+      // Ensure first motion after any reorder is a travel (never cut from X0Y0 with tool on)
+      if (changed && motionIdxs.length > 0) {
+        const firstIdx = motionIdxs[0];
+        const firstCmd = newCmds[firstIdx];
+        if (firstCmd && !/^G0/i.test(firstCmd.type) && !(firstCmd.type === '' || firstCmd.type === undefined)) {
+          const travel = { type: 'G0', params: { X: firstCmd.params.X, Y: firstCmd.params.Y, F: 8000 }, raw: '', isComment: false, isBlank: false };
+          if (firstCmd.params.Z !== undefined) travel.params.Z = firstCmd.params.Z;
+          newCmds.splice(firstIdx, 0, travel);
+          for (let k = 0; k < motionIdxs.length; k++) {
+            if (motionIdxs[k] >= firstIdx) motionIdxs[k]++;
+          }
+          motionIdxs.unshift(firstIdx);
+        } else if (firstCmd && (firstCmd.type === '' || firstCmd.type === undefined)) {
+          const tpl = templateManager.getActive();
+          const td = tpl?.data || tpl;
+          const feedTravel = td?.feedTravel || 5000;
+          const travel = { type: '', params: { X: firstCmd.params.X, Y: firstCmd.params.Y, F: feedTravel }, raw: '', isComment: false, isBlank: false };
+          if (firstCmd.params.Z !== undefined) travel.params.Z = firstCmd.params.Z;
+          newCmds.splice(firstIdx, 0, travel);
+          for (let k = 0; k < motionIdxs.length; k++) {
+            if (motionIdxs[k] >= firstIdx) motionIdxs[k]++;
+          }
+          motionIdxs.unshift(firstIdx);
+        }
+      }
+
       if (!changed) return false;
       // Update _markStartIdx to point to first motion (new starting point after reorder)
       if (ui._markStartIdx != null && motionIdxs.length > 0) {
@@ -1907,198 +1841,10 @@ const ui = {
       ui.setStatus(`Deleted ${deleted} point(s).`);
     });
 
-    document.getElementById('chkStartStop').addEventListener('change', e => {
-      document.getElementById('toggleStartStopLabel').textContent = e.target.checked ? 'Start/Stop' : 'Continuous';
-    });
-    document.getElementById('chkMinDistStartStop').addEventListener('change', e => {
-      document.getElementById('toggleMinDistLabel').textContent = e.target.checked ? 'Start/Stop' : 'Continuous';
-    });
-
-    document.getElementById('btnPointsGenerate').addEventListener('click', () => {
-      if (!state.workingCmds.length || !state.selectedPoints.size) {
-        ui.setStatus('Select points on preview first.', 'error'); return;
-      }
-      const dx = parseFloat(document.getElementById('pointsOffsetX').value) || 0;
-      const dy = parseFloat(document.getElementById('pointsOffsetY').value) || 0;
-      const dz = parseFloat(document.getElementById('pointsOffsetZ').value) || 0;
-      const isStartStop = document.getElementById('chkStartStop').checked;
-      // For Along Path (Continuous): move dx along the segment direction
-      const getDirAt = (idx) => {
-        const segs = preview._segments;
-        if (!segs) return null;
-        const seg = segs.find(s => s.cmdIdx === idx);
-        if (seg) {
-          const dx2 = seg.b.x - seg.a.x, dy2 = seg.b.y - seg.a.y;
-          const len = Math.hypot(dx2, dy2);
-          if (len > 0) return { x: dx2 / len, y: dy2 / len };
-        }
-        const pos = preview._getPosAt(idx);
-        let best = null, bestDist = Infinity;
-        for (const s of segs) {
-          const d = Math.hypot(s.b.x - pos.x, s.b.y - pos.y);
-          if (d < bestDist) { bestDist = d; best = s; }
-        }
-        if (best) {
-          const dx2 = best.b.x - best.a.x, dy2 = best.b.y - best.a.y;
-          const len = Math.hypot(dx2, dy2);
-          if (len > 0) return { x: dx2 / len, y: dy2 / len };
-        }
-        return null;
-      };
-      const applyAlongPath = (copy, idx) => {
-        const dir = getDirAt(idx);
-        if (dir && (dx !== 0 || dy !== 0)) {
-          const pos = preview._getPosAt(idx);
-          // Only use dx (along-path distance); dy is forced to 0 so
-          // the new point always stays on the original line.
-          if (copy.params.X !== undefined) copy.params.X = parseFloat((pos.x + dx * dir.x).toFixed(4));
-          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((pos.y + dx * dir.y).toFixed(4));
-        } else {
-          if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
-          if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
-        }
-        if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
-      };
-      undoRedo.push(state.workingCmds);
-      const sorted = [...state.selectedPoints].sort((a, b) => a - b);
-      const pat = isStartStop ? (() => {
-        const tpl = templateManager.getActive();
-        const td = tpl?.data || tpl;
-        if (td?.laserOnCmd && td?.laserOffCmd) return { on: td.laserOnCmd, off: td.laserOffCmd };
-        return ui._detectLaserPatterns();
-      })() : null;
-
-      if (!isStartStop || !pat) {
-        // Continuous mode: always keeps point on path (Along Path)
-        const result = [];
-        for (let i = 0; i < state.workingCmds.length; i++) {
-          result.push(state.workingCmds[i]);
-          if (sorted.includes(i)) {
-            const c = state.workingCmds[i];
-            const copy = JSON.parse(JSON.stringify(c));
-            applyAlongPath(copy, i);
-            copy.raw = '';
-            copy._newInsert = true;
-            result.push(copy);
-          }
-        }
-        state.workingCmds = result;
-        state.selectedPoints.clear();
-        preview._updatePointsInfo();
-        // Force-tag only newly inserted lines
-        let textCont = gcodeParser.serialize(state.workingCmds);
-        const linesCont = textCont.split('\n');
-        state.workingCmds.forEach((cmd, i) => {
-          if (cmd._newInsert && i < linesCont.length) {
-            linesCont[i] = linesCont[i].trimEnd() + '  ;edit.gc';
-          }
-          delete cmd._newInsert;
-        });
-        textCont = linesCont.join('\n');
-        state._boundsCache = null;
-        ui._updateWorkingEditor(textCont);
-        applyHighlight(document.getElementById('highlightWorking'), textCont);
-        const wm2 = document.getElementById('editorWorkingModal');
-        if (wm2) {
-          wm2.value = textCont;
-          applyHighlight(document.getElementById('highlightWorkingModal'), textCont);
-        }
-        const dwm = document.getElementById('editorWorkingModalDual');
-        if (dwm) {
-          dwm.value = textCont;
-          applyHighlight(document.getElementById('highlightWorkingModalDual'), textCont);
-        }
-        preview._segments = null;
-        preview.draw(state.workingCmds);
-        // Update original modal text (no tags needed)
-        const origText = state.originalText || (state.originalCmds.length ? gcodeParser.serialize(state.originalCmds) : '');
-        const om = document.getElementById('editorOriginalModal');
-        if (om) { om.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModal'), truncateForEditor(origText)); }
-        const dom = document.getElementById('editorOriginalModalDual');
-        if (dom) { dom.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModalDual'), truncateForEditor(origText)); }
-        if (ui.updateResizePanel) ui.updateResizePanel();
-        ui.updateFooterInfo();
-        ui._updatePointsPanel();
-        ui.setStatus(`Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz}.`);
-        return;
-      }
-
-      // Start/Stop mode: each selected point gets its own travel + laser-on + point + laser-off wrapper
-      // Insert AFTER the next laser-off command, not at the point's index
-      const isLaserOff = (cmd) => {
-        const raw = (cmd.raw || '').trim().toUpperCase().split(/\s+/)[0];
-        return raw === (pat.off || '').toUpperCase().split(/\s+/)[0];
-      };
-      const tpl = templateManager.getActive();
-      const td = tpl?.data || tpl;
-      const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
-      const tag = '  ;edit.gc';
-
-      const blankCmd = () => ({ lineIndex: -1, raw: '', type: null, params: {}, comment: '', isBlank: true, isComment: false, blockDelete: false });
-
-      // Find modal feed rate from the first cut move
-      let modalSelF = 0;
-      for (let k = 0; k < state.workingCmds.length; k++) {
-        const ck = state.workingCmds[k];
-        if (ck.params.F && ck.params.F > 0 && ck.params.F < 5000) { modalSelF = ck.params.F; break; }
-      }
-      if (!modalSelF) modalSelF = 400;
-
-      let result = [...state.workingCmds];
-      // Process in reverse order so splicing doesn't shift remaining indices
-      const addPoints = [...sorted].reverse();
-      for (const idx of addPoints) {
-        const c = state.workingCmds[idx];
-        const copy = JSON.parse(JSON.stringify(c));
-        if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
-        if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
-        if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
-        copy.raw = '';
-
-        // Find next laser-off after this point
-        let insertAfter = idx;
-        for (let j = idx; j < state.workingCmds.length; j++) {
-          if (isLaserOff(state.workingCmds[j])) {
-            insertAfter = j;
-            break;
-          }
-        }
-
-        // Build travel command
-        const travel = JSON.parse(JSON.stringify(copy));
-        if (isSM300) {
-          travel.type = '';
-          travel.params.F = td?.feedTravel || 5000;
-        } else {
-          travel.type = 'G0';
-          travel.params.F = td?.feedTravel || 8000;
-        }
-        travel.raw = '';
-        if (travel.params.S !== undefined) delete travel.params.S;
-
-        // Point (cut) — ensure it has the original slow feed rate, not fast travel speed
-        if (copy.params.F === undefined || copy.params.F === 0 || (td?.feedTravel && copy.params.F >= td.feedTravel)) {
-          copy.params.F = modalSelF;
-        }
-
-        // Tag all inserted commands via comment field
-        travel.comment = 'edit.gc';
-        copy.comment = 'edit.gc';
-        const onCmd = { lineIndex: -1, raw: '', type: pat.on, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
-        const offCmd = { lineIndex: -1, raw: '', type: pat.off, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
-        // Mark for ;edit.gc tagging
-        const tagCmds = [travel, onCmd, copy, offCmd];
-        tagCmds.forEach(cmd => cmd._newInsert = true);
-
-        const insertBlock = [travel, blankCmd(), onCmd, blankCmd(), copy, blankCmd(), offCmd];
-        result.splice(insertAfter + 1, 0, ...insertBlock);
-      }
-
-      state.workingCmds = result;
+    // Shared: serialize + tag + update editors + preview after points insertion
+    const _finishPointsInsert = (sorted, statusMsg) => {
       state.selectedPoints.clear();
       preview._updatePointsInfo();
-
-      // Serialize and force-tag only the newly inserted lines
       let text = gcodeParser.serialize(state.workingCmds);
       const lines = text.split('\n');
       state.workingCmds.forEach((cmd, i) => {
@@ -2111,28 +1857,211 @@ const ui = {
       state._boundsCache = null;
       ui._updateWorkingEditor(text);
       applyHighlight(document.getElementById('highlightWorking'), text);
-      const wm = document.getElementById('editorWorkingModal');
-      if (wm) {
-        wm.value = text;
-        applyHighlight(document.getElementById('highlightWorkingModal'), text);
-      }
-      const dwm = document.getElementById('editorWorkingModalDual');
-      if (dwm) {
-        dwm.value = text;
-        applyHighlight(document.getElementById('highlightWorkingModalDual'), text);
+      for (const id of ['editorWorkingModal', 'editorWorkingModalDual']) {
+        const el = document.getElementById(id);
+        if (el) { el.value = text; applyHighlight(document.getElementById(id.replace('editor', 'highlight')), text); }
       }
       preview._segments = null;
       preview.draw(state.workingCmds);
-      // Update original modal text
       const origText = state.originalText || (state.originalCmds.length ? gcodeParser.serialize(state.originalCmds) : '');
-      const om = document.getElementById('editorOriginalModal');
-      if (om) { om.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModal'), truncateForEditor(origText)); }
-      const dom = document.getElementById('editorOriginalModalDual');
-      if (dom) { dom.value = truncateForEditor(origText); applyHighlight(document.getElementById('highlightOriginalModalDual'), truncateForEditor(origText)); }
+      for (const id of ['editorOriginalModal', 'editorOriginalModalDual']) {
+        const el = document.getElementById(id);
+        if (el) { el.value = truncateForEditor(origText); applyHighlight(document.getElementById(id.replace('editor', 'highlight')), truncateForEditor(origText)); }
+      }
       if (ui.updateResizePanel) ui.updateResizePanel();
       ui.updateFooterInfo();
       ui._updatePointsPanel();
-      ui.setStatus(`Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz} (Start/Stop).`);
+      ui.setStatus(statusMsg);
+    };
+
+    document.getElementById('btnPointsGenerate').addEventListener('click', () => {
+      if (!state.workingCmds.length || !state.selectedPoints.size) {
+        ui.setStatus('Select points on preview first.', 'error'); return;
+      }
+      const dx = parseFloat(document.getElementById('pointsOffsetX').value) || 0;
+      const dy = parseFloat(document.getElementById('pointsOffsetY').value) || 0;
+      const dz = parseFloat(document.getElementById('pointsOffsetZ').value) || 0;
+      const alongPath = parseFloat(document.getElementById('pointsAlongPath').value) || 0;
+      const isStartStop = document.getElementById('chkStartStop').checked;
+      const pathDistance = alongPath;
+
+      if (!isStartStop && pathDistance <= 0) {
+        ui.setStatus('Enter a positive Along Path distance.', 'error'); return;
+      }
+
+      undoRedo.push(state.workingCmds);
+      const sorted = [...state.selectedPoints].sort((a, b) => a - b);
+
+      // --- Along Path mode: point along path distance (ignores X/Y/Z) ---
+      if (pathDistance > 0) {
+        const getPtAlongPath = (startIdx, distMm) => {
+          const segs = preview._segments;
+          if (!segs || !segs.length) return null;
+          const pos = preview._getPosAt(startIdx);
+          if (!pos) return null;
+          const usable = s => !s.rapid;
+          let bestDist = Infinity, bestSegIdx = -1, bestT = 0;
+          for (let i = 0; i < segs.length; i++) {
+            const s = segs[i];
+            if (!usable(s)) continue;
+            const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y;
+            const len2 = dx * dx + dy * dy;
+            if (len2 < 0.0001) continue;
+            const t = Math.max(0, Math.min(1, ((pos.x - s.a.x) * dx + (pos.y - s.a.y) * dy) / len2));
+            const px = s.a.x + dx * t, py = s.a.y + dy * t;
+            const d = Math.hypot(pos.x - px, pos.y - py);
+            if (d < bestDist) { bestDist = d; bestSegIdx = i; bestT = t; }
+          }
+          if (bestSegIdx < 0) return null;
+          let remaining = distMm;
+          for (let i = bestSegIdx; i < segs.length && remaining > 0; i++) {
+            const s = segs[i];
+            if (!usable(s)) continue;
+            const segLen = Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y);
+            if (segLen < 0.001) continue;
+            const remOnSeg = (i === bestSegIdx) ? (1 - bestT) * segLen : segLen;
+            if (remaining <= remOnSeg) {
+              const t = (i === bestSegIdx) ? (bestT + remaining / segLen) : (remaining / segLen);
+              return { x: s.a.x + (s.b.x - s.a.x) * t, y: s.a.y + (s.b.y - s.a.y) * t, cmdIdx: s.cmdIdx };
+            }
+            remaining -= remOnSeg;
+          }
+          const last = segs.filter(usable).pop();
+          return last ? { x: last.b.x, y: last.b.y, cmdIdx: last.cmdIdx } : null;
+        };
+        const snapArcPoint = (cmdIdx, point) => {
+          if (!point) return null;
+          const c = state.workingCmds[cmdIdx];
+          if (!c || !/^G0?[23]$/.test(c.type || '') || c.params.I === undefined || c.params.J === undefined) return point;
+          const start = preview._getMotionStateAt(cmdIdx - 1);
+          const unit = start.unitToMm || 1;
+          const cx = start.x + c.params.I * unit;
+          const cy = start.y + c.params.J * unit;
+          const radius = Math.hypot(start.x - cx, start.y - cy);
+          if (!isFinite(radius) || radius < 0.000001) return point;
+          const angle = Math.atan2(point.y - cy, point.x - cx);
+          return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle), cmdIdx };
+        };
+        const encodePoint = (point, stateAtStart, source) => {
+          const p = { ...source.params };
+          const unit = stateAtStart.unitToMm || 1;
+          if (source.params.X !== undefined) p.X = parseFloat(((stateAtStart.isRel ? point.x - stateAtStart.x : point.x - stateAtStart.offsetX) / unit).toFixed(4));
+          if (source.params.Y !== undefined) p.Y = parseFloat(((stateAtStart.isRel ? point.y - stateAtStart.y : point.y - stateAtStart.offsetY) / unit).toFixed(4));
+          return p;
+        };
+        const actions = new Map();
+        for (const idx of sorted) {
+          const rawTarget = getPtAlongPath(idx, pathDistance);
+          const target = rawTarget ? snapArcPoint(rawTarget.cmdIdx, rawTarget) : null;
+          if (!target) continue;
+          if (!actions.has(target.cmdIdx)) actions.set(target.cmdIdx, []);
+          actions.get(target.cmdIdx).push({ x: target.x, y: target.y });
+        }
+        const result = [];
+        for (let i = 0; i < state.workingCmds.length; i++) {
+          const c = state.workingCmds[i];
+          const acts = actions.get(i);
+          if (acts) {
+            for (const a of acts) {
+              if (c.params.X === undefined && c.params.Y === undefined) { result.push(c); continue; }
+              const isArc = /^G0?[23]$/.test(c.type) || (/ARC/i.test(c.raw || '') && (c.params.I !== undefined || c.params.J !== undefined || c.params.C !== undefined || c.params.D !== undefined));
+              if (isArc) {
+                const before = preview._getMotionStateAt(i - 1);
+                const after = preview._getMotionStateAt(i);
+                const prevPos = { x: before.x, y: before.y };
+                const endPos = { x: after.x, y: after.y };
+                const unit = before.unitToMm || 1;
+                const iVal = c.params.I !== undefined ? c.params.I : (c.params.C || 0);
+                const jVal = c.params.J !== undefined ? c.params.J : (c.params.D || 0);
+                const centerX = prevPos.x + iVal * unit;
+                const centerY = prevPos.y + jVal * unit;
+                const firstArc = JSON.parse(JSON.stringify(c));
+                firstArc.params = encodePoint(a, before, c);
+                firstArc.raw = ''; firstArc._newInsert = true;
+                const secondArc = JSON.parse(JSON.stringify(c));
+                secondArc.params = encodePoint(endPos, { ...after, x: a.x, y: a.y }, c);
+                const newI = parseFloat(((centerX - a.x) / unit).toFixed(4));
+                const newJ = parseFloat(((centerY - a.y) / unit).toFixed(4));
+                if (secondArc.params.I !== undefined) secondArc.params.I = newI;
+                if (secondArc.params.J !== undefined) secondArc.params.J = newJ;
+                if (secondArc.params.C !== undefined) secondArc.params.C = newI;
+                if (secondArc.params.D !== undefined) secondArc.params.D = newJ;
+                secondArc.raw = ''; secondArc._newInsert = true;
+                result.push(firstArc);
+                result.push(secondArc);
+              } else {
+                result.push(c);
+                const copy = JSON.parse(JSON.stringify(c));
+                copy.params = encodePoint(a, preview._getMotionStateAt(i), c);
+                copy.type = c.type === '' || c.type === undefined ? '' : 'G1'; copy.raw = ''; copy._newInsert = true;
+                result.push(copy);
+              }
+            }
+          } else {
+            result.push(c);
+          }
+        }
+        state.workingCmds = result;
+        _finishPointsInsert(sorted, `Added ${sorted.length} point(s) along path ${pathDistance}mm.`);
+        return;
+      }
+
+      // --- Start/Stop mode: travel + laser on/off with X/Y/Z offset ---
+      const tpl = templateManager.getActive();
+      const td = tpl?.data || tpl;
+      const pat = (() => {
+        if (td?.laserOnCmd && td?.laserOffCmd) return { on: td.laserOnCmd, off: td.laserOffCmd };
+        return ui._detectLaserPatterns();
+      })();
+      const isLaserOff = (cmd) => {
+        const raw = (cmd.raw || '').trim().toUpperCase().split(/\s+/)[0];
+        return raw === (pat.off || '').toUpperCase().split(/\s+/)[0];
+      };
+      const isSM300 = /SM3/i.test(pat.on) || /RM3/i.test(pat.off);
+      const blankCmd = () => ({ lineIndex: -1, raw: '', type: null, params: {}, comment: '', isBlank: true, isComment: false, blockDelete: false });
+
+      let modalSelF = 0;
+      for (let k = 0; k < state.workingCmds.length; k++) {
+        const ck = state.workingCmds[k];
+        if (ck.params.F && ck.params.F > 0 && ck.params.F < 5000) { modalSelF = ck.params.F; break; }
+      }
+      if (!modalSelF) modalSelF = 400;
+
+      let result = [...state.workingCmds];
+      const addPoints = [...sorted].reverse();
+      for (const idx of addPoints) {
+        const c = state.workingCmds[idx];
+        const copy = JSON.parse(JSON.stringify(c));
+        if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
+        if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
+        if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
+        copy.raw = '';
+
+        let insertAfter = idx;
+        for (let j = idx; j < state.workingCmds.length; j++) {
+          if (isLaserOff(state.workingCmds[j])) { insertAfter = j; break; }
+        }
+
+        const travel = JSON.parse(JSON.stringify(copy));
+        if (isSM300) { travel.type = ''; travel.params.F = td?.feedTravel || 5000; }
+        else { travel.type = 'G0'; travel.params.F = td?.feedTravel || 8000; }
+        travel.raw = '';
+        if (travel.params.S !== undefined) delete travel.params.S;
+
+        if (copy.params.F === undefined || copy.params.F === 0 || (td?.feedTravel && copy.params.F >= td.feedTravel)) {
+          copy.params.F = modalSelF;
+        }
+
+        travel.comment = 'edit.gc';
+        copy.comment = 'edit.gc';
+        const onCmd = { lineIndex: -1, raw: '', type: pat.on, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
+        const offCmd = { lineIndex: -1, raw: '', type: pat.off, params: {}, comment: 'edit.gc', isBlank: false, isComment: false, blockDelete: false };
+        [travel, onCmd, copy, offCmd].forEach(cmd => cmd._newInsert = true);
+
+        result.splice(insertAfter + 1, 0, travel, blankCmd(), onCmd, blankCmd(), copy, blankCmd(), offCmd);
+      }
+      state.workingCmds = result;
+      _finishPointsInsert(sorted, `Added ${sorted.length} point(s) offset X:${dx} Y:${dy} Z:${dz} (Start/Stop).`);
     });
 
     document.getElementById('btnTogglePointsPanel').addEventListener('click', () => {
@@ -2275,7 +2204,6 @@ const ui = {
     } catch (_) {}
     ui._populateMachineOptions();
     ui.updateTemplateIndicator();
-    preview.init(document.getElementById('previewCanvas'));
     findReplace.init();
     const btnFind = document.getElementById('btnFind');
     if (btnFind) btnFind.addEventListener('click', () => findReplace.open());
@@ -2627,7 +2555,7 @@ const ui = {
   },
 
   updateResizePanel() {
-    const b = preview._getBounds(state.workingCmds);
+    const b = preview._getCutBounds() || preview._getBounds(state.workingCmds);
     if (!b) return;
     const w = b.rangeX, h = b.rangeY;
     state.resizeBaseW = w;

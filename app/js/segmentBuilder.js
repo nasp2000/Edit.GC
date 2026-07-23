@@ -3,15 +3,19 @@ const segmentBuilder = {
   build(commands, maxSegs, initialState) {
     maxSegs = maxSegs || CFG.MAX_SEGMENTS;
     const startIdx = initialState?.idx ?? 0;
+    const endIdx = Math.min(initialState?.endIdx ?? commands.length, commands.length);
     let x = initialState?.x ?? 0;
     let y = initialState?.y ?? 0;
     let z = initialState?.z ?? 0;
     let isRel = initialState?.isRel ?? false;
     let unitToMm = initialState?.unitToMm ?? 1;
+    let offsetX = initialState?.offsetX ?? 0;
+    let offsetY = initialState?.offsetY ?? 0;
+    let offsetZ = initialState?.offsetZ ?? 0;
     let planeMode = initialState?.planeMode ?? 17;
-    let motionMode = 1;
-    let toolOn = false;
-    let feed = 0;
+    let motionMode = initialState?.motionMode ?? 1;
+    let toolOn = initialState?.toolOn ?? false;
+    let feed = initialState?.feed ?? 0;
     const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
     const toolOnType  = (initialState?.toolOnType  || 'M3,M4').split(',').map(baseCmd);
     const toolOffType = (initialState?.toolOffType || 'M5').split(',').map(baseCmd);
@@ -86,7 +90,7 @@ const segmentBuilder = {
     };
 
     // Main loop ? process every command once
-    for (let i = startIdx; i < commands.length; i++) {
+    for (let i = startIdx; i < endIdx; i++) {
       const c = commands[i];
       const t = c.type;
       // Modal state changes
@@ -97,19 +101,31 @@ const segmentBuilder = {
       if (t === 'G17') { planeMode = 17; continue; }
       if (t === 'G18') { planeMode = 18; continue; }
       if (t === 'G19') { planeMode = 19; continue; }
-      if (t === 'G92') { continue; } // coordinate offset, not motion
+      if (t === 'G92') {
+        if (c.params.X !== undefined) offsetX = x - c.params.X * unitToMm;
+        if (c.params.Y !== undefined) offsetY = y - c.params.Y * unitToMm;
+        if (c.params.Z !== undefined) offsetZ = z - c.params.Z * unitToMm;
+        continue;
+      }
       // Tool/laser state
       if (t) {
-        const tUp = t.toUpperCase();
+        const tUp = baseCmd(t);
         if (toolOnType.includes(tUp))  toolOn = true;
         if (toolOffType.includes(tUp)) toolOn = false;
       }
       if (c.params.F !== undefined) feed = c.params.F;
       // Motion command
+      let customArc = false;
       if (t === 'G0' || t === 'G00') motionMode = 0;
       else if (t === 'G1' || t === 'G01') motionMode = 1;
       else if (t === 'G2' || t === 'G02') motionMode = 2;
       else if (t === 'G3' || t === 'G03') motionMode = 3;
+      else if (/ARC/i.test(`${t} ${c.raw || ''}`)) {
+        const arcMatch = `${t} ${c.raw || ''}`.toUpperCase().match(/ARC\s*(-?\d+\.?\d*)/);
+        const angle = arcMatch ? parseFloat(arcMatch[1]) : 0;
+        motionMode = angle >= 0 ? 2 : 3;
+        customArc = true;
+      }
       // Implicit motion ? line with coordinates but no G command
         // Use current motionMode (defaults to G1)
         else if (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined) {
@@ -117,9 +133,9 @@ const segmentBuilder = {
       // Compute next position
       let nx = x, ny = y, nz = z;
       const getV = (a) => c.params[a] !== undefined ? c.params[a] * unitToMm : null;
-      const vx = getV('X'); if (vx !== null) nx = isRel ? x + vx : vx;
-      const vy = getV('Y'); if (vy !== null) ny = isRel ? y + vy : vy;
-      const vz = getV('Z'); if (vz !== null) nz = isRel ? z + vz : vz;
+      const vx = getV('X'); if (vx !== null) nx = isRel ? x + vx : vx + offsetX;
+      const vy = getV('Y'); if (vy !== null) ny = isRel ? y + vy : vy + offsetY;
+      const vz = getV('Z'); if (vz !== null) nz = isRel ? z + vz : vz + offsetZ;
       const next = { x: nx, y: ny, z: nz };
       const prev = { x, y, z };
       // Arc handling (plane-specific)
@@ -198,11 +214,14 @@ const segmentBuilder = {
       } else {
         if (nx !== x || ny !== y || nz !== z) {
           pushPt(prev, next, motionMode === 0, i);
+        } else if (toolOn && motionMode !== 0 && (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined)) {
+          pushPt(prev, next, false, i);
         }
       }
       x = nx; y = ny; z = nz;
+      if (customArc) motionMode = 1;
     }
-    return { points, segments, truncated, isRel, unitToMm, planeMode, toolOn, x, y, z, toolOnType: initialState?.toolOnType, toolOffType: initialState?.toolOffType, idx: commands.length };
+    return { points, segments, truncated, isRel, unitToMm, offsetX, offsetY, offsetZ, planeMode, motionMode, toolOn, feed, x, y, z, toolOnType: initialState?.toolOnType, toolOffType: initialState?.toolOffType, idx: endIdx };
   },
 
   computeBounds(points) {

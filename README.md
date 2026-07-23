@@ -13,7 +13,7 @@ Open `app/index.html` in any browser. Drag & drop `.gcode`, `.svg`, `.dxf` or us
 The core of Edit.GC is the **Points Editor** — select points directly on the 2D preview and apply operations:
 
 - **Set Start Coordinates** — reposition the first cut point by entering absolute X/Y/Z
-- **Add Points** — insert offset copies at selected positions. **Normal**: X/Y/Z inputs applied exactly. **Along Path**: offsets project onto the path direction (point stays on the original line). Continuous or Start/Stop mode.
+- **Add Points** — insert points at selected positions. **X/Y/Z offset** adds with travel + tool on/off (Start/Stop). **Along Path (mm)** places the point a distance along the path contours, ignoring X/Y/Z.
 - **Delete Points** — remove selected points from the G-code
 - **Add Point at Minimum Distance** — subdivide every path segment into steps of a given distance (supports **Arcs-Only** mode for curves without G2/G3)
 - **Shift Points** — batch shift X, Y, or Z by a value, targeting all, selected, or a line range

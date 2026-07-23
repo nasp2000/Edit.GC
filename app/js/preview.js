@@ -21,25 +21,22 @@ const preview = {
   _getBounds(commands) {
     if (this._segBounds) return this._segBounds;
     if (!commands || !commands.length) return null;
-    const len = commands.length;
-    const mid = Math.floor(len / 2);
-    let hasRel = false;
-    for (let i = 0; i < len; i++) {
-      if (commands[i].type === 'G90' || commands[i].type === 'G91') { hasRel = true; break; }
-    }
-    const hash = len + '|' + (hasRel ? '1' : '0') + '|' +
-      (commands[0]?.params?.X ?? '') + '|' + (commands[0]?.params?.Y ?? '') + '|' +
-      (commands[mid]?.params?.X ?? '') + '|' + (commands[mid]?.params?.Y ?? '') + '|' +
-      (commands[len-1]?.params?.X ?? '') + '|' + (commands[len-1]?.params?.Y ?? '');
+    const hash = commands.map(c => `${c.type || ''}:${Object.entries(c.params || {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join(',')}`).join('|');
     if (state._boundsCache && state._boundsCache._hash === hash) return state._boundsCache;
     const xs = [], ys = [];
-    let isRel = false, curX = 0, curY = 0;
+    let isRel = false, unitToMm = 1, curX = 0, curY = 0, offsetX = 0, offsetY = 0;
     commands.forEach(c => {
       if (c.type === 'G91') { isRel = true; return; }
       if (c.type === 'G90') { isRel = false; return; }
-      if (c.type === 'G92') { return; } // coordinate offset, not motion
-      if (c.params.X !== undefined) { const ax = isRel ? curX + c.params.X : c.params.X; xs.push(ax); curX = ax; }
-      if (c.params.Y !== undefined) { const ay = isRel ? curY + c.params.Y : c.params.Y; ys.push(ay); curY = ay; }
+      if (c.type === 'G20') { unitToMm = 25.4; return; }
+      if (c.type === 'G21') { unitToMm = 1; return; }
+      if (c.type === 'G92') {
+        if (c.params.X !== undefined) offsetX = curX - c.params.X * unitToMm;
+        if (c.params.Y !== undefined) offsetY = curY - c.params.Y * unitToMm;
+        return;
+      }
+      if (c.params.X !== undefined) { const vx = c.params.X * unitToMm; const ax = isRel ? curX + vx : vx + offsetX; xs.push(ax); curX = ax; }
+      if (c.params.Y !== undefined) { const vy = c.params.Y * unitToMm; const ay = isRel ? curY + vy : vy + offsetY; ys.push(ay); curY = ay; }
     });
     if (!xs.length) return null;
     const mmX = safeMinMax(xs), mmY = safeMinMax(ys);
@@ -157,9 +154,10 @@ const preview = {
       }
       const res = segmentBuilder.build(commands, CFG.MAX_SEGMENTS, state2 ? {
         x: state2.x, y: state2.y, z: state2.z, isRel: state2.isRel,
-        unitToMm: state2.unitToMm, planeMode: state2.planeMode,
-        toolOnType: state2.toolOnType, toolOffType: state2.toolOffType, idx: start
-      } : { toolOnType: tplToolOn, toolOffType: tplToolOff });
+        unitToMm: state2.unitToMm, offsetX: state2.offsetX, offsetY: state2.offsetY, offsetZ: state2.offsetZ, planeMode: state2.planeMode,
+        motionMode: state2.motionMode, toolOn: state2.toolOn, feed: state2.feed,
+        toolOnType: state2.toolOnType, toolOffType: state2.toolOffType, idx: start, endIdx: end
+      } : { toolOnType: tplToolOn, toolOffType: tplToolOff, idx: start, endIdx: end });
       // Each chunk seeds its own starting point (== last point of previous chunk),
       // so skip index 0 to avoid duplicating it.
       if (keepPoints) for (let i = 1; i < res.points.length; i++) allPoints.push(res.points[i]);
@@ -278,26 +276,36 @@ const preview = {
     const onTypes  = (tplData?.laserOnCmd  || 'M3,M4').split(',').map(baseCmd);
     const offTypes = (tplData?.laserOffCmd || 'M5').split(',').map(baseCmd);
     let first = true, minX, maxX, minY, maxY;
-    let toolOn = false, anyOn = false, isRel = false, curX = 0, curY = 0;
+    let toolOn = false, anyOn = false, isRel = false, unitToMm = 1, curX = 0, curY = 0, offsetX = 0, offsetY = 0;
     for (const c of cmds) {
       const t = (c.type || '').toUpperCase();
       if (t === 'G90') { isRel = false; continue; }
       if (t === 'G91') { isRel = true; continue; }
-      if (onTypes.includes(t))  { toolOn = true; anyOn = true; continue; }
-      if (offTypes.includes(t)) { toolOn = false; continue; }
+      if (t === 'G20') { unitToMm = 25.4; continue; }
+      if (t === 'G21') { unitToMm = 1; continue; }
+      if (t === 'G92') {
+        if (c.params.X !== undefined) offsetX = curX - c.params.X * unitToMm;
+        if (c.params.Y !== undefined) offsetY = curY - c.params.Y * unitToMm;
+        continue;
+      }
+      if (onTypes.includes(baseCmd(t)))  { toolOn = true; anyOn = true; continue; }
+      if (offTypes.includes(baseCmd(t))) { toolOn = false; continue; }
       // If no ON command was ever seen, treat all non-rapid moves as cut.
       if (!anyOn ? false : !toolOn) continue;
-      const isMotion = /^G0?([0-3])?$/.test(t) || (t === '' && (c.params.X !== undefined || c.params.Y !== undefined));
+      const isMotion = /^G0?([0-3])?$/.test(t) || /ARC/i.test(t) ||
+        ((t === '' || !t) && (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined));
       if (!isMotion) continue;
       if (t === 'G0' || t === 'G00') continue;
       if (c.params.X !== undefined) {
-        const x = isRel ? curX + c.params.X : c.params.X;
+        const vx = c.params.X * unitToMm;
+        const x = isRel ? curX + vx : vx + offsetX;
         curX = x;
         if (first || x < minX) minX = x;
         if (first || x > maxX) maxX = x;
       }
       if (c.params.Y !== undefined) {
-        const y = isRel ? curY + c.params.Y : c.params.Y;
+        const vy = c.params.Y * unitToMm;
+        const y = isRel ? curY + vy : vy + offsetY;
         curY = y;
         if (first || y < minY) minY = y;
         if (first || y > maxY) maxY = y;
@@ -308,22 +316,31 @@ const preview = {
     // to every non-rapid coordinate (but only when the file has no laser ON/OFF
     // at all ? otherwise footer travel would inflate bounds).
     if (first && !anyOn) {
-      first = true; curX = 0; curY = 0; isRel = false;
+      first = true; curX = 0; curY = 0; isRel = false; unitToMm = 1; offsetX = 0; offsetY = 0;
       for (const c of cmds) {
         const t = (c.type || '').toUpperCase();
         if (t === 'G90') { isRel = false; continue; }
         if (t === 'G91') { isRel = true; continue; }
-        if (t === 'G92') { continue; }
+        if (t === 'G20') { unitToMm = 25.4; continue; }
+        if (t === 'G21') { unitToMm = 1; continue; }
+        if (t === 'G92') {
+          if (c.params.X !== undefined) offsetX = curX - c.params.X * unitToMm;
+          if (c.params.Y !== undefined) offsetY = curY - c.params.Y * unitToMm;
+          continue;
+        }
         if (t === 'G0' || t === 'G00') continue;
-        if (!/^G0?([0-3])?$/.test(t) && !(t === '' && (c.params.X !== undefined || c.params.Y !== undefined))) continue;
+        if (!/^G0?([0-3])?$/.test(t) && !/ARC/i.test(t) &&
+          !((t === '' || !t) && (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined))) continue;
         if (c.params.X !== undefined) {
-          const x = isRel ? curX + c.params.X : c.params.X;
+          const vx = c.params.X * unitToMm;
+          const x = isRel ? curX + vx : vx + offsetX;
           curX = x;
           if (first || x < minX) minX = x;
           if (first || x > maxX) maxX = x;
         }
         if (c.params.Y !== undefined) {
-          const y = isRel ? curY + c.params.Y : c.params.Y;
+          const vy = c.params.Y * unitToMm;
+          const y = isRel ? curY + vy : vy + offsetY;
           curY = y;
           if (first || y < minY) minY = y;
           if (first || y > maxY) maxY = y;
@@ -430,7 +447,7 @@ const preview = {
     const cmds = commands;
     const n = cmds ? cmds.length : 0;
     // Clear canvas immediately, no cache between draws
-    const canvas = document.getElementById('previewCanvas');
+    const canvas = this.canvas;
     if (canvas) {
       const ctx = canvas.getContext('2d');
       if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -590,15 +607,21 @@ const preview = {
     const t = this._lastTransform;
     if (!t) return;
     const { toCanvasX, toCanvasY } = t;
-    let curX = 0, curY = 0, prevX = 0, prevY = 0, isRel = false;
+    let curX = 0, curY = 0, prevX = 0, prevY = 0, isRel = false, unitToMm = 1, offsetX = 0, offsetY = 0;
     for (let i = 0; i < idx; i++) {
       const cmd = commands[i];
       if (cmd.type === 'G91') { isRel = true; continue; }
       if (cmd.type === 'G90') { isRel = false; continue; }
-      if (cmd.type === 'G92') { continue; }
+      if (cmd.type === 'G20') { unitToMm = 25.4; continue; }
+      if (cmd.type === 'G21') { unitToMm = 1; continue; }
+      if (cmd.type === 'G92') {
+        if (cmd.params.X !== undefined) offsetX = curX - cmd.params.X * unitToMm;
+        if (cmd.params.Y !== undefined) offsetY = curY - cmd.params.Y * unitToMm;
+        continue;
+      }
       prevX = curX; prevY = curY;
-      if (cmd.params.X !== undefined) curX = isRel ? curX + cmd.params.X : cmd.params.X;
-      if (cmd.params.Y !== undefined) curY = isRel ? curY + cmd.params.Y : cmd.params.Y;
+      if (cmd.params.X !== undefined) { const vx = cmd.params.X * unitToMm; curX = isRel ? curX + vx : vx + offsetX; }
+      if (cmd.params.Y !== undefined) { const vy = cmd.params.Y * unitToMm; curY = isRel ? curY + vy : vy + offsetY; }
     }
     const ctx = this.ctx;
     const cx = toCanvasX(curX), cy = toCanvasY(curY);
@@ -609,7 +632,7 @@ const preview = {
     const offTypes = (tplData?.laserOffCmd || 'M5').split(',').map(baseCmd);
     let toolOn = false;
     for (let i = 0; i < idx; i++) {
-      const t = (commands[i].type || '').toUpperCase();
+      const t = baseCmd(commands[i].type || '');
       if (onTypes.includes(t)) toolOn = true;
       if (offTypes.includes(t)) toolOn = false;
     }
@@ -1310,43 +1333,12 @@ const preview = {
           ctx.restore();
         }
       }
-      // Mark Start ? draw a directional arrow on the mark point showing the cut direction
+      // Mark Start ? circle + label only (no arrow)
       if (typeof ui !== 'undefined' && ui._markStartIdx != null && ui._markStartIdx >= 0 && ui._pointsList && ui._pointsList.length) {
         const mp = ui._pointsList.find(p => p.idx === ui._markStartIdx);
         if (mp) {
           const mx = toCanvasX(mp.x), my = toCanvasY(mp.y);
-          // Determine arrow direction from the actual segment direction at mark point
-          // Segments already reflect the current (possibly reversed) path order
-          let segAngle = 0;
-          if (segments && segments.length) {
-            const markSegIdx = segments.findIndex(s => s.cmdIdx === ui._markStartIdx);
-            if (markSegIdx >= 0) {
-              const s = segments[markSegIdx];
-              const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y;
-              if (Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001) {
-                segAngle = Math.atan2(dy, dx);
-              }
-            }
-          }
           const dpr = window.devicePixelRatio || 1;
-          ctx.save();
-          ctx.translate(mx, my);
-          ctx.rotate(segAngle);
-          const arrLen = 18 * dpr;
-          ctx.beginPath();
-          ctx.moveTo(arrLen, 0);
-          ctx.lineTo(-arrLen * 0.4, -arrLen * 0.5);
-          ctx.lineTo(-arrLen * 0.4, arrLen * 0.5);
-          ctx.closePath();
-          ctx.fillStyle = '#ef4444';
-          ctx.shadowColor = 'rgba(239,68,68,0.5)';
-          ctx.shadowBlur = 6 * dpr;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 1.2 * dpr;
-          ctx.stroke();
-          ctx.restore();
           ctx.save(); ctx.translate(mx, my);
           ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2);
           ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2.5; ctx.stroke();
@@ -1532,18 +1524,32 @@ const preview = {
   },
 
   // Get absolute X,Y position at a given cmdIdx (handles G90/G91)
-  _getPosAt(cmdIdx) {
-    let x = 0, y = 0, isRel = false;
+  _getMotionStateAt(cmdIdx) {
+    let x = 0, y = 0, z = 0, isRel = false, unitToMm = 1;
+    let offsetX = 0, offsetY = 0, offsetZ = 0;
     const cmds = state.workingCmds;
     for (let i = 0; i <= cmdIdx && i < cmds.length; i++) {
       const c = cmds[i];
       if (c.type === 'G91') { isRel = true; continue; }
       if (c.type === 'G90') { isRel = false; continue; }
-      if (c.type === 'G92') { continue; }
-      if (c.params.X !== undefined) x = isRel ? x + c.params.X : c.params.X;
-      if (c.params.Y !== undefined) y = isRel ? y + c.params.Y : c.params.Y;
+      if (c.type === 'G20') { unitToMm = 25.4; continue; }
+      if (c.type === 'G21') { unitToMm = 1; continue; }
+      if (c.type === 'G92') {
+        if (c.params.X !== undefined) offsetX = x - c.params.X * unitToMm;
+        if (c.params.Y !== undefined) offsetY = y - c.params.Y * unitToMm;
+        if (c.params.Z !== undefined) offsetZ = z - c.params.Z * unitToMm;
+        continue;
+      }
+      if (c.params.X !== undefined) { const v = c.params.X * unitToMm; x = isRel ? x + v : v + offsetX; }
+      if (c.params.Y !== undefined) { const v = c.params.Y * unitToMm; y = isRel ? y + v : v + offsetY; }
+      if (c.params.Z !== undefined) { const v = c.params.Z * unitToMm; z = isRel ? z + v : v + offsetZ; }
     }
-    return { x, y };
+    return { x, y, z, isRel, unitToMm, offsetX, offsetY, offsetZ };
+  },
+
+  _getPosAt(cmdIdx) {
+    const p = this._getMotionStateAt(cmdIdx);
+    return { x: p.x, y: p.y, z: p.z };
   },
 
   _updatePointsInfo() {
@@ -1584,14 +1590,16 @@ const preview = {
     const cx = (e.clientX - rect.left) * sx;
     const cy = (e.clientY - rect.top) * sy;
 
-    const b = this._getBounds(state.workingCmds);
+    const b = this._getCutBounds() || this._segBounds || this._getBounds(state.workingCmds);
     if (!b) return;
     const { minX, minY, rangeX, rangeY } = b;
     const w = canvas.width, h = canvas.height;
     const pad = 40;
     const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    const toCanvasX = x => pad + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => h - pad - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    const cx0 = (w - pad * 2 - rangeX * baseFit) / 2;
+    const cy0 = (h - pad * 2 - rangeY * baseFit) / 2;
+    const toCanvasX = x => pad + cx0 + (x - minX) * baseFit * state.previewScale + state.previewOffX;
+    const toCanvasY = y => h - pad - cy0 - (y - minY) * baseFit * state.previewScale + state.previewOffY;
     // Use segments for hit-testing (handles arc subdivisions correctly)
     const segs = this._segments;
     let bestCmdIdx = -1, bestDist = Infinity;

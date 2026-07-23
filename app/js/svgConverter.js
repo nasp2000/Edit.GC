@@ -208,14 +208,6 @@ const svgConverter = {
         if (c.params.Y !== undefined) c.params.Y = parseFloat((c.params.Y - minY).toFixed(3));
         c.raw = '';
       });
-      // Restore footer return-to-home to X0 Y0
-      for (let i = cmds.length - 1; i >= 0; i--) {
-        const c = cmds[i];
-        if (c.params.X !== undefined || c.params.Y !== undefined) {
-          c.params.X = 0; c.params.Y = 0; c.raw = '';
-          break;
-        }
-      }
     }
     // Apply machine origin offset (Start X / Start Y)
     if (machineX || machineY) {
