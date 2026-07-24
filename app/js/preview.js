@@ -367,6 +367,7 @@ const preview = {
       window.addEventListener('resize', () => this.resize());
     }
     this._setupPanZoom();
+    this._setupContextMenu();
   },
   resize() {
     if (!this.canvas) return;
@@ -376,7 +377,7 @@ const preview = {
     if (this.canvas.width !== Math.floor(w * dpr) || this.canvas.height !== Math.floor(h * dpr)) {
       this.canvas.width  = Math.floor(w * dpr);
       this.canvas.height = Math.floor(h * dpr);
-      this.ctx.scale(dpr, dpr);
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     this.canvas.style.width  = w + 'px';
     this.canvas.style.height = h + 'px';
@@ -437,6 +438,160 @@ const preview = {
       state.previewOffY += e.clientY - lastY;
       lastX = e.clientX; lastY = e.clientY;
       scheduleDraw();
+    });
+  },
+  _setupContextMenu() {
+    const menu = document.getElementById('ctxMenu');
+    if (!menu) return;
+    const c = this.canvas;
+
+    const hideMenu = () => { menu.style.display = 'none'; };
+    document.addEventListener('click', e => { if (!menu.contains(e.target)) hideMenu(); });
+    window.addEventListener('blur', hideMenu);
+    menu.addEventListener('wheel', e => e.stopPropagation());
+
+    const _findNearest = (cx, cy) => {
+      if (state.mode !== 'gcode') return -1;
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = c.width / dpr, cssH = c.height / dpr;
+      const b = this._segBounds || this._getBounds(state.workingCmds);
+      if (!b) return -1;
+      const pad = 40;
+      const bf = Math.min((cssW - 80) / b.rangeX, (cssH - 80) / b.rangeY);
+      const cx0 = (cssW - 80 - b.rangeX * bf) / 2;
+      const cy0 = (cssH - 80 - b.rangeY * bf) / 2;
+      const toCX = x => pad + cx0 + (x - b.minX) * bf * state.previewScale + state.previewOffX;
+      const toCY = y => cssH - pad - cy0 - (y - b.minY) * bf * state.previewScale + state.previewOffY;
+      let best = -1, bestD = 40;
+      const segs = this._segments;
+      if (segs && segs.length) {
+        const visited = new Set();
+        for (let i = 0; i < segs.length; i++) {
+          const s = segs[i];
+          if (visited.has(s.cmdIdx)) continue;
+          visited.add(s.cmdIdx);
+          const d = Math.hypot(cx - toCX(s.b.x), cy - toCY(s.b.y));
+          if (d < bestD) { bestD = d; best = s.cmdIdx; }
+        }
+      } else {
+        let _x = 0, _y = 0, _rel = false;
+        state.workingCmds.forEach((cmd, i) => {
+          if (cmd.type === 'G91') { _rel = true; return; }
+          if (cmd.type === 'G90') { _rel = false; return; }
+          if (cmd.params.X !== undefined) _x = _rel ? _x + cmd.params.X : cmd.params.X;
+          if (cmd.params.Y !== undefined) _y = _rel ? _y + cmd.params.Y : cmd.params.Y;
+          if (cmd.params.X === undefined && cmd.params.Y === undefined) return;
+          const d = Math.hypot(cx - toCX(_x), cy - toCY(_y));
+          if (d < bestD) { bestD = d; best = i; }
+        });
+      }
+      return best;
+    };
+
+    c.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      if (state.mode !== 'gcode' && state.mode !== 'svg' && state.mode !== 'dxf') return;
+      const rect = c.getBoundingClientRect();
+      const canvasX = e.clientX - rect.left;
+      const canvasY = e.clientY - rect.top;
+      const cmdIdx = _findNearest(canvasX, canvasY);
+
+      const inGcode = state.mode === 'gcode';
+      menu.querySelectorAll('[data-action]').forEach(el => {
+        const a = el.dataset.action;
+        if (a === 'markStart') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
+        else if (a === 'setSide') el.style.display = inGcode ? '' : 'none';
+        else if (a === 'deletePoint') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
+        else if (a === 'addPoint') el.style.display = inGcode ? '' : 'none';
+        else if (a === 'sp1' || a === 'sp2' || a === 'sp3') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
+        else el.style.display = '';
+      });
+      menu._ctxData = { cmdIdx, canvasX, canvasY };
+
+      // Update speed/power labels
+      if (window.ui && window.ui._speedPowerRows) {
+        const rows = window.ui._speedPowerRows;
+        for (let ri = 0; ri < 3; ri++) {
+          const el = menu.querySelector(`[data-action="sp${ri + 1}"]`);
+          if (el && rows[ri]) {
+            el.innerHTML = `<span class="ctx-swatch" style="background:${rows[ri].color}"></span>F:${rows[ri].speed} S:${rows[ri].power}%`;
+          }
+        }
+      }
+
+      menu.style.left = Math.min(e.clientX + 4, window.innerWidth - 222) + 'px';
+      menu.style.top = Math.min(e.clientY + 4, window.innerHeight - menu.offsetHeight - 8) + 'px';
+      menu.style.display = 'block';
+    });
+
+    menu.addEventListener('click', e => {
+      const item = e.target.closest('[data-action]');
+      if (!item) {
+        // Close submenus when clicking outside
+        menu.querySelectorAll('.ctx-submenu-items').forEach(s => s.style.display = 'none');
+        return;
+      }
+      const action = item.dataset.action;
+      if (action === '__toggleSp') {
+        const sub = menu.querySelector('.ctx-submenu-items');
+        if (sub) sub.style.display = sub.style.display === 'block' ? 'none' : 'block';
+        return;
+      }
+      const ctx = menu._ctxData || {};
+      hideMenu();
+
+      if (!window.ui) return;
+      if (action === 'markStart' && ctx.cmdIdx >= 0) {
+        state.selectedPoints.clear();
+        state.selectedPoints.add(ctx.cmdIdx);
+        ui._markStartIdx = ctx.cmdIdx;
+        ui._reorderFromMark();
+        ui.setStatus(`Mark Start: point ${ctx.cmdIdx + 1}`);
+      } else if (action === 'setSide') {
+        document.getElementById('btnSetSide').click();
+      } else if (action === 'addPoint' && ctx.cmdIdx >= 0) {
+        state.selectedPoints.clear();
+        state.selectedPoints.add(ctx.cmdIdx);
+        // Detect mode: if point is near tool on/off, use Start/Stop; otherwise Continuous
+        const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
+        const td = tpl?.data || tpl;
+        const baseCmd = (s) => (s || '').trim().toUpperCase().split(/\s+/)[0];
+        const onTypes = (td?.laserOnCmd || 'M3,M4').split(',').map(baseCmd);
+        const offTypes = (td?.laserOffCmd || 'M5').split(',').map(baseCmd);
+        let useStartStop = false;
+        for (let i = Math.max(0, ctx.cmdIdx - 3); i <= Math.min(state.workingCmds.length - 1, ctx.cmdIdx + 3); i++) {
+          const t = baseCmd(state.workingCmds[i].type || '');
+          if (onTypes.includes(t) || offTypes.includes(t)) { useStartStop = true; break; }
+        }
+        if (useStartStop) {
+          document.getElementById('pointsAlongPath').value = '0';
+          document.getElementById('chkStartStop').checked = true;
+          document.getElementById('pointsOffsetX').value = '0';
+          document.getElementById('pointsOffsetY').value = '0';
+        } else {
+          document.getElementById('pointsAlongPath').value = '1';
+          document.getElementById('chkStartStop').checked = false;
+        }
+        document.getElementById('btnPointsGenerate').click();
+      } else if (action === 'deletePoint' && ctx.cmdIdx >= 0) {
+        state.selectedPoints.clear();
+        state.selectedPoints.add(ctx.cmdIdx);
+        document.getElementById('btnPointsDelete').click();
+      } else if (action === 'fitView') {
+        this.fitView();
+      } else if (action === 'resetView') {
+        state.previewScale = 1; state.previewOffX = 0; state.previewOffY = 0;
+        this.draw(state.workingCmds);
+      } else if (action.startsWith('sp') && ctx.cmdIdx >= 0 && ui._speedPowerRows) {
+        const ri = parseInt(action.charAt(2)) - 1;
+        const rows = ui._speedPowerRows;
+        rows.forEach(r => { r.assignedPoints = r.assignedPoints.filter(p => p !== ctx.cmdIdx); });
+        rows[ri].assignedPoints.push(ctx.cmdIdx);
+        state.selectedPoints.clear();
+        state.selectedPoints.add(ctx.cmdIdx);
+        document.getElementById('btnSpeedPowerApply').click();
+        ui.setStatus(`Point ${ctx.cmdIdx + 1} assigned to row ${ri + 1}`);
+      }
     });
   },
   // ---- Playback state ------------------------------------------------------------------------------------
@@ -673,7 +828,9 @@ const preview = {
 
   _drawCore(commands, limit) {
     if (!this.canvas) return;
-    const { width: w, height: h } = this.canvas;
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.width / dpr;
+    const h = this.canvas.height / dpr;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, w, h);
 
@@ -871,7 +1028,7 @@ const preview = {
       return;
     }
 
-    const b = this._getCutBounds() || this._segBounds || (this._points ? this._computeSegBounds(this._points) : null);
+    const b = this._segBounds || this._getCutBounds() || (this._points ? this._computeSegBounds(this._points) : null);
     if (!b) return;
     const { minX, maxX, minY, maxY, rangeX, rangeY } = b;
     const pad = 40;
@@ -884,7 +1041,6 @@ const preview = {
     this._lastTransform = { toCanvasX, toCanvasY, minX, minY, maxX, maxY, rangeX, rangeY };
 
     // Dynamic grid with labels
-    const dpr = window.devicePixelRatio || 1;
     ctx.save();
     ctx.lineWidth = 1;
     const mmPerPx = 1 / (baseFit * state.previewScale);
@@ -1258,15 +1414,14 @@ const preview = {
       return total > 10 && (short / total) > 0.5;
     })();
 
-    // Draw dots at each vertex (every G-code coordinate)
-    // In Points mode show ALL vertices large ? in Outlines show smaller sampled dots.
+    // Draw dots at each vertex
     if (!isRaster) {
-      const dotDotStep = isPoints ? 1 : Math.max(1, Math.floor(segsToDraw / 5000));
-      const dotRadius = isPoints ? 4 : 2.5;
-      ctx.fillStyle = isPoints ? 'rgba(37,99,235,0.95)' : 'rgba(37,99,235,0.7)';
+      const dotDotStep = isPoints ? 1 : Math.max(1, Math.floor(segsToDraw / 50000));
+      const dotRadius = isPoints ? 4 : 3;
+      ctx.fillStyle = isPoints ? 'rgba(37,99,235,0.95)' : 'rgba(37,99,235,0.85)';
       for (let i = 0; i < segsToDraw; i += dotDotStep) {
         const s = segments[i];
-        if (!state.showRapids && (s.rapid || (!s.toolOn && fileHasToolOn))) continue;
+        if (s.rapid && !state.showRapids) continue;
         const cx = toCanvasX(s.b.x), cy = toCanvasY(s.b.y);
         if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
         ctx.beginPath();
@@ -1514,7 +1669,8 @@ const preview = {
   _getGridStep() {
     const b = this._getBounds(state.workingCmds);
     if (!b) return 10;
-    const w = this.canvas.width, h = this.canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.width / dpr, h = this.canvas.height / dpr;
     const pad = 40;
     const baseFit = Math.min((w - pad * 2) / b.rangeX, (h - pad * 2) / b.rangeY);
     const mmPerPx = 1 / (baseFit * state.previewScale);
@@ -1583,23 +1739,22 @@ const preview = {
   _selectPointFromClick(e, canvas) {
     if (!state.workingCmds.length) return;
     canvas = canvas || this.canvas;
+    const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    // Scale click coords from CSS pixels to canvas physical pixels (HiDPI)
-    const sx = canvas.width / rect.width;
-    const sy = canvas.height / rect.height;
-    const cx = (e.clientX - rect.left) * sx;
-    const cy = (e.clientY - rect.top) * sy;
+    const cssW = canvas.width / dpr;
+    const cssH = canvas.height / dpr;
+    const cx = (e.clientX - rect.left);
+    const cy = (e.clientY - rect.top);
 
-    const b = this._getCutBounds() || this._segBounds || this._getBounds(state.workingCmds);
+    const b = this._segBounds || this._getCutBounds() || this._getBounds(state.workingCmds);
     if (!b) return;
     const { minX, minY, rangeX, rangeY } = b;
-    const w = canvas.width, h = canvas.height;
     const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    const cx0 = (w - pad * 2 - rangeX * baseFit) / 2;
-    const cy0 = (h - pad * 2 - rangeY * baseFit) / 2;
+    const baseFit = Math.min((cssW - pad * 2) / rangeX, (cssH - pad * 2) / rangeY);
+    const cx0 = (cssW - pad * 2 - rangeX * baseFit) / 2;
+    const cy0 = (cssH - pad * 2 - rangeY * baseFit) / 2;
     const toCanvasX = x => pad + cx0 + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => h - pad - cy0 - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    const toCanvasY = y => cssH - pad - cy0 - (y - minY) * baseFit * state.previewScale + state.previewOffY;
     // Use segments for hit-testing (handles arc subdivisions correctly)
     const segs = this._segments;
     let bestCmdIdx = -1, bestDist = Infinity;
@@ -1607,7 +1762,6 @@ const preview = {
       const visited = new Set();
       for (let i = 0; i < segs.length; i++) {
         const s = segs[i];
-        // Skip if we already have this cmdIdx (multiple segments from same arc)
         if (visited.has(s.cmdIdx)) continue;
         visited.add(s.cmdIdx);
         const px = toCanvasX(s.b.x);
@@ -1617,12 +1771,19 @@ const preview = {
       }
     } else {
       // Fallback: iterate commands (no retained point array needed)
-      let _curX = 0, _curY = 0, _isRel = false;
+      let _curX = 0, _curY = 0, _isRel = false, _unitToMm = 1, _offsetX = 0, _offsetY = 0;
       state.workingCmds.forEach((c, i) => {
         if (c.type === 'G91') { _isRel = true; return; }
         if (c.type === 'G90') { _isRel = false; return; }
-        if (c.params.X !== undefined) _curX = _isRel ? _curX + c.params.X : c.params.X;
-        if (c.params.Y !== undefined) _curY = _isRel ? _curY + c.params.Y : c.params.Y;
+        if (c.type === 'G20') { _unitToMm = 25.4; return; }
+        if (c.type === 'G21') { _unitToMm = 1; return; }
+        if (c.type === 'G92') {
+          if (c.params.X !== undefined) _offsetX = _curX - c.params.X * _unitToMm;
+          if (c.params.Y !== undefined) _offsetY = _curY - c.params.Y * _unitToMm;
+          return;
+        }
+        if (c.params.X !== undefined) _curX = _isRel ? _curX + c.params.X * _unitToMm : c.params.X * _unitToMm + _offsetX;
+        if (c.params.Y !== undefined) _curY = _isRel ? _curY + c.params.Y * _unitToMm : c.params.Y * _unitToMm + _offsetY;
         if (c.params.X === undefined && c.params.Y === undefined) return;
         const px = toCanvasX(_curX);
         const py = toCanvasY(_curY);
@@ -1630,8 +1791,6 @@ const preview = {
         if (d < bestDist) { bestDist = d; bestCmdIdx = i; }
       });
     }
-    // If we needed the full point array for hit-testing but it wasn't retained,
-    // rebuild it lazily and drop it again afterwards to keep RAM low.
     if (!segs && !this._points && bestCmdIdx < 0) {
       this._keepPoints = true;
       this._buildSegmentsAsync(state.workingCmds, () => {
@@ -1648,13 +1807,11 @@ const preview = {
     document.getElementById('pointsOffsetX').value = '0';
     document.getElementById('pointsOffsetY').value = '0';
     document.getElementById('pointsOffsetZ').value = '0';
-    // Sync points panel focus
     if (window.ui && ui._pointsList) {
       const fpi = ui._pointsList.findIndex(p => p.idx === bestCmdIdx);
       if (fpi >= 0) ui._focusedPointPos = fpi;
     }
     if (window.ui && ui._updatePointsPanel) ui._updatePointsPanel();
-    // Jump to line in working editor + backplot highlight
     const veWrap = document.getElementById('virtualEditorWrap');
     const isVirtual = veWrap && veWrap.style.display !== 'none' && window.ui && window.ui._ve;
     if (isVirtual) {
@@ -1669,14 +1826,13 @@ const preview = {
       ta.setSelectionRange(charPos, charPos);
     }
     this.highlightLine(bestCmdIdx);
-    // Reset Points widget offsets to zero (relative to selected point)
     document.getElementById('pointsOffsetX').value = '0';
     document.getElementById('pointsOffsetY').value = '0';
   },
 
   _drawMinimap(ctx, w, h, b, baseFit) {
     const dpr = window.devicePixelRatio || 1;
-    const cssW = w / dpr, cssH = h / dpr;
+    const cssW = w, cssH = h;
     const mmSize = 120;
     const mmX = cssW - mmSize - 10;
     const mmY = cssH - mmSize - 10;
@@ -1705,7 +1861,8 @@ const preview = {
     ctx.stroke();
     // Viewport rectangle: convert canvas viewport to world, then to minimap
     const pad40 = 40;
-    const vpLeft = (-state.previewOffX - pad40) / (baseFit * state.previewScale) + minX;
+    const cx = (w - pad40 * 2 - rangeX * baseFit) / 2;
+    const vpLeft = minX - (pad40 + cx + state.previewOffX) / (baseFit * state.previewScale);
     const vpTop  = maxY - (-state.previewOffY - pad40) / (baseFit * state.previewScale);
     const vpW    = (w - pad40 * 2) / (baseFit * state.previewScale);
     const vpH    = (h - pad40 * 2) / (baseFit * state.previewScale);

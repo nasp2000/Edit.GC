@@ -19,7 +19,6 @@ const findReplace = {
 
     findInp.addEventListener('input', () => {
       this.search(findInp.value);
-      if (document.activeElement !== findInp) setTimeout(() => findInp.focus(), 0);
     });
     findInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.findNext(); } });
     repInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.replace(); } });
@@ -181,6 +180,7 @@ const findReplace = {
     const rep = document.getElementById('replaceInput').value;
     let text = this._getText();
     text = text.substring(0, m.index) + rep + text.substring(m.index + m.length);
+    if (!state._duringUndoRedo) undoRedo.push(state.workingCmds);
     state.workingCmds = gcodeParser.parse(text);
     ui.refreshWorking();
     const query = document.getElementById('findInput').value;
@@ -204,6 +204,7 @@ const findReplace = {
     } catch (_) { return; }
     const newText = text.replace(pattern, rep);
     if (newText !== text) {
+      if (!state._duringUndoRedo) undoRedo.push(state.workingCmds);
       state.workingCmds = gcodeParser.parse(newText);
       ui.refreshWorking();
       this.search(query);

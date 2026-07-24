@@ -38,7 +38,6 @@ async function handleDroppedFile(file) {
     input.files = dt.files;
     input.dispatchEvent(new Event('change'));
   } else if (ext === 'dxf') {
-    document.getElementById('fileInputDxf').files = new DataTransfer().files; // clear
     const input = document.getElementById('fileInputDxf');
     const dt = new DataTransfer();
     dt.items.add(file);

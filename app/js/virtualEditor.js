@@ -45,7 +45,7 @@ class VirtualEditor {
     this._container.addEventListener('click', (e) => this._onClick(e));
     this._container.addEventListener('focusin', () => this._input.focus());
 
-    this._measureLineHeight();
+    this.measureLineHeight();
   }
 
   _measureLineHeight() {

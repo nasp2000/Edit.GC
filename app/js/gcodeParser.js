@@ -37,7 +37,7 @@ const gcodeParser = {
         if (!isNaN(v)) { params[typeParam[1]] = v; type = ''; }
       }
       for (let i = firstIdx + 1; i < parts.length; i++) {
-        parts[i].replace(/([A-Z])([-\d.]+)/g, (_, l, n) => { const v = parseFloat(n); if (!isNaN(v)) params[l] = v; });
+        parts[i].replace(/([A-Z])([-\d.eE+]+)/g, (_, l, n) => { const v = parseFloat(n); if (!isNaN(v)) params[l] = v; });
       }
       return { lineIndex, raw, type, params, comment, isBlank: false, isComment: false, blockDelete };
     });
@@ -49,7 +49,7 @@ const gcodeParser = {
     const lineEnd = (tpl && tpl.data && tpl.data.lineEnd) || '\n';
     const canonicalOrder = ['X','Y','Z','I','J','R','F','S','T','P','Q','L','A','B','C','U','V','W','D','H','M','K'];
     return commands.map(c => {
-      if (c.isBlank || c.isComment || c.type === 'UNKNOWN') return c.raw;
+      if (c.isBlank || c.isComment) return c.raw;
       let line = '';
       if (c.blockDelete) line += '/';
       line += c.type;
@@ -170,6 +170,9 @@ const gcodeParser = {
   analyzeFull(commands) {
     const knownGCodes = ['G0','G00','G1','G01','G2','G02','G3','G03','G4','G04','G10','G17','G18','G19','G20','G21','G28','G30','G40','G43','G49','G54','G55','G56','G57','G58','G59','G80','G81','G82','G83','G84','G85','G86','G87','G88','G89','G90','G91','G92','G93','G94','G98','G99'];
     const knownMCodes = ['M0','M1','M2','M3','M4','M5','M6','M7','M8','M9','M30','M98','M99'];
+    const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
+    const tplCmds = tpl?.data?.customCommands || [];
+    const tplCmtKeys = tpl?.data?.commandComments ? Object.keys(tpl.data.commandComments) : [];
     const knownOthers = ['T','S','F','X','Y','Z','I','J','K','R','P','Q','L','D','H'];
 
     const xs = [], ys = [], zs = [], fs = [], ss = [];
@@ -188,7 +191,7 @@ const gcodeParser = {
       if (c.params.S !== undefined) ss.push(c.params.S);
       if (c.type && /^M\d+$/.test(c.type) && !mCodes.includes(c.type)) mCodes.push(c.type);
       if (c.type && !c.isBlank && !c.isComment && c.type !== 'COMMENT' && c.type !== 'UNKNOWN') {
-        const isKnown = knownGCodes.includes(c.type) || knownMCodes.includes(c.type);
+        const isKnown = knownGCodes.includes(c.type) || knownMCodes.includes(c.type) || tplCmds.includes(c.type) || tplCmtKeys.includes(c.type);
         if (!isKnown) unknownCmds.push(c.type);
       }
       if (['G0','G00','G1','G01','G2','G02','G3','G03'].includes(c.type)) moveLines++;
@@ -284,16 +287,26 @@ const gcodeParser = {
     });
   },
 
+  _normalizeCode(type) {
+    if (type === 'G0') return 'G00';
+    if (type === 'G1') return 'G01';
+    if (type === 'G2') return 'G02';
+    if (type === 'G3') return 'G03';
+    return type;
+  },
+
   applyBatchParam(commands, cmdType, param, value) {
+    const norm = this._normalizeCode(cmdType);
     return commands.map(c => {
-      if (c.type !== cmdType && c.type !== cmdType.replace('0','00').replace('1','01')) return c;
+      if (this._normalizeCode(c.type) !== norm) return c;
       return { ...c, params: { ...c.params, [param]: value }, raw: '' };
     });
   },
 
   applyBatchParamFactor(commands, cmdType, param, factor) {
+    const norm = this._normalizeCode(cmdType);
     return commands.map(c => {
-      if (c.type !== cmdType && c.type !== cmdType.replace('0','00').replace('1','01')) return c;
+      if (this._normalizeCode(c.type) !== norm) return c;
       const p = { ...c.params };
       if (p[param] !== undefined) p[param] = parseFloat((p[param] * factor).toFixed(1));
       return { ...c, params: p, raw: '' };

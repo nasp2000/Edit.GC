@@ -127,8 +127,11 @@ const segmentBuilder = {
         customArc = true;
       }
       // Implicit motion ? line with coordinates but no G command
-        // Use current motionMode (defaults to G1)
+        // Detect rapid vs cut based on feed rate threshold
         else if (c.params.X !== undefined || c.params.Y !== undefined || c.params.Z !== undefined) {
+          const cmdFeed = c.params.F !== undefined ? c.params.F : feed;
+          if (cmdFeed >= 4000) motionMode = 0;
+          else motionMode = 1;
         }
       // Compute next position
       let nx = x, ny = y, nz = z;

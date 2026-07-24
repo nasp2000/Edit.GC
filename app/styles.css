@@ -955,3 +955,49 @@ body.drag-over-file { outline: 3px dashed var(--accent); outline-offset: -6px; }
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(12px);
 }
+
+/* ===== Context Menu ===== */
+.ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  padding: 4px 0;
+  min-width: 210px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+.ctx-item {
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--text);
+  transition: background 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ctx-item:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+.ctx-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.ctx-submenu {
+  position: relative;
+}
+.ctx-submenu-items {
+  display: none;
+  position: absolute;
+}

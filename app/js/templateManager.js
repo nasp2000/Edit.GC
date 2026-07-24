@@ -128,7 +128,9 @@ const templateManager = {
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
-      this._templates.push({ name, data });
+      const existing = this._templates.findIndex(t => t.name === name);
+      if (existing >= 0) this._templates[existing] = { name, data };
+      else this._templates.push({ name, data });
       return true;
     } catch (e) {
       console.error('Save template error:', e);

@@ -15,7 +15,7 @@
   <header id="banner">
     <span class="banner-title">Edit<span class="banner-dot">.</span>GC</span>
     <span class="banner-sub">G-code Editor</span>
-    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.003</span>
+    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.004</span>
   </header>
 
   <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
@@ -88,7 +88,6 @@
           <span class="clabel" id="infoWarn" style="width:100%;color:#d97706;white-space:pre-wrap"> - </span>
           <div style="display:flex;gap:6px;width:100%;align-items:center;margin-top:4px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkBounds" checked title="Show bounding box of all paths"> BBox</label>
-            <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkCompare" title="Compare original vs working G-code"> Compare</label>
             <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkColorByFeed" title="Color paths by feed rate"> Feed</label>
             <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkRapids" checked title="Show G0 rapid move lines"> Rapids</label>
             <label style="display:flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" id="chkMinimap" checked title="Show minimap overview of G-code"> Map</label>
@@ -511,6 +510,25 @@
       </div>
       <div id="analysisContent" style="padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;overflow-y:auto;background:var(--bg4)"></div>
     </div>
+  </div>
+
+  <div id="ctxMenu" class="ctx-menu" style="display:none">
+    <div class="ctx-item" data-action="markStart">Set as Mark Start</div>
+    <div class="ctx-item" data-action="setSide">Toggle Set Side</div>
+    <div class="ctx-item" data-action="addPoint">Add Point Here</div>
+    <div class="ctx-item" data-action="deletePoint">Delete Point</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-submenu">
+      <span class="ctx-item ctx-submenu-label" data-action="__toggleSp">Speed &amp; Power ▸</span>
+      <div class="ctx-submenu-items ctx-menu" style="left:100%;top:-4px">
+        <div class="ctx-item" data-action="sp1"><span class="ctx-swatch" style="background:#F97316"></span>Speed 1000 / Power 10%</div>
+        <div class="ctx-item" data-action="sp2"><span class="ctx-swatch" style="background:#EC4899"></span>Speed 2000 / Power 20%</div>
+        <div class="ctx-item" data-action="sp3"><span class="ctx-swatch" style="background:#84CC16"></span>Speed 3000 / Power 30%</div>
+      </div>
+    </div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="fitView">Fit View</div>
+    <div class="ctx-item" data-action="resetView">Reset View</div>
   </div>
 
   <script src="js/config.js"></script>

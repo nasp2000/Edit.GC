@@ -7,7 +7,6 @@ const settings = {
 
     scaleStep: 1,
     chkBounds: true,
-    chkCompare: false,
     chkColorByFeed: false,
     chkRapids: true,
 
@@ -49,10 +48,8 @@ const settings = {
     const _chk = (id, val) => { const el = document.getElementById(id); if (el) { el.checked = !!val; el.dispatchEvent(new Event('change')); } };
 
     _set('scaleStep', s.scaleStep);
-    document.getElementById('scaleStep')?.dispatchEvent(new Event('change'));
 
     _chk('chkBounds', s.chkBounds);
-    _chk('chkCompare', s.chkCompare);
     _chk('chkColorByFeed', s.chkColorByFeed);
     _chk('chkRapids', s.chkRapids);
     _chk('chkMinimap', s.chkMinimap);
@@ -62,7 +59,8 @@ const settings = {
     const spdLabel = document.getElementById('playSpeedLabel');
     if (spdLabel) spdLabel.textContent = s.playSpeed + 'x';
 
-    _set('outlineMode', s.svgOutlineMode);
+    const svgView = document.getElementById('svgViewMode');
+    if (svgView && s.svgOutlineMode) { svgView.value = s.svgOutlineMode; state.svgPreviewMode = s.svgOutlineMode; }
 
     if (s.batchAxis) _set('batchAxis', s.batchAxis);
     if (s.batchValue !== undefined) _set('batchAxisVal', s.batchValue);
@@ -85,12 +83,12 @@ const settings = {
     this.save({
 
       scaleStep: _val('scaleStep'),
-      chkBounds: _chk('chkBounds'), chkCompare: _chk('chkCompare'),
+      chkBounds: _chk('chkBounds'),
       chkColorByFeed: _chk('chkColorByFeed'), chkRapids: _chk('chkRapids'),
       chkMinimap: _chk('chkMinimap'),
       chkTagEdits: _chk('chkTagEdits'),
       playSpeed: _num('playSpeed'),
-      svgOutlineMode: _val('outlineMode'),
+      svgOutlineMode: _val('svgViewMode'),
       batchAxis: _val('batchAxis'), batchValue: _num('batchAxisVal'),
       batchStep: _val('batchStep'), batchTarget: _val('batchTarget'),
       templateName: _val('templateSelect'),
