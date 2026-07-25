@@ -30,6 +30,7 @@ Undo history (50 levels), modified lines tagged `;edit.gc`.
 - SVG/DXF to G-code with Scale, Rotate, Multi-pass Z, interior-first, bidirectional
 - Templates: Grbl, Smoothieware, Marlin, SM300, KUKA (experimental) with per-template machine options
 - SM300: implicit motion, laser programs, gas, Z moves, RA/RLAD commands
+- KUKA Robot (KRL): experimental — 6-axis robot G-code with .src/.dat export, ISO/3D preview
 - Preview: 2D toolpath, pan/zoom, playback, minimap, color by feed, vertex dots
 - Rotate 90° preserving machine origin
 - G0-G3 arcs, G91 relative, M3/M4/M5 laser, SM300 custom commands
