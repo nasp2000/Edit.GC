@@ -28,7 +28,7 @@ Undo history (50 levels), modified lines tagged `;edit.gc`.
 
 - Dual editors, Find & Replace, Undo/Redo, virtual editor for large files
 - SVG/DXF to G-code with Scale, Rotate, Multi-pass Z, interior-first, bidirectional
-- Templates: Grbl, Smoothieware, Marlin, SM300 with per-template machine options
+- Templates: Grbl, Smoothieware, Marlin, SM300, KUKA (experimental) with per-template machine options
 - SM300: implicit motion, laser programs, gas, Z moves, RA/RLAD commands
 - Preview: 2D toolpath, pan/zoom, playback, minimap, color by feed, vertex dots
 - Rotate 90° preserving machine origin
