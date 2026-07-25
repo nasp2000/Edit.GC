@@ -125,6 +125,16 @@ const preview = {
       this._points = keepPoints ? allPoints : null;
       this._segBounds = bounds;
       this._segTruncated = truncated;
+      // Cumulative distances for distance-based playback
+      let cumDist = 0;
+      this._segCumDist = [];
+      this._segCmdIdx = [];
+      for (const s of allSegments) {
+        cumDist += Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y, (s.b.z || 0) - (s.a.z || 0));
+        this._segCumDist.push(cumDist);
+        this._segCmdIdx.push(s.cmdIdx);
+      }
+      this._segTotalDist = cumDist;
       if (onDone) onDone(result);
     };
 
@@ -201,6 +211,104 @@ const preview = {
   fitView() {
     this._zoomToFit();
     this.draw(state.workingCmds);
+  },
+
+  _renderPlane(b, w, h) {
+    const plane = state.previewPlane || 'XY';
+    const pad = 40;
+    let minH, maxH, minV, maxV, invertV, rangeH, rangeV;
+
+    if (plane === 'ISO') {
+      const minZ = b.minZ != null ? b.minZ : 0;
+      const maxZ = b.maxZ != null ? b.maxZ : 100;
+      const cos30 = Math.cos(Math.PI / 6);
+      const sin30 = 0.5;
+      const pts = [
+        [b.minX, b.minY, minZ], [b.minX, b.minY, maxZ],
+        [b.minX, b.maxY, minZ], [b.minX, b.maxY, maxZ],
+        [b.maxX, b.minY, minZ], [b.maxX, b.minY, maxZ],
+        [b.maxX, b.maxY, minZ], [b.maxX, b.maxY, maxZ]
+      ];
+      minH = Infinity; maxH = -Infinity; minV = Infinity; maxV = -Infinity;
+      for (const [px, py, pz] of pts) {
+        const hh = (px - py) * cos30;
+        const vv = (px + py) * sin30 - pz;
+        if (hh < minH) minH = hh; if (hh > maxH) maxH = hh;
+        if (vv < minV) minV = vv; if (vv > maxV) maxV = vv;
+      }
+      rangeH = maxH - minH || 1;
+      rangeV = maxV - minV || 1;
+      invertV = false;
+    } else {
+      if (plane === 'XZ') { minH = b.minX; maxH = b.maxX; minV = b.minZ || 0; maxV = b.maxZ || 100; }
+      else if (plane === 'YZ') { minH = b.minY; maxH = b.maxY; minV = b.minZ || 0; maxV = b.maxZ || 100; }
+      else { minH = b.minX; maxH = b.maxX; minV = b.minY; maxV = b.maxY; }
+      rangeH = maxH - minH || 1;
+      rangeV = maxV - minV || 1;
+      invertV = plane === 'XY';
+    }
+
+    const baseFit = Math.min((w - pad*2) / rangeH, (h - pad*2) / rangeV);
+    const cx = (w - pad*2 - rangeH * baseFit) / 2;
+    const cy = (h - pad*2 - rangeV * baseFit) / 2;
+
+    const toH = v => pad + cx + (v - minH) * baseFit * state.previewScale + state.previewOffX;
+    const toV = v => {
+      const raw = pad + cy + (v - minV) * baseFit * state.previewScale;
+      return invertV ? h - raw : raw + state.previewOffY;
+    };
+
+    const prj = pt => {
+      let horz, vert;
+      const z = pt.z !== undefined ? pt.z : 0;
+      if (plane === 'ISO') {
+        horz = (pt.x - pt.y) * Math.cos(Math.PI / 6);
+        vert = (pt.x + pt.y) * 0.5 - z;
+      } else if (plane === 'XZ') { horz = pt.x; vert = z; }
+      else if (plane === 'YZ') { horz = pt.y; vert = z; }
+      else { horz = pt.x; vert = pt.y; }
+      return { x: toH(horz), y: toV(vert) };
+    };
+
+    return { prj, toH, toV, baseFit, minH, maxH, rangeH, minV, maxV, rangeV, plane, invertV, cx, cy };
+  },
+
+  _toolDir(degA, degB, degC, travelDx, travelDy) {
+    const a = (degA || 0) * Math.PI / 180;
+    const b = (degB || 0) * Math.PI / 180;
+
+    let vx = 0, vy = 0, vz = -1;
+    // Rotate B around Y
+    const cosB = Math.cos(b), sinB = Math.sin(b);
+    let nx = vx * cosB + vz * sinB;
+    let nz = -vx * sinB + vz * cosB;
+    vx = nx; vz = nz;
+    // Rotate A around Z
+    const cosA = Math.cos(a), sinA = Math.sin(a);
+    nx = vx * cosA - vy * sinA;
+    let ny = vx * sinA + vy * cosA;
+    vx = nx; vy = ny;
+
+    // Path-relative C tilt: rotate around travel axis
+    if (degC && travelDx !== undefined && travelDy !== undefined) {
+      const tLen = Math.hypot(travelDx, travelDy);
+      if (tLen > 0.001) {
+        const opts = typeof ui !== 'undefined' ? ui._loadMachineOpts() : {};
+        const cMode = opts.cMode || 'Outside';
+        const sign = cMode === 'Inside' ? 1 : -1;
+        const tx = travelDx / tLen, ty = travelDy / tLen;
+        const cRad = sign * degC * Math.PI / 180;
+        const cosC = Math.cos(cRad), sinC = Math.sin(cRad);
+        const ax = tx, ay = ty, az = 0;
+        const dot = vx*ax + vy*ay + vz*az;
+        nx = vx*cosC + (ay*vz - az*vy)*sinC + ax*dot*(1-cosC);
+        ny = vy*cosC + (az*vx - ax*vz)*sinC + ay*dot*(1-cosC);
+        nz = vz*cosC + (ax*vy - ay*vx)*sinC + az*dot*(1-cosC);
+        vx = nx; vy = ny; vz = nz;
+      }
+    }
+
+    return { x: vx, y: vy, z: vz };
   },
 
   _computeSegBounds(points) {
@@ -696,6 +804,7 @@ const preview = {
     this._pb.idx = 0;
     this._pb.lastTick = performance.now();
     this._pb.accum = 0;
+    this._pb.distAccum = 0;
     document.getElementById('btnPlay').textContent = 'Play';
     this._tick();
   },
@@ -716,19 +825,18 @@ const preview = {
     this._pb.active = false;
     this._pb.paused = false;
     this._pb.idx    = 0;
+    this._pb.distAccum = 0;
     if (this._pb.rafId) { cancelAnimationFrame(this._pb.rafId); this._pb.rafId = null; }
     document.getElementById('btnPlay').textContent = 'Play';
   },
 
   _updatePlayProgress() {
-    const cmds = state.workingCmds;
-    const total = cmds ? cmds.length : 0;
-    const idx = this._pb.idx || 0;
-    const pct = total > 0 ? Math.round(idx / total * 100) : 0;
+    const totalDist = this._segTotalDist || 1;
+    const pct = totalDist > 0 ? Math.min(100, Math.round(this._pb.distAccum / totalDist * 100)) : 0;
     const slider = document.getElementById('playProgress');
     if (slider) slider.value = pct;
     const info = document.getElementById('scrubInfo');
-    if (info) info.textContent = `${idx}/${total}`;
+    if (info) info.textContent = `${Math.round(this._pb.distAccum)} / ${Math.round(totalDist)} mm`;
   },
 
   _tick() {
@@ -739,15 +847,31 @@ const preview = {
     if (!this._pb.lastTick) this._pb.lastTick = now;
     const dt = (now - this._pb.lastTick) / 1000;
     this._pb.lastTick = now;
-    this._pb.accum = (this._pb.accum || 0) + speed * 3 * dt;
-    const step = Math.floor(this._pb.accum);
-    this._pb.accum -= step;
-    if (step < 1) { this._pb.rafId = requestAnimationFrame(() => this._tick()); return; }
-    this._pb.idx = Math.min(this._pb.idx + step, commands.length);
-    this._drawCore(commands, this._pb.idx);
-    this._drawHead(commands, this._pb.idx);
+    // Distance-based playback: 5 mm/s × speed multiplier
+    const distPerSec = speed * 5;
+    this._pb.distAccum = (this._pb.distAccum || 0) + distPerSec * dt;
+    const totalDist = this._segTotalDist || 1;
+    const segCumDist = this._segCumDist;
+    if (!segCumDist || !segCumDist.length) return;
+    // Find segment index by distance
+    const targetDist = Math.min(this._pb.distAccum, totalDist);
+    let segIdx = 0;
+    for (let i = 0; i < segCumDist.length; i++) {
+      if (segCumDist[i] >= targetDist) { segIdx = i; break; }
+      segIdx = i;
+    }
+    // Fraction within current segment for smooth interpolation
+    const prevDist = segIdx > 0 ? segCumDist[segIdx - 1] : 0;
+    const segDist = segCumDist[segIdx] - prevDist;
+    const segFrac = segDist > 0 ? Math.min(1, (targetDist - prevDist) / segDist) : 0;
+    const cmdIdx = this._segCmdIdx ? this._segCmdIdx[segIdx] : segIdx;
+    const totalSegs = this._segments?.length || 1;
+    const drawLimit = Math.floor((segIdx + 1) / totalSegs * commands.length);
+    this._pb.idx = cmdIdx;
+    this._drawCore(commands, drawLimit);
+    this._drawHead(commands, cmdIdx, segFrac, segIdx);
     this._updatePlayProgress();
-    if (this._pb.idx < commands.length) {
+    if (this._pb.distAccum < totalDist) {
       this._pb.rafId = requestAnimationFrame(() => this._tick());
     } else {
       this._pb.active = false;
@@ -755,31 +879,110 @@ const preview = {
     }
   },
 
-  _drawHead(commands, idx) {
-    if (!idx || !commands[idx - 1]) return;
-    const c = commands[idx - 1];
-    if (c.params.X === undefined && c.params.Y === undefined) return;
+_drawHead(commands, idx, segFrac, segIdx) {
     const t = this._lastTransform;
     if (!t) return;
-    const { toCanvasX, toCanvasY } = t;
-    let curX = 0, curY = 0, prevX = 0, prevY = 0, isRel = false, unitToMm = 1, offsetX = 0, offsetY = 0;
-    for (let i = 0; i < idx; i++) {
-      const cmd = commands[i];
-      if (cmd.type === 'G91') { isRel = true; continue; }
-      if (cmd.type === 'G90') { isRel = false; continue; }
-      if (cmd.type === 'G20') { unitToMm = 25.4; continue; }
-      if (cmd.type === 'G21') { unitToMm = 1; continue; }
-      if (cmd.type === 'G92') {
-        if (cmd.params.X !== undefined) offsetX = curX - cmd.params.X * unitToMm;
-        if (cmd.params.Y !== undefined) offsetY = curY - cmd.params.Y * unitToMm;
-        continue;
+    const { toCanvasX, toCanvasY, prj } = t;
+    const plane = state.previewPlane || 'XY';
+    const segs = this._segments;
+    let curX = 0, curY = 0, curZ = 0, prevX = 0, prevY = 0;
+    // Use segment interpolation for smooth position (faster than walking commands)
+    if (segs && segIdx >= 0 && segIdx < segs.length && segFrac >= 0) {
+      const s = segs[segIdx];
+      curX = s.a.x + (s.b.x - s.a.x) * segFrac;
+      curY = s.a.y + (s.b.y - s.a.y) * segFrac;
+      curZ = (s.a.z || 0) + ((s.b.z || 0) - (s.a.z || 0)) * segFrac;
+      if (segIdx > 0) { const ps = segs[segIdx - 1]; prevX = ps.b.x; prevY = ps.b.y; }
+      else { prevX = s.a.x; prevY = s.a.y; }
+    } else if (!idx || !commands[idx - 1]) {
+      return;
+    } else {
+      // Fallback: walk commands
+      let isRel = false, unitToMm = 1, offsetX = 0, offsetY = 0, offsetZ = 0;
+      for (let i = 0; i < idx; i++) {
+        const cmd = commands[i];
+        if (cmd.type === 'G91') { isRel = true; continue; }
+        if (cmd.type === 'G90') { isRel = false; continue; }
+        if (cmd.type === 'G20') { unitToMm = 25.4; continue; }
+        if (cmd.type === 'G21') { unitToMm = 1; continue; }
+        if (cmd.type === 'G92') {
+          if (cmd.params.X !== undefined) offsetX = curX - cmd.params.X * unitToMm;
+          if (cmd.params.Y !== undefined) offsetY = curY - cmd.params.Y * unitToMm;
+          if (cmd.params.Z !== undefined) offsetZ = curZ - cmd.params.Z * unitToMm;
+          continue;
+        }
+        prevX = curX; prevY = curY;
+        if (cmd.params.X !== undefined) { const vx = cmd.params.X * unitToMm; curX = isRel ? curX + vx : vx + offsetX; }
+        if (cmd.params.Y !== undefined) { const vy = cmd.params.Y * unitToMm; curY = isRel ? curY + vy : vy + offsetY; }
+        if (cmd.params.Z !== undefined) { const vz = cmd.params.Z * unitToMm; curZ = isRel ? curZ + vz : vz + offsetZ; }
       }
-      prevX = curX; prevY = curY;
-      if (cmd.params.X !== undefined) { const vx = cmd.params.X * unitToMm; curX = isRel ? curX + vx : vx + offsetX; }
-      if (cmd.params.Y !== undefined) { const vy = cmd.params.Y * unitToMm; curY = isRel ? curY + vy : vy + offsetY; }
     }
     const ctx = this.ctx;
-    const cx = toCanvasX(curX), cy = toCanvasY(curY);
+    const pos = prj({ x: curX, y: curY, z: curZ });
+    const cx = pos.x, cy = pos.y;
+    const pcx = toCanvasX(prevX), pcy = toCanvasY(prevY);
+    const dx = cx - pcx, dy = cy - pcy;
+    const dpr = window.devicePixelRatio || 1;
+
+    if (plane === 'ISO') {
+      const opts = typeof ui !== 'undefined' ? ui._loadMachineOpts() : {};
+      const oA = 0, oB = 0; // Cone always vertical — A/B from machine options go to .dat only
+      const oC = parseFloat(opts.orientC) || 90;
+      // Tilt = deviation from vertical (90°), applied relative to travel direction
+      const tilt = oC - 90;
+      const dir = this._toolDir(oA, oB, tilt, curX - prevX, curY - prevY);
+
+    if (dir) {
+        const coneH = 15; // mm
+        const coneR = 4;  // mm
+        const apex = prj({ x: curX, y: curY, z: curZ });
+        const baseCtr = prj({ x: curX - dir.x * coneH, y: curY - dir.y * coneH, z: curZ - dir.z * coneH });
+        // Base circle around pos, perpendicular to toolDir
+        const n = Math.hypot(dir.x, dir.y, dir.z) || 1;
+        const nx = dir.x / n, ny = dir.y / n, nz = dir.z / n;
+        let ux = -ny, uy = nx, uz = 0; // perpendicular vector
+        const uLen = Math.hypot(ux, uy);
+        if (uLen < 0.01) { ux = 1; uy = 0; uz = 0; }
+        else { ux /= uLen; uy /= uLen; }
+        let vx = ny * uz - nz * uy, vy = nz * ux - nx * uz, vz = nx * uy - ny * ux;
+        const nBase = 14;
+        ctx.save();
+        // Base ellipse
+        ctx.beginPath();
+        for (let a = 0; a < Math.PI * 2; a += Math.PI / nBase) {
+          const bx = curX - dir.x * coneH + (ux * Math.cos(a) + vx * Math.sin(a)) * coneR;
+          const by = curY - dir.y * coneH + (uy * Math.cos(a) + vy * Math.sin(a)) * coneR;
+          const bz = curZ - dir.z * coneH + (uz * Math.cos(a) + vz * Math.sin(a)) * coneR;
+          const bp = prj({ x: bx, y: by, z: bz });
+          if (a === 0) ctx.moveTo(bp.x, bp.y);
+          else ctx.lineTo(bp.x, bp.y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(127,29,29,0.3)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(127,29,29,0.6)';
+        ctx.lineWidth = 1.2 * dpr;
+        ctx.stroke();
+        // Cone lines: apex to base sides
+        const bR = prj({ x: curX - dir.x * coneH + ux * coneR, y: curY - dir.y * coneH + uy * coneR, z: curZ - dir.z * coneH + uz * coneR });
+        const bL = prj({ x: curX - dir.x * coneH - ux * coneR, y: curY - dir.y * coneH - uy * coneR, z: curZ - dir.z * coneH - uz * coneR });
+        ctx.beginPath();
+        ctx.moveTo(bR.x, bR.y); ctx.lineTo(apex.x, apex.y); ctx.lineTo(bL.x, bL.y);
+        ctx.strokeStyle = 'rgba(127,29,29,0.55)';
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
+        // Tool tip
+        ctx.beginPath(); ctx.arc(apex.x, apex.y, 4 * dpr, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(127,29,29,0.75)'; ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+    }
+
+    // Standard arrow (non-ISO)
     const tpl = templateManager.getActive();
     const tplData = tpl?.data || tpl;
     const baseCmd = (s) => s.trim().toUpperCase().split(/\s+/)[0];
@@ -787,15 +990,13 @@ const preview = {
     const offTypes = (tplData?.laserOffCmd || 'M5').split(',').map(baseCmd);
     let toolOn = false;
     for (let i = 0; i < idx; i++) {
-      const t = baseCmd(commands[i].type || '');
-      if (onTypes.includes(t)) toolOn = true;
-      if (offTypes.includes(t)) toolOn = false;
+      const t2 = baseCmd(commands[i].type || '');
+      if (onTypes.includes(t2)) toolOn = true;
+      if (offTypes.includes(t2)) toolOn = false;
     }
-    const isLaserOn = toolOn && ['G1','G01','G2','G02','G3','G03',''].includes((c.type || '').toUpperCase());
-    const isRapid = c.type === 'G0' || c.type === 'G00';
-    const dpr = window.devicePixelRatio || 1;
-    const pcx = toCanvasX(prevX), pcy = toCanvasY(prevY);
-    const dx = cx - pcx, dy = cy - pcy;
+    const c2 = commands[idx - 1];
+    const isLaserOn = toolOn && ['G1','G01','G2','G02','G3','G03',''].includes((c2.type || '').toUpperCase());
+    const isRapid = c2.type === 'G0' || c2.type === 'G00';
     const angle = (dx === 0 && dy === 0) ? (this._headAngle || -Math.PI / 2) : Math.atan2(dy, dx);
     const dirChanged = this._headAngle != null && Math.abs(angle - this._headAngle) > 0.15;
     this._headAngle = angle;
@@ -1030,17 +1231,12 @@ const preview = {
 
     const b = this._segBounds || this._getCutBounds() || (this._points ? this._computeSegBounds(this._points) : null);
     if (!b) return;
-    const { minX, maxX, minY, maxY, rangeX, rangeY } = b;
-    const pad = 40;
-    const baseFit = Math.min((w - pad * 2) / rangeX, (h - pad * 2) / rangeY);
-    // Center the toolpath in the canvas (top-down view)
-    const cx = (w - pad * 2 - rangeX * baseFit) / 2;
-    const cy = (h - pad * 2 - rangeY * baseFit) / 2;
-    const toCanvasX = x => pad + cx + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => h - pad - cy - (y - minY) * baseFit * state.previewScale + state.previewOffY;
-    this._lastTransform = { toCanvasX, toCanvasY, minX, minY, maxX, maxY, rangeX, rangeY };
+    const rp = this._renderPlane(b, w, h);
+    const { prj, toH, toV, baseFit, minH, maxH, rangeH, minV, maxV, rangeV, plane } = rp;
+    const minX = b.minX, maxX = b.maxX, minY = b.minY, maxY = b.maxY, rangeX = b.rangeX, rangeY = b.rangeY;
+    this._lastTransform = { rp, toCanvasX: toH, toCanvasY: toV, prj, minX, minY, maxX, maxY, rangeX, rangeY };
 
-    // Dynamic grid with labels
+    // Dynamic grid with labels (plane-aware)
     ctx.save();
     ctx.lineWidth = 1;
     const mmPerPx = 1 / (baseFit * state.previewScale);
@@ -1048,104 +1244,112 @@ const preview = {
     const cand = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
     let step = 10;
     for (let i = 0; i < cand.length; i++) { if (cand[i] / mmPerPx >= minCellPx) { step = cand[i]; break; } }
-    const startX = Math.floor(minX / step) * step;
-    const startY = Math.floor(minY / step) * step;
+    const startH = Math.floor(minH / step) * step;
+    const startV = Math.floor(minV / step) * step;
     ctx.strokeStyle = 'rgba(148,163,184,0.22)';
     ctx.beginPath();
-    for (let gx = startX; gx <= maxX; gx += step) { const cx = toCanvasX(gx); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); }
-    for (let gy = startY; gy <= maxY; gy += step) { const cy = toCanvasY(gy); ctx.moveTo(0, cy); ctx.lineTo(w, cy); }
+    for (let g = startH; g <= maxH; g += step) { const c = toH(g); ctx.moveTo(c, 0); ctx.lineTo(c, h); }
+    for (let g = startV; g <= maxV; g += step) { const c = toV(g); ctx.moveTo(0, c); ctx.lineTo(w, c); }
     ctx.stroke();
     ctx.fillStyle = 'rgba(148,163,184,0.65)';
     ctx.font = `${Math.round(9 * dpr)}px monospace`;
     ctx.textAlign = 'center';
-    for (let gx = startX; gx <= maxX; gx += step) ctx.fillText(String(Math.round(gx * 100) / 100), toCanvasX(gx), h - 6);
+    if (plane !== 'ISO') {
+    for (let g = startH; g <= maxH; g += step) ctx.fillText(String(Math.round(g * 100) / 100), toH(g), h - 6);
+  }
     ctx.restore();
 
-    // X and Y axis lines at origin (0,0)
+    // Axis lines at origin (0,0,0) — skip in ISO
+    if (plane !== 'ISO') {
     ctx.save();
-    const originX = toCanvasX(0);
-    const originY = toCanvasY(0);
+    const origin = prj({x:0, y:0, z:0});
+    const originX = origin.x, originY = origin.y;
     const isOnScreen = originX > 0 && originX < w && originY > 0 && originY < h;
+    const hLabel = plane === 'ISO' ? 'XY' : plane === 'YZ' ? 'Y' : 'X';
+    const vLabel = plane === 'ISO' ? 'Z' : plane === 'XZ' || plane === 'YZ' ? 'Z' : 'Y';
     if (isFinite(originX) && isFinite(originY) && isOnScreen) {
       ctx.strokeStyle = 'rgba(220,50,50,0.8)';
       ctx.lineWidth = 3;
       ctx.setLineDash([5, 4]);
-      // X axis (horizontal through origin)
+      // H axis (horizontal through origin)
       ctx.beginPath();
       ctx.moveTo(10, originY);
       ctx.lineTo(w - 10, originY);
       ctx.stroke();
-      // Y axis (vertical through origin)
+      // V axis (vertical through origin)
       ctx.beginPath();
       ctx.moveTo(originX, 10);
       ctx.lineTo(originX, h - 10);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.lineWidth = 3;
-      // Arrow at positive X end
-      const axEnd = w - 10;
+      // Arrow at positive H end
+      const ahEnd = w - 10;
       ctx.beginPath();
-      ctx.moveTo(axEnd, originY);
-      ctx.lineTo(axEnd - 8, originY - 5);
-      ctx.moveTo(axEnd, originY);
-      ctx.lineTo(axEnd - 8, originY + 5);
+      ctx.moveTo(ahEnd, originY);
+      ctx.lineTo(ahEnd - 8, originY - 5);
+      ctx.moveTo(ahEnd, originY);
+      ctx.lineTo(ahEnd - 8, originY + 5);
       ctx.stroke();
-      // Arrow at positive Y end
-      const ayEnd = 10;
+      // Arrow at positive V end
+      const avEnd = 10;
       ctx.beginPath();
-      ctx.moveTo(originX, ayEnd);
-      ctx.lineTo(originX - 5, ayEnd + 8);
-      ctx.moveTo(originX, ayEnd);
-      ctx.lineTo(originX + 5, ayEnd + 8);
+      ctx.moveTo(originX, avEnd);
+      ctx.lineTo(originX - 5, avEnd + 8);
+      ctx.moveTo(originX, avEnd);
+      ctx.lineTo(originX + 5, avEnd + 8);
       ctx.stroke();
       // Labels
       ctx.fillStyle = 'rgba(220,50,50,0.7)';
       ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText('X', axEnd - 2, originY - 12);
+      ctx.fillText(hLabel, ahEnd - 2, originY - 12);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('Y', originX, ayEnd + 2);
-      // Scale markers along X axis
+      ctx.fillText(vLabel, originX, avEnd + 2);
+      // Scale markers along H axis (skip in ISO - values are projected, not real coordinates)
+      if (plane !== 'ISO') {
       ctx.fillStyle = 'rgba(0,0,0,0.75)';
       ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      const step = 10;
-      const startX = Math.ceil(0 / step) * step;
-      const endX = Math.floor(maxX / step) * step;
-      for (let v = startX; v <= endX; v += step) {
-        const px = toCanvasX(v);
+      const smStep = 10;
+      const sStartH = Math.ceil(0 / smStep) * smStep;
+      const sEndH = Math.floor(maxH / smStep) * smStep;
+      for (let v = sStartH; v <= sEndH; v += smStep) {
+        const px = toH(v);
         if (px > 10 && px < w - 10) {
           ctx.fillText(String(v), px, originY + 5);
           ctx.beginPath(); ctx.moveTo(px, originY - 4); ctx.lineTo(px, originY + 4); ctx.stroke();
         }
       }
-      // Scale markers along Y axis
+      // Scale markers along V axis
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
-      const startY = Math.ceil(0 / step) * step;
-      const endY = Math.floor(maxY / step) * step;
-      for (let v = startY; v <= endY; v += step) {
-        const py = toCanvasY(v);
+      const sStartV = Math.ceil(0 / smStep) * smStep;
+      const sEndV = Math.floor(maxV / smStep) * smStep;
+      for (let v = sStartV; v <= sEndV; v += smStep) {
+        const py = toV(v);
         if (py > 10 && py < h - 10) {
           ctx.fillText(String(v), originX - 6, py);
           ctx.beginPath(); ctx.moveTo(originX - 4, py); ctx.lineTo(originX + 4, py); ctx.stroke();
         }
+      }
       }
       // Origin circle
       ctx.fillStyle = 'rgba(220,50,50,0.4)';
       ctx.beginPath(); ctx.arc(originX, originY, 3, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
+    }
 
-    // Work area background + border (like GRBL style) ? controlled by BBox checkbox
+    // Work area background + border
     if (previewOpts.showBounds) {
     ctx.save();
-    const waX = toCanvasX(minX), waY = toCanvasY(maxY);
-    const waW = rangeX * baseFit * state.previewScale;
-    const waH = rangeY * baseFit * state.previewScale;
+    const waX = toH(minH), waY = rp.invertV ? toV(maxV) : toV(minV);
+    const waW = rangeH * baseFit * state.previewScale;
+    const waH = rangeV * baseFit * state.previewScale;
     // Background fill
     ctx.fillStyle = 'rgba(15,23,42,0.35)';
     ctx.fillRect(waX, waY, waW, waH);
@@ -1181,8 +1385,9 @@ const preview = {
       ctx.beginPath();
       for (let i = 0; i < origSegs.length; i++) {
         const s = origSegs[i];
-        ctx.moveTo(toCanvasX(s.a.x), toCanvasY(s.a.y));
-        ctx.lineTo(toCanvasX(s.b.x), toCanvasY(s.b.y));
+        const opa = prj(s.a), opb = prj(s.b);
+        ctx.moveTo(opa.x, opa.y);
+        ctx.lineTo(opb.x, opb.y);
       }
       ctx.stroke();
       ctx.setLineDash([]);
@@ -1195,9 +1400,9 @@ const preview = {
       ctx.strokeStyle = 'rgba(255,165,0,0.5)';
       ctx.lineWidth = 2;
       ctx.setLineDash([8, 6]);
-      const cx = toCanvasX((minX + maxX) / 2), cy = toCanvasY((minY + maxY) / 2);
-      const hw = (maxX - minX) * baseFit * state.previewScale * 0.3;
-      const hh = (maxY - minY) * baseFit * state.previewScale * 0.3;
+      const cx = toH((minH + maxH) / 2), cy = toV((minV + maxV) / 2);
+      const hw = (maxH - minH) * baseFit * state.previewScale * 0.3;
+      const hh = (maxV - minV) * baseFit * state.previewScale * 0.3;
       ctx.beginPath(); ctx.moveTo(cx - hw, cy - hh); ctx.lineTo(cx + hw, cy + hh); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cx + hw, cy - hh); ctx.lineTo(cx - hw, cy + hh); ctx.stroke();
       ctx.setLineDash([]);
@@ -1242,8 +1447,8 @@ const preview = {
     for (let i = 0; i < segsToDraw; i++) {
       const s = segments[i];
       if (!state.showRapids && (s.rapid || (!s.toolOn && fileHasToolOn))) continue;
-      const ax = toCanvasX(s.a.x), ay = toCanvasY(s.a.y);
-      const bx = toCanvasX(s.b.x), by = toCanvasY(s.b.y);
+      const pa = prj(s.a), pb = prj(s.b);
+      const ax = pa.x, ay = pa.y, bx = pb.x, by = pb.y;
       lastCmdIdx = s.cmdIdx;
       if (isTravel(s)) {
         if (isRaster) continue;
@@ -1362,8 +1567,9 @@ const preview = {
         const s = segments[i];
         if (s.rapid) continue;
         if (s.cmdIdx === lastCmdIdx) {
-          ctx.moveTo(toCanvasX(s.a.x), toCanvasY(s.a.y));
-          ctx.lineTo(toCanvasX(s.b.x), toCanvasY(s.b.y));
+          const psa = prj(s.a), psb = prj(s.b);
+          ctx.moveTo(psa.x, psa.y);
+          ctx.lineTo(psb.x, psb.y);
         }
       }
       ctx.stroke();
@@ -1422,7 +1628,7 @@ const preview = {
       for (let i = 0; i < segsToDraw; i += dotDotStep) {
         const s = segments[i];
         if (s.rapid && !state.showRapids) continue;
-        const cx = toCanvasX(s.b.x), cy = toCanvasY(s.b.y);
+        const pc = prj(s.b); const cx = pc.x, cy = pc.y;
         if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
         ctx.beginPath();
         ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2);
@@ -1461,8 +1667,10 @@ const preview = {
       }
       if (!endSeg) { endSeg = segments[segments.length - 1] || null; }
       if (startSeg || endSeg) {
-        const sx = startSeg ? toCanvasX(startSeg.a.x) : 0, sy = startSeg ? toCanvasY(startSeg.a.y) : 0;
-        const ex = endSeg ? toCanvasX(endSeg.b.x) : 0, ey = endSeg ? toCanvasY(endSeg.b.y) : 0;
+        const pS = startSeg ? prj(startSeg.a) : {x:0, y:0};
+        const sx = pS.x, sy = pS.y;
+        const pE = endSeg ? prj(endSeg.b) : {x:0, y:0};
+        const ex = pE.x, ey = pE.y;
         const samePoint = startSeg && endSeg && Math.abs(sx - ex) < 2 && Math.abs(sy - ey) < 2;
         const offX = samePoint ? 22 : 0;
         if (startSeg) {
@@ -1492,7 +1700,8 @@ const preview = {
       if (typeof ui !== 'undefined' && ui._markStartIdx != null && ui._markStartIdx >= 0 && ui._pointsList && ui._pointsList.length) {
         const mp = ui._pointsList.find(p => p.idx === ui._markStartIdx);
         if (mp) {
-          const mx = toCanvasX(mp.x), my = toCanvasY(mp.y);
+          const mkp = prj(mp);
+          const mx = mkp.x, my = mkp.y;
           const dpr = window.devicePixelRatio || 1;
           ctx.save(); ctx.translate(mx, my);
           ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2);
@@ -1518,8 +1727,9 @@ const preview = {
           ctx.shadowColor = 'rgba(255,255,0,0.6)';
           ctx.shadowBlur = 12;
           ctx.beginPath();
-          ctx.moveTo(toCanvasX(s.a.x), toCanvasY(s.a.y));
-          ctx.lineTo(toCanvasX(s.b.x), toCanvasY(s.b.y));
+          const pha = prj(s.a), phb = prj(s.b);
+          ctx.moveTo(pha.x, pha.y);
+          ctx.lineTo(phb.x, phb.y);
           ctx.stroke();
           ctx.restore();
         }
@@ -1530,10 +1740,10 @@ const preview = {
     state.selectedPoints.forEach(idx => {
       const c = commands[idx];
       if (!c) return;
-      const px = c.params.X ?? 0, py = c.params.Y ?? 0;
-      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 7, 0, Math.PI * 2);
+      const ps = prj({x: c.params.X ?? 0, y: c.params.Y ?? 0, z: c.params.Z ?? 0});
+      ctx.beginPath(); ctx.arc(ps.x, ps.y, 7, 0, Math.PI * 2);
       ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 5, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(ps.x, ps.y, 5, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(0,255,136,0.4)'; ctx.fill();
     });
 
@@ -1604,9 +1814,9 @@ const preview = {
     // Direction arrow below work area ? shows program flow direction
     if (segments.length && segsToDraw > 0) {
       const dpr3 = window.devicePixelRatio || 1;
-      const waX = toCanvasX(minX), waY = toCanvasY(maxY);
-      const waW = rangeX * baseFit * state.previewScale;
-      const waH = rangeY * baseFit * state.previewScale;
+      const waX = toH(minH), waY = rp.invertV ? toV(maxV) : toV(minV);
+      const waW = rangeH * baseFit * state.previewScale;
+      const waH = rangeV * baseFit * state.previewScale;
       // Compute net direction from non-rapid segments
       let dx = 0, dy = 0;
       for (let i = 0; i < segsToDraw && i < segments.length; i++) {

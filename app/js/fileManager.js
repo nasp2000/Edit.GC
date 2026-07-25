@@ -18,4 +18,10 @@ const fileManager = {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
+  downloadKuka(srcContent, datContent, baseName) {
+    this.downloadGcode(srcContent, baseName + '.src');
+    setTimeout(() => {
+      this.downloadGcode(datContent, baseName + '.dat');
+    }, 500);
+  }
 };

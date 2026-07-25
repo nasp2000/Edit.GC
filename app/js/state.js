@@ -11,6 +11,7 @@ const state = {
     previewScale: 1,
     previewOffX: 0,
     previewOffY: 0,
+    previewPlane: 'XY',  // 'XY' | 'XZ' | 'YZ'
     svgPreviewMode: 'outlines', // 'outlines' | 'raster'
   svgImg:        null,    // Image quando SVG carregado
   svgDims:       null,    // { width, height }

@@ -80,15 +80,124 @@ const svgConverter = {
       });
       return { minX, maxX, minY, maxY, area: (maxX - minX) * (maxY - minY) || 0 };
     });
-    const sortedIndices = segments.map((_, i) => i).sort((a, b) => {
+    const sortedIndices = segments.map((_, i) => i);
+
+    // Ensure open segments start from their free endpoint
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg || seg.length < 2) continue;
+      const s = seg[0], e = seg[seg.length - 1];
+      if (Math.abs(s.x - e.x) < 0.5 && Math.abs(s.y - e.y) < 0.5) continue;
+      let sFree = true, eFree = true;
+      for (let j = 0; j < segments.length; j++) {
+        if (i === j) continue;
+        const other = segments[j];
+        if (!other || other.length < 2) continue;
+        for (const pt of other) {
+          if (Math.abs(pt.x - s.x) < 0.5 && Math.abs(pt.y - s.y) < 0.5) sFree = false;
+          if (Math.abs(pt.x - e.x) < 0.5 && Math.abs(pt.y - e.y) < 0.5) eFree = false;
+        }
+        // Also check segment proximity (point may fall on edge, not vertex)
+        for (let k = 0; k < other.length - 1; k++) {
+          const a = other[k], b = other[k+1];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const len2 = dx*dx + dy*dy;
+          if (len2 < 0.0001) continue;
+          let t = ((s.x - a.x)*dx + (s.y - a.y)*dy) / len2;
+          t = Math.max(0, Math.min(1, t));
+          if (Math.abs(s.x - (a.x + t*dx)) < 0.5 && Math.abs(s.y - (a.y + t*dy)) < 0.5) sFree = false;
+          t = ((e.x - a.x)*dx + (e.y - a.y)*dy) / len2;
+          t = Math.max(0, Math.min(1, t));
+          if (Math.abs(e.x - (a.x + t*dx)) < 0.5 && Math.abs(e.y - (a.y + t*dy)) < 0.5) eFree = false;
+        }
+      }
+      if (eFree && !sFree) {
+        const rev = seg.slice().reverse();
+        rev[0] = { ...rev[0], cut: false };
+        for (let ri = 1; ri < rev.length; ri++) rev[ri] = { ...rev[ri], cut: true };
+        segments[i] = rev;
+      }
+    }
+    // Pre-compute first open segment's endpoint for sort comparator
+    let firstOpenEnd = null;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg || seg.length < 2) continue;
+      if (Math.abs(seg[0].x - seg[seg.length-1].x) > 0.5 || Math.abs(seg[0].y - seg[seg.length-1].y) > 0.5) {
+        firstOpenEnd = seg[seg.length - 1];
+        break;
+      }
+    }
+    // Sort: open segments first, then closed by proximity to first open's endpoint
+    sortedIndices.sort((a, b) => {
+      const sa = segments[a], sb = segments[b];
+      if (!sa || !sb || sa.length < 2 || sb.length < 2) return 0;
+      const aOpen = Math.abs(sa[0].x - sa[sa.length-1].x) > 0.5 || Math.abs(sa[0].y - sa[sa.length-1].y) > 0.5;
+      const bOpen = Math.abs(sb[0].x - sb[sb.length-1].x) > 0.5 || Math.abs(sb[0].y - sb[sb.length-1].y) > 0.5;
+      if (aOpen && !bOpen) return -1;
+      if (bOpen && !aOpen) return 1;
+      if (firstOpenEnd) {
+        const pe = firstOpenEnd;
+        const minDist = (seg) => {
+          let d = Infinity;
+          for (let k = 0; k < seg.length; k++) {
+            d = Math.min(d, Math.abs(seg[k].x-pe.x)+Math.abs(seg[k].y-pe.y));
+            if (k > 0) {
+              const a = seg[k-1], b = seg[k];
+              const dx = b.x-a.x, dy = b.y-a.y;
+              const len2 = dx*dx+dy*dy;
+              if (len2 < 0.0001) continue;
+              let t = ((pe.x-a.x)*dx+(pe.y-a.y)*dy)/len2;
+              t = Math.max(0, Math.min(1, t));
+              d = Math.min(d, Math.abs(pe.x-(a.x+t*dx))+Math.abs(pe.y-(a.y+t*dy)));
+            }
+          }
+          return d;
+        };
+        const da = minDist(sa), db = minDist(sb);
+        return da - db;
+      }
       const ba = segBounds[a], bb = segBounds[b];
       if (!ba || !bb) return 0;
-      const aContainsB = ba.minX <= bb.minX && ba.maxX >= bb.maxX && ba.minY <= bb.minY && ba.maxY >= bb.maxY;
-      const bContainsA = bb.minX <= ba.minX && bb.maxX >= ba.maxX && bb.minY <= ba.minY && bb.maxY >= ba.maxY;
-      if (aContainsB && !bContainsA) return 1;
-      if (bContainsA && !aContainsB) return -1;
+      if (ba.minX <= bb.minX && ba.maxX >= bb.maxX && ba.minY <= bb.minY && ba.maxY >= bb.maxY) return 1;
+      if (bb.minX <= ba.minX && bb.maxX >= ba.maxX && bb.minY <= ba.minY && bb.maxY >= ba.maxY) return -1;
       return (ba.area || 0) - (bb.area || 0);
     });
+
+    // For each open segment followed by a closed one, rotate closed to nearest vertex + add entry/exit
+    for (let si = 0; si < sortedIndices.length - 1; si++) {
+      const segIdx = sortedIndices[si];
+      const nextIdx = sortedIndices[si + 1];
+      const seg = segments[segIdx], next = segments[nextIdx];
+      if (!seg || !next || seg.length < 2 || next.length < 2) continue;
+      const segOpen = Math.abs(seg[0].x - seg[seg.length-1].x) > 0.5 || Math.abs(seg[0].y - seg[seg.length-1].y) > 0.5;
+      const nextClosed = !(Math.abs(next[0].x - next[next.length-1].x) > 0.5 || Math.abs(next[0].y - next[next.length-1].y) > 0.5);
+      if (!segOpen || !nextClosed) continue;
+      const pe = seg[seg.length - 1];
+      // Find closest vertex on the closed shape
+      let bestK = 0, bestD = Infinity, insertPt = null;
+      for (let k = 0; k < next.length; k++) {
+        const d = Math.abs(next[k].x - pe.x) + Math.abs(next[k].y - pe.y);
+        if (d < bestD) { bestD = d; bestK = k; insertPt = null; }
+        if (k > 0) {
+          const a = next[k-1], b = next[k];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const len2 = dx*dx + dy*dy;
+          if (len2 < 0.0001) continue;
+          let t = ((pe.x - a.x)*dx + (pe.y - a.y)*dy) / len2;
+          t = Math.max(0, Math.min(1, t));
+          const dd = Math.abs(pe.x - (a.x+t*dx)) + Math.abs(pe.y - (a.y+t*dy));
+          if (dd < bestD) { bestD = dd; bestK = k; insertPt = { x: a.x+t*dx, y: a.y+t*dy }; }
+        }
+      }
+      const bodyPts = next.slice(0, -1);
+      const rotated = insertPt
+        ? [insertPt, ...bodyPts.slice(bestK), ...bodyPts.slice(0, bestK)]
+        : [...bodyPts.slice(bestK), ...bodyPts.slice(0, bestK)];
+      const entry = { x: pe.x, y: pe.y, cut: false };
+      const exitPt = { x: pe.x, y: pe.y, cut: true };
+      segments[nextIdx] = [entry, ...rotated, exitPt];
+    }
 
     const baseOff = baseCmd(laserOff);
     const baseOn = baseCmd(laserOn);
@@ -119,7 +228,7 @@ const svgConverter = {
       // Determine if segment is closed (last point ? travel-to-start point)
       const lastPt = seg[seg.length - 1];
       const isClosed = start && lastPt &&
-        Math.abs(start.x - lastPt.x) < 0.001 && Math.abs(start.y - lastPt.y) < 0.001;
+        Math.abs(start.x - lastPt.x) < 0.1 && Math.abs(start.y - lastPt.y) < 0.1;
       // Cut portion repeated `passes` times
       for (let pass = 0; pass < passes; pass++) {
         const passZ = zBase + pass * zStep;

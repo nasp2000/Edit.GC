@@ -18,7 +18,8 @@
     <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.004</span>
   </header>
 
-  <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
+  <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt,.src" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
+  <input type="file" id="fileInputDat" accept=".dat" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputSvg" accept=".svg" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputDxf" accept=".dxf" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputVector" accept=".svg,.dxf" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
@@ -110,6 +111,10 @@
             <option value="raster">Raster</option>
             <option value="points">Points</option>
           </select>
+          <select id="previewPlane" class="bselect" style="width:48px;display:none">
+            <option value="XY">XY</option>
+            <option value="ISO">ISO</option>
+          </select>
           <button class="btn-icon" id="btnSlice" disabled title="Convert: generate G-code from drawing + all widget options" style="font-weight:700;border:2px solid var(--accent2);padding:2px 10px;color:var(--accent2);font-size:12px">Convert</button>
           <span class="ctrl-sep-v"></span>
           <button class="btn-icon" id="btnRotate90" title="Rotate all G-code 90° clockwise each click">↻ 90°</button>
@@ -138,11 +143,13 @@
         <div id="editor-tabs">
           <button class="editor-tab active" data-tab="original">Original G-code</button>
           <button class="editor-tab" data-tab="working">Working G-code</button>
+          <button class="editor-tab" id="tabKukaOutput" data-tab="kuka" style="display:none">KUKA Preview</button>
           <div style="flex:1"></div>
           <div style="flex:1"></div>
           <span class="ctrl-sep-v"></span>
-          <span class="file-actions">
+            <span class="file-actions">
             <button class="btn-icon" onclick="document.getElementById('fileInputGcode').click()" data-tab-vis="original" title="Open G-code file">Open G-code</button>
+            <button class="btn-icon" id="btnLoadKukaDat" style="display:none" data-tab-vis="original" title="Load companion .dat for KUKA coordinates">Load .dat</button>
             <select id="recentFilesSelect" class="bselect" style="width:110px;height:18px;font-size:9px" data-tab-vis="original" title="Open recent file"><option value="">--- Recent ---</option></select>
             <button class="btn-icon" id="btnSave2" onclick="document.getElementById('btnSave').click()" data-tab-vis="working" title="Save G-code to file">Save</button>
             <button class="btn-icon" id="btnSaveAs2" onclick="document.getElementById('btnSaveAs').click()" data-tab-vis="working" title="Save G-code as new file">Save As</button>
@@ -154,6 +161,7 @@
             <span class="ctrl-sep-v" data-tab-vis="working"></span>
             <button class="btn-icon" onclick="openGcodeModal('original')" style="font-size:12px;line-height:1" data-tab-vis="original" title="Maximize">▢</button>
             <button class="btn-icon" onclick="openGcodeModal('working')" style="font-size:12px;line-height:1" data-tab-vis="working" title="Maximize">▢</button>
+            <button class="btn-icon" id="btnMaxKuka" style="display:none;font-size:12px;line-height:1" data-tab-vis="kuka" title="Maximize KUKA preview">▢</button>
           </span>
         </div>
         <div id="findReplaceBar" class="find-replace-bar" style="display:none">
@@ -184,6 +192,18 @@
               <div id="virtualEditorWrap" style="display:none;flex:1;min-height:0;position:relative"></div>
       </div>
     </div>
+          <div class="editor-pane" id="pane-kuka">
+            <div style="display:flex;height:100%">
+              <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border2)">
+                <div style="padding:2px 8px;background:var(--bg3);font-size:10px;font-weight:600;color:var(--accent);flex-shrink:0">.src</div>
+                <div id="kukaSrcPreview" style="flex:1;min-height:0;overflow:auto;background:var(--bg2);padding:6px;font-size:13px;line-height:1.5;font-family:var(--font-mono);white-space:pre;color:var(--text)"></div>
+              </div>
+              <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+                <div style="padding:2px 8px;background:var(--bg3);font-size:10px;font-weight:600;color:var(--accent);flex-shrink:0">.dat</div>
+                <div id="kukaDatPreview" style="flex:1;min-height:0;overflow:auto;background:var(--bg2);padding:4px;font-size:10px;font-family:var(--font-mono);white-space:pre;color:var(--text)"></div>
+              </div>
+            </div>
+          </div>
   </div>
 
   <!-- POINTS PANEL (fixed overlay, outside grid) -->
@@ -215,7 +235,7 @@
       <span>Tab &#8597; navigate</span><span>Space &#10003; toggle</span><span>Click select</span>
     </div>
 
-    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'&#9654;':'&#9660;'">
+    <div class="collapse-header" id="originHeader" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'&#9654;':'&#9660;'">
       <span class="collapse-arrow" style="font-size:10px;margin-right:4px">&#9654;</span><span style="font-size:11px;font-weight:600" title="Move first cut point to entered coordinates">Set Start Coordinates</span>
     </div>
     <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="originContent">
@@ -373,8 +393,15 @@
         <button class="btn-action" id="btnTurnVarApply" style="flex:none">Apply</button>
         <span class="step-label" style="margin-left:auto">Step</span><select id="turnVarStep" class="bselect step-select" style="width:50px;height:18px;font-size:10px"><option value="0.01">0.01</option><option value="0.1" selected>0.1</option><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
       </div>
+      <div style="width:100%;display:flex;gap:3px;align-items:center;margin-top:4px">
+        <label class="toggle-switch" title="Apply turn variation only to arc segments (G2/G3)">
+          <input type="checkbox" id="chkTurnVarArcsOnly">
+          <span class="toggle-slider"></span>
+        </label>
+        <span id="toggleTurnVarArcsLabel" style="font-size:9px;color:var(--text-dim);min-width:42px;text-align:center">Arcs only</span>
+      </div>
     </div>
-    <div class="collapse-header" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
+    <div class="collapse-header" id="speedPowerHeader" onclick="const c=this.nextElementSibling;const open=c.style.display!=='none';c.style.display=open?'none':'flex';this.querySelector('.collapse-arrow').textContent=open?'▶':'▼'">
       <span class="collapse-arrow" style="font-size:10px;margin-right:4px">▶</span><span style="font-size:11px;font-weight:600" title="Assign speed/power presets to selected points by color">Speed & Power Control</span>
     </div>
     <div style="display:none;flex-shrink:0;border-top:1px solid var(--border2);gap:4px;padding:6px;flex-wrap:wrap;background:var(--bg2)" id="speedPowerContent">
@@ -405,6 +432,11 @@
             <option value="outlines">Outlines</option>
             <option value="raster">Raster</option>
             <option value="points">Points</option>
+          </select>
+          <select id="previewPlaneModal" class="bselect" style="width:45px">
+            <option value="XY">XY</option>
+            <option value="XZ">XZ</option>
+            <option value="YZ">YZ</option>
           </select>
           <button class="btn-icon" id="mBtnPlay" title="Play preview">Play</button>
           <button class="btn-icon" id="mBtnPause" title="Pause preview">Pause</button>
@@ -546,6 +578,7 @@
   <script src="js/undoRedo.js"></script>
   <script src="js/segmentBuilder.js"></script>
   <script src="js/preview.js?nocache=1"></script>
+  <script src="js/kukaConverter.js"></script>
   <script src="js/dragdrop.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/modal.js"></script>

@@ -56,3 +56,30 @@ function setupScrollSync(textareaId, overlayId, linesId) {
   };
   ta.addEventListener('scroll', sync);
 }
+
+function kukaHighlight(text) {
+  if (!text) return '';
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return text.replace(/\r/g, '').split('\n').map(line => {
+    if (/^\s*;/.test(line)) {
+      const isSection = /^;---/.test(line.trim());
+      const cls = isSection ? 'hl-kuka-section' : 'hl-comment';
+      return `<span class="${cls}">${esc(line)}</span>`;
+    }
+    const cmtIdx = line.indexOf(';');
+    let body = cmtIdx >= 0 ? line.substring(0, cmtIdx) : line;
+    let cmt = cmtIdx >= 0 ? line.substring(cmtIdx) : '';
+    body = body
+      .replace(/\b(DEF|END|ENDDAT|ENDSWITCH|ENDCASE|ENDWHILE|DEFDAT|DECL|INI|GLOBAL|INTERRUPT|CONTINUE|SWITCH|CASE|DEFAULT|WHILE|EXT|SUCCESS|CONST)\b/gi,
+        '<span class="hl-kw">$1</span>')
+      .replace(/\b(PTP|LIN|SLIN|CIRC|TRIGGER|WAIT|BAS|SVEL_CP|PTP_VEL|SACC_CP|SAPO|SORI_TYP|SJERK|SIPO_MODE|SLOAD)\b/gi,
+        '<span class="hl-motion">$1</span>')
+      .replace(/\b(\$[A-Z_]+|TRUE|FALSE|XHOME|FHOME|PDEFAULT|CONT|C_DIS|C_SPL|POSITION|DISTANCE|DELAY|WHEN|DO|AT|FOR|WITH|STATE|VEL|ACC|APO_DIST|APO_FAC|ORI_TYP|JERK_FAC|TOOL_NO|BASE_NO|IPO_FRAME|TQ_STATE|POINT2|LAST_BASIS|GEAR_JERK|EXAX_IGN|APO_MODE|AXIS_VEL|AXIS_ACC|CIRC_TYP|CB|AUX_PT|TARGET_PT|ORI|CONSIDER|INTERPOLATE)\b/gi,
+        '<span class="hl-param">$1</span>')
+      .replace(/\b(XP\d+|FP\d+|LCPDAT\d+|CPDAT\d+|PPDAT\d+|PDAT\d+|LPDAT\d+|LPCPDAT|\d+)\b/gi,
+        '<span class="hl-num">$1</span>')
+      .replace(/\b(STOOL2|EK|K_ROOT|K_TYPE|K_OFFS|SVEL_CP|PTP_VEL|SACC_CP|SAPO|SORI_TYP|SJERK|SIPO_MODE|SLOAD)\b/gi,
+        '<span class="hl-kuka-func">$1</span>');
+    return body + (cmt ? `<span class="hl-comment">${esc(cmt)}</span>` : '');
+  }).join('\n');
+}

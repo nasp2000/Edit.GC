@@ -5,11 +5,56 @@ const ui = {
     document.getElementById('fileInputGcode').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
       e.target.value = '';
-      ui.clearState(); // permite reabrir o mesmo ficheiro
+      ui.clearState();
       ui.setProgress(2, 'Reading file...');
       const text = await fileManager.readGcode(file);
       ui.setProgress(30, 'Parsing...');
+
+      const isSrc = /\.src$/i.test(file.name);
+      if (isSrc) {
+        const parsedSrc = kukaConverter.parseSrc(text);
+        state._kukaParsedSrc = parsedSrc;
+        state._kukaDatPoints = {};
+        const dummyDat = {};
+        for (const m of parsedSrc.motions) {
+          if (m.pointIdx && !dummyDat[m.pointIdx]) {
+            dummyDat[m.pointIdx] = { x: m.pointIdx * 5, y: m.pointIdx * 3, z: 0 };
+          }
+        }
+        state.originalCmds = kukaConverter.toGcode(parsedSrc, dummyDat);
+        state.workingCmds = state.originalCmds.map(c => ({...c}));
+        state.originalText = text;
+        state.originalName = file.name;
+        state.dirty = false;
+        state.previewScale = 1;
+        state.previewOffX = 0;
+        state.previewOffY = 0;
+        const editorText = truncateForEditor(text);
+        document.getElementById('editorOriginal').value = editorText;
+        const gcodeText = gcodeParser.serialize(state.workingCmds);
+        document.getElementById('editorWorking').value = gcodeText;
+        ui.setProgress(70, 'Applying syntax highlight...');
+        applyHighlight(document.getElementById('highlightOriginal'), text);
+        applyHighlight(document.getElementById('highlightWorking'), gcodeText);
+        ui.setProgress(90, 'Rendering...');
+        preview.resize();
+        preview.fitView();
+        document.getElementById('btnLoadKukaDat').style.display = '';
+        ui.setProgress(100, 'Done');
+        setTimeout(() => ui.setProgress(-1), 1000);
+        ui.setStatus('KUKA .src loaded: ' + file.name + ' (' + parsedSrc.motions.length + ' motions). Load companion .dat for real coordinates.');
+        ui.syncModals();
+        ui.updateFooterInfo();
+        ui.updateResizePanel();
+        recentFiles.add(file.name, 'KUKA .src', text);
+        const _rs = document.getElementById('recentFilesSelect');
+        if (_rs) recentFiles.populateSelect(_rs);
+        document.getElementById('btnSlice').disabled = true;
+        return;
+      }
+
       state.originalCmds  = gcodeParser.parse(text);
+      document.getElementById('btnLoadKukaDat').style.display = 'none';
       ui.setProgress(50, 'Preparing editor...');
       const isLarge = text.length > 5 * 1024 * 1024 || state.originalCmds.length > 50000;
       const isHuge = text.length > 50 * 1024 * 1024;
@@ -18,7 +63,6 @@ const ui = {
       state.workingCmds   = state.originalCmds.map(c => ({ ...c }));
       if (state.originalCmds.length > 50000) state.originalCmds = [];
       state.dirty         = false;
-      // reset zoom/pan para auto-fit ao novo ficheiro
       state.previewScale  = 1;
       state.previewOffX   = 0;
       state.previewOffY   = 0;
@@ -30,9 +74,8 @@ const ui = {
       applyHighlight(document.getElementById('highlightOriginal'), hlText);
       applyHighlight(document.getElementById('highlightWorking'), hlText);
       ui.setProgress(90, 'Rendering...');
-      preview.resize(); // garante dimenses do canvas e faz draw
-      preview.fitView(); // centra e ajusta o toolpath ?  vista (top-down)
-      // Check for unknown commands
+      preview.resize();
+      preview.fitView();
       const analysis = gcodeParser.analyzeFull(state.workingCmds);
       let statusMsg = `Opened: ${file.name} (${state.workingCmds.length} lines)`;
       if (analysis.unknownCmds.length) {
@@ -48,6 +91,86 @@ const ui = {
       const _rs = document.getElementById('recentFilesSelect');
       if (_rs) recentFiles.populateSelect(_rs);
       document.getElementById('btnSlice').disabled = true;
+    });
+
+    // Load KUKA .dat companion file
+    document.getElementById('fileInputDat').addEventListener('change', async e => {
+      const file = e.target.files[0]; if (!file) return;
+      e.target.value = '';
+      const text = await fileManager.readGcode(file);
+      const points = kukaConverter.parseDat(text);
+      state._kukaDatPoints = points;
+      const parsedSrc = state._kukaParsedSrc;
+      if (!parsedSrc) {
+        const keys = Object.keys(points).sort((a, b) => a - b);
+        if (!keys.length) { ui.setStatus('.dat has no E6POS points.', 'error'); return; }
+        const cmds = [];
+        for (const k of keys) {
+          const p = points[k];
+          cmds.push({ type: 'G1', params: { X: p.x, Y: p.y, Z: p.z, F: 3000 }, raw: 'G1 X' + p.x + ' Y' + p.y + ' Z' + p.z + ' F3000' });
+        }
+        state.originalCmds = cmds.map(c => ({...c}));
+        state.workingCmds = cmds.map(c => ({...c}));
+        state.originalText = gcodeParser.serialize(cmds);
+        state.originalName = file.name.replace('.dat', '.gcode');
+        state.dirty = false;
+        const gcodeText = gcodeParser.serialize(cmds);
+        document.getElementById('editorOriginal').value = gcodeText;
+        document.getElementById('editorWorking').value = gcodeText;
+        applyHighlight(document.getElementById('highlightOriginal'), gcodeText);
+        applyHighlight(document.getElementById('highlightWorking'), gcodeText);
+        preview.resize();
+        preview.fitView();
+        ui.syncModals();
+        ui.updateFooterInfo();
+        ui.updateResizePanel();
+        ui.setStatus('.dat loaded: ' + keys.length + ' E6POS points -> G-code.');
+        return;
+      }
+      const cmds = kukaConverter.toGcode(parsedSrc, points);
+      state.originalCmds = cmds.map(c => ({...c}));
+      state.workingCmds = cmds.map(c => ({...c}));
+      state.dirty = false;
+      const gcodeText = gcodeParser.serialize(cmds);
+      document.getElementById('editorWorking').value = gcodeText;
+      applyHighlight(document.getElementById('highlightWorking'), gcodeText);
+      preview.resize();
+      preview.fitView();
+      ui.syncModals();
+      ui.updateFooterInfo();
+      ui.updateResizePanel();
+      ui.setStatus('KUKA .dat loaded: ' + file.name + ' (' + Object.keys(points).length + ' points). G-code updated with real coordinates.');
+    });
+
+    document.getElementById('btnLoadKukaDat').addEventListener('click', () => {
+      document.getElementById('fileInputDat').click();
+    });
+
+    document.getElementById('btnMaxKuka').addEventListener('click', () => {
+      ui._refreshKukaPreview();
+      const srcEl = document.getElementById('kukaSrcPreview');
+      const datEl = document.getElementById('kukaDatPreview');
+      openModal('modal-gcode');
+      document.querySelectorAll('#gcodeModalTabs .editor-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.gtab === 'dual');
+        t.style.display = t.dataset.gtab === 'dual' ? '' : 'none';
+      });
+      document.getElementById('gcodeModalSingle').style.display = 'none';
+      document.getElementById('gcodeModalDual').style.display = 'flex';
+      document.querySelector('.gcode-working-tools').style.display = 'none';
+      const taSrc = document.getElementById('editorOriginalModalDual');
+      const taDat = document.getElementById('editorWorkingModalDual');
+      const hlSrc = document.getElementById('highlightOriginalModalDual');
+      const hlDat = document.getElementById('highlightWorkingModalDual');
+      if (srcEl) { const t = srcEl.innerText || ''; if (taSrc) taSrc.value = t; if (hlSrc) { hlSrc.innerHTML = kukaHighlight(t); hlSrc.scrollTop = 0; } }
+      if (datEl) { const t = datEl.innerText || ''; if (taDat) taDat.value = t; if (hlDat) { hlDat.innerHTML = kukaHighlight(t); hlDat.scrollTop = 0; } }
+      updateLineNumbers('linesOriginalModalDual', 'editorOriginalModalDual');
+      updateLineNumbers('linesWorkingModalDual', 'editorWorkingModalDual');
+      setupGcodeDualScrollSync();
+      const dualLeft = document.querySelector('#gcodeModalDual > div:first-child > div:first-child');
+      const dualRight = document.querySelector('#gcodeModalDual > div:last-child > div:first-child');
+      if (dualLeft) dualLeft.textContent = '.src';
+      if (dualRight) dualRight.textContent = '.dat';
     });
 
     // ---- Preview playback buttons (main + modal) ----
@@ -350,6 +473,17 @@ const ui = {
       _syncSvgView(e.target);
     });
 
+    document.getElementById('previewPlane').addEventListener('change', e => {
+      document.getElementById('previewPlaneModal').value = e.target.value;
+      state.previewPlane = e.target.value;
+      preview.draw(state.workingCmds);
+    });
+    document.getElementById('previewPlaneModal').addEventListener('change', e => {
+      document.getElementById('previewPlane').value = e.target.value;
+      state.previewPlane = e.target.value;
+      preview.draw(state.workingCmds);
+    });
+
     // Open DXF
     document.getElementById('fileInputDxf').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
@@ -396,6 +530,7 @@ const ui = {
           baseName = (state.dxfName || 'output').replace(/\.dxf$/i, '') + '.gcode';
         }
         ui.setProgress(60, 'Applying scale...');
+        // cmds already clean - KUKA axes shown in KUKA Preview tab
         const tw = parseFloat(document.getElementById('resizeW').value);
         if (tw > 0) {
           let baseRatio;
@@ -449,7 +584,7 @@ const ui = {
         setTimeout(() => ui.setProgress(-1), 1200);
         const passes = processed?.laser?.passes || 1;
         const cutLines = cmds.filter(c => c.type === 'G1' || c.type === 'G01').length;
-        ui.setStatus(`Converted: ${cutLines} cut moves ? ${cmds.length} lines ? ${passes} pass(es) ? "${baseName}"`);
+        ui.setStatus(`Converted: ${cutLines} cut moves | ${cmds.length} lines | ${passes} pass(es) | "${baseName}"`);
       } catch (err) {
         ui.setProgress(-1);
         ui.setStatus(`Conversion error: ${err.message}`, 'error');
@@ -459,6 +594,18 @@ const ui = {
     // Salvar
     document.getElementById('btnSave').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('Nothing to save.', 'error'); return; }
+      const tpl = templateManager.getActive();
+      const isKuka = tpl && tpl.data && tpl.data.name === 'KUKA Robot (KRL)';
+      if (isKuka) {
+        const opts = ui._loadMachineOpts();
+        opts.programName = opts.programName || 'KUKA_Program';
+        const result = kukaConverter.convert(state.workingCmds, opts);
+        const base = state.originalName ? state.originalName.replace(/\.[^.]+$/, '') : opts.programName;
+        fileManager.downloadKuka(result.src, result.dat, base);
+        state.dirty = false;
+        ui.setStatus('Saved: ' + base + '.src + .dat');
+        return;
+      }
       const ext  = (state.templateMeta && state.templateMeta.ext)
         ? state.templateMeta.ext
         : (state.originalName ? state.originalName.split('.').pop() : 'gcode');
@@ -472,6 +619,18 @@ const ui = {
     // Salvar como (nativo)
     document.getElementById('btnSaveAs').addEventListener('click', async () => {
       if (!state.workingCmds.length) { ui.setStatus('Nothing to save.', 'error'); return; }
+      const tpl = templateManager.getActive();
+      const isKuka = tpl && tpl.data && tpl.data.name === 'KUKA Robot (KRL)';
+      if (isKuka) {
+        const opts = ui._loadMachineOpts();
+        opts.programName = opts.programName || 'KUKA_Program';
+        const result = kukaConverter.convert(state.workingCmds, opts);
+        const defaultName = state.originalName ? state.originalName.replace(/\.[^.]+$/, '') : opts.programName;
+        fileManager.downloadKuka(result.src, result.dat, defaultName);
+        state.dirty = false;
+        ui.setStatus('Saved: ' + defaultName + '.src + .dat');
+        return;
+      }
       const ext  = (state.templateMeta && state.templateMeta.ext)
         ? state.templateMeta.ext
         : 'gcode';
@@ -731,6 +890,7 @@ const ui = {
       templateManager.setActive(name);
       state.templateMeta = { ext: tpl.data.ext, lineEnd: tpl.data.lineEnd };
       ui.updateTemplateIndicator();
+      ui._updateKukaPlaneVisibility();
       const t = tpl.data;
       ui.setStatus(`Template "${name}" active. Ext: .${t.ext}, Tool: ${t.laserOnCmd || '?'}/${t.laserOffCmd || '?'}, Tools: ${t.toolCodes.join(', ') || 'none'}.`);
     });
@@ -742,7 +902,6 @@ const ui = {
         templateManager.setActive(name);
         const tpl = templateManager.getTemplate(name);
         if (tpl) state.templateMeta = { ext: tpl.data.ext, lineEnd: tpl.data.lineEnd };
-        // Refresh speed/power widget for SM300 detection
         if (window.ui && window.ui._speedPowerInit) {
           const table = document.getElementById('speedPowerTable');
           if (table) while (table.children.length > 3) table.removeChild(table.lastChild);
@@ -752,6 +911,7 @@ const ui = {
         templateManager.setActive(null);
         state.templateMeta = null;
       }
+      ui._updateKukaPlaneVisibility();
       settings.set('templateName', name);
       ui.updateTemplateIndicator();
       ui._populateMachineOptions();
@@ -1057,35 +1217,49 @@ const ui = {
       ui.setStatus(`Full Path Variation applied: ${doOutside ? 'outside ' + outsideVal + 'mm ' : ''}${doInside ? 'inside ' + insideVal + 'mm' : ''}`);
     });
 
-    // ---- Full Turn Path Variation ---------------------------------------------------------------
+// ---- Full Turn Path Variation ---------------------------------------------------------------
     document.getElementById('btnTurnVarApply').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       const val = parseFloat(document.getElementById('turnVarValue').value);
       if (!val) { ui.setStatus('Enter a non-zero variation value.', 'error'); return; }
+      const arcsOnly = document.getElementById('chkTurnVarArcsOnly')?.checked;
 
-      // Find all motion commands with X,Y coords
-      const moves = state.workingCmds.filter(c => c.params.X !== undefined &&
-        !/^G0?[23]$/i.test(c.type || '') && !/ARC/i.test(c.raw || c.type || ''));
-      if (moves.length < 2) { ui.setStatus('Need at least 2 motion commands with X coordinate.', 'error'); return; }
+      const isArc = (c) => /^G0?[23]$/i.test(c.type || '') || /ARC/i.test(c.raw || '');
+      const hasXY = (c) => c.params.X !== undefined;
+
+      // Pre-scan geometric arcs from G1 points (for SVG/DXF G-code without G2/G3)
+      let geoArcIdx = new Set();
+      if (arcsOnly) {
+        const coords = [];
+        state.workingCmds.forEach((c, i) => {
+          if (c.params.X !== undefined || c.params.Y !== undefined) coords.push({ i, x: c.params.X ?? 0, y: c.params.Y ?? 0 });
+        });
+        for (let k = 1; k < coords.length - 1; k++) {
+          const dx1 = coords[k].x - coords[k-1].x, dy1 = coords[k].y - coords[k-1].y;
+          const dx2 = coords[k+1].x - coords[k].x, dy2 = coords[k+1].y - coords[k].y;
+          const a1 = Math.atan2(dy1, dx1), a2 = Math.atan2(dy2, dx2);
+          let da = Math.abs(a2 - a1);
+          if (da > Math.PI) da = 2 * Math.PI - da;
+          if (da > 0.02) { geoArcIdx.add(coords[k].i); geoArcIdx.add(coords[k-1].i); geoArcIdx.add(coords[k+1].i); }
+        }
+      }
 
       undoRedo.push(state.workingCmds);
       let toggle = true;
       let moveIdx = 0;
       let prevX, prevY;
-      state.workingCmds = state.workingCmds.map(c => {
-        if (c.params.X === undefined) return c;
+      state.workingCmds = state.workingCmds.map((c, ci) => {
+        if (!hasXY(c)) return c;
+        if (arcsOnly && !isArc(c) && !geoArcIdx.has(ci)) return c;
         moveIdx++;
         if (moveIdx === 1) { prevX = c.params.X; prevY = c.params.Y; return c; }
         const dx = Math.abs(c.params.X - prevX);
         const dy = Math.abs(c.params.Y - prevY);
         const p = { ...c.params };
         const offset = toggle ? val : -val;
-        // Apply offset perpendicular to segment direction
         if (dx >= dy) {
-          // Horizontal segment ? vary Y
           p.Y = parseFloat((p.Y + offset).toFixed(4));
         } else {
-          // Vertical segment ? vary X
           p.X = parseFloat((p.X + offset).toFixed(4));
         }
         toggle = !toggle;
@@ -2245,6 +2419,7 @@ const ui = {
         const pane = document.getElementById('pane-' + tab.dataset.tab);
         if (pane) pane.classList.add('active');
         updateTabVisibility(tab.dataset.tab);
+        if (tab.dataset.tab === 'kuka') ui._refreshKukaPreview();
         try { localStorage.setItem('editgc_active_tab', tab.dataset.tab); } catch (_) {}
       });
     });
@@ -2432,6 +2607,10 @@ const ui = {
     state.originMark = null;
     state.showRapids = true;
     state.templateMeta = null;
+    state._kukaParsedSrc = null;
+    state._kukaDatPoints = null;
+    const _kBtn = document.getElementById('btnLoadKukaDat');
+    if (_kBtn) _kBtn.style.display = 'none';
     state.workingCmds = [];
     state.originalCmds = [];
     state.originalText = '';
@@ -2751,6 +2930,50 @@ const ui = {
     if (lbl) lbl.textContent = label || Math.round(pct) + '%';
   },
 
+  _updateKukaPlaneVisibility() {
+    const tpl = templateManager.getActive();
+    const isKuka = tpl && tpl.data && tpl.data.name === 'KUKA Robot (KRL)';
+    const vis = isKuka ? '' : 'none';
+    const sel = document.getElementById('previewPlane');
+    const selM = document.getElementById('previewPlaneModal');
+    const tab = document.getElementById('tabKukaOutput');
+    if (sel) sel.style.display = vis;
+    if (selM) selM.style.display = vis;
+    if (tab) tab.style.display = vis;
+    const originHeader = document.getElementById('originHeader');
+    const speedPowerHeader = document.getElementById('speedPowerHeader');
+    if (originHeader) originHeader.style.display = isKuka ? 'none' : '';
+    if (speedPowerHeader) speedPowerHeader.style.display = isKuka ? 'none' : '';
+    if (isKuka && state.previewPlane === 'XY') {
+      state.previewPlane = 'ISO';
+      if (sel) sel.value = 'ISO';
+      if (selM) selM.value = 'ISO';
+    } else if (!isKuka) {
+      state.previewPlane = 'XY';
+      if (sel) sel.value = 'XY';
+      if (selM) selM.value = 'XY';
+      // Hide KUKA pane when switching away
+      const kukaPane = document.getElementById('pane-kuka');
+      if (kukaPane && kukaPane.classList.contains('active')) {
+        const origTab = document.querySelector('.editor-tab[data-tab="original"]');
+        if (origTab) origTab.click();
+      }
+    }
+  },
+
+  _refreshKukaPreview() {
+    if (!state.workingCmds.length) return;
+    const opts = this._loadMachineOpts();
+    opts.programName = opts.programName || 'KUKA_Program';
+    try {
+      const result = kukaConverter.convert(state.workingCmds, opts);
+      const srcEl = document.getElementById('kukaSrcPreview');
+      const datEl = document.getElementById('kukaDatPreview');
+      if (srcEl) srcEl.innerHTML = kukaHighlight(result.src);
+      if (datEl) datEl.innerHTML = kukaHighlight(result.dat);
+    } catch (_) {}
+  },
+
   // ---- Machine Options -----------------------------------------------------------------------
   _getMachineOptsKey() {
     const name = document.getElementById('templateSelect')?.value || 'default';
@@ -2797,6 +3020,12 @@ const ui = {
       body.querySelectorAll('input[type="number"][data-opt-id]:not(.mo-custom-input)').forEach(inp => {
         opts[inp.dataset.optId] = inp.value;
       });
+      body.querySelectorAll('input[type="text"][data-opt-id]').forEach(inp => {
+        opts[inp.dataset.optId] = inp.value;
+      });
+      body.querySelectorAll('input[type="checkbox"][data-opt-id]').forEach(cb => {
+        opts[cb.dataset.optId] = cb.checked ? (cb.dataset.on || 'Inside') : (cb.dataset.off || 'Outside');
+      });
     } catch (_) {}
     return opts;
   },
@@ -2820,6 +3049,23 @@ const ui = {
             html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label}`;
           html += `<input type="number" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:70px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
           html += `<span style="font-size:9px;color:var(--text-dim)">${opt.unit || ''}</span>`;
+          html += '</label>';
+          return;
+        }
+        if (opt.type === 'text') {
+          html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label}`;
+          html += `<input type="text" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:100px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
+          html += '</label>';
+          return;
+        }
+        if (opt.type === 'toggle') {
+          const on = String(val) === (opt.values ? opt.values[1] : 'Inside');
+          html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label || ''}`;
+          html += `<label class="toggle-switch" style="transform:scale(0.65);margin:0;transform-origin:left center" title="${opt.id}">`;
+          html += `<input type="checkbox" data-opt-id="${opt.id}" data-on="${opt.values ? opt.values[1] : 'Inside'}" data-off="${opt.values ? opt.values[0] : 'Outside'}" ${on ? 'checked' : ''}>`;
+          html += `<span class="toggle-slider"></span>`;
+          html += '</label>';
+          html += `<span class="mo-toggle-label" style="font-size:8px;color:var(--muted);margin-left:1px">${on ? 'Inside' : 'Outside'}</span>`;
           html += '</label>';
           return;
         }
@@ -2866,16 +3112,27 @@ const ui = {
           inp.classList.add('mo-hidden');
         }
         this._saveMachineOpts(this._getSelectedMachineOpts());
+        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
       });
     });
     body.querySelectorAll('.mo-custom-input').forEach(inp => {
       inp.addEventListener('input', () => {
         this._saveMachineOpts(this._getSelectedMachineOpts());
+        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
       });
     });
     body.querySelectorAll('input[type="number"][data-opt-id]').forEach(inp => {
       inp.addEventListener('change', () => {
         this._saveMachineOpts(this._getSelectedMachineOpts());
+        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
+      });
+    });
+    body.querySelectorAll('input[type="checkbox"][data-opt-id]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const label = cb.closest('.mo-container')?.querySelector('.mo-toggle-label');
+        if (label) label.textContent = cb.checked ? (cb.dataset.on || 'Inside') : (cb.dataset.off || 'Outside');
+        this._saveMachineOpts(this._getSelectedMachineOpts());
+        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
       });
     });
   },
