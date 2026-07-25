@@ -6,7 +6,7 @@ Browser-based G-code editor **focused on editing individual G-code lines**. Sele
 
 ## Quick start
 
-Open `app/index.html` in any browser. Drag & drop `.gcode`, `.svg`, `.dxf` or use **Open** buttons. Select a **Template**, adjust options, click **Convert**.
+Open `app/index.html` in any browser. Drag & drop `.gcode`, `.svg`, `.dxf` or use **Open** buttons. Select a **Template**, adjust options, click **Convert**. Open the **Points Editor** for full path editing power.
 
 ## Points Editor
 
