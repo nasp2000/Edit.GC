@@ -5,7 +5,6 @@ const gcodeParser = {
     text = text.replace(/\r/g, '');
     const lines = text.split('\n');
     if (lines.length > CFG.MAX_COMMANDS) {
-      // Too large ? return empty to prevent OOM
       return [];
     }
     const results = lines.map((raw, lineIndex) => {

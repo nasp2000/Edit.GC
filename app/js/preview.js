@@ -21,8 +21,7 @@ const preview = {
   _getBounds(commands) {
     if (this._segBounds) return this._segBounds;
     if (!commands || !commands.length) return null;
-    const hash = commands.map(c => `${c.type || ''}:${Object.entries(c.params || {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join(',')}`).join('|');
-    if (state._boundsCache && state._boundsCache._hash === hash) return state._boundsCache;
+    if (state._boundsCache && state._boundsCache._cmdsRef === commands) return state._boundsCache;
     const xs = [], ys = [];
     let isRel = false, unitToMm = 1, curX = 0, curY = 0, offsetX = 0, offsetY = 0;
     commands.forEach(c => {
@@ -42,7 +41,7 @@ const preview = {
     const mmX = safeMinMax(xs), mmY = safeMinMax(ys);
     const minX = mmX.min, maxX = mmX.max, minY = mmY.min, maxY = mmY.max;
     state._boundsCache = {
-      _hash: hash,
+      _cmdsRef: commands,
       minX, maxX, minY, maxY,
       rangeX: maxX - minX || 1,
       rangeY: maxY - minY || 1,
@@ -232,7 +231,7 @@ const preview = {
       minH = Infinity; maxH = -Infinity; minV = Infinity; maxV = -Infinity;
       for (const [px, py, pz] of pts) {
         const hh = (px - py) * cos30;
-        const vv = (px + py) * sin30 - pz;
+        const vv = pz - (px + py) * sin30;
         if (hh < minH) minH = hh; if (hh > maxH) maxH = hh;
         if (vv < minV) minV = vv; if (vv > maxV) maxV = vv;
       }
@@ -263,7 +262,7 @@ const preview = {
       const z = pt.z !== undefined ? pt.z : 0;
       if (plane === 'ISO') {
         horz = (pt.x - pt.y) * Math.cos(Math.PI / 6);
-        vert = (pt.x + pt.y) * 0.5 - z;
+        vert = z - (pt.x + pt.y) * 0.5;
       } else if (plane === 'XZ') { horz = pt.x; vert = z; }
       else if (plane === 'YZ') { horz = pt.y; vert = z; }
       else { horz = pt.x; vert = pt.y; }
@@ -277,7 +276,7 @@ const preview = {
     const a = (degA || 0) * Math.PI / 180;
     const b = (degB || 0) * Math.PI / 180;
 
-    let vx = 0, vy = 0, vz = -1;
+    let vx = 0, vy = 0, vz = 1;
     // Rotate B around Y
     const cosB = Math.cos(b), sinB = Math.sin(b);
     let nx = vx * cosB + vz * sinB;
@@ -295,7 +294,7 @@ const preview = {
       if (tLen > 0.001) {
         const opts = typeof ui !== 'undefined' ? ui._loadMachineOpts() : {};
         const cMode = opts.cMode || 'Outside';
-        const sign = cMode === 'Inside' ? 1 : -1;
+        const sign = cMode === 'Outside' ? 1 : -1;
         const tx = travelDx / tLen, ty = travelDy / tLen;
         const cRad = sign * degC * Math.PI / 180;
         const cosC = Math.cos(cRad), sinC = Math.sin(cRad);
@@ -1777,8 +1776,8 @@ _drawHead(commands, idx, segFrac, segIdx) {
       const boxW = padX * 2 + fs * 1.2 + fs * 1.5 + maxLabelW + 4 * dpr2;
       const lineH = fs * 1.5;
       const boxH = items.length * lineH + padY * 2;
-      const bx = cssW - boxW - 6 * dpr2;
-      const by = 6 * dpr2; // top-right corner
+      const bx = cssW - boxW - 2 * dpr2;
+      const by = 2 * dpr2;
       ctx.save();
       // Dark background
       ctx.fillStyle = 'rgba(15,23,42,0.82)';
@@ -1891,26 +1890,33 @@ _drawHead(commands, idx, segFrac, segIdx) {
 
   // Get absolute X,Y position at a given cmdIdx (handles G90/G91)
   _getMotionStateAt(cmdIdx) {
-    let x = 0, y = 0, z = 0, isRel = false, unitToMm = 1;
-    let offsetX = 0, offsetY = 0, offsetZ = 0;
     const cmds = state.workingCmds;
-    for (let i = 0; i <= cmdIdx && i < cmds.length; i++) {
-      const c = cmds[i];
-      if (c.type === 'G91') { isRel = true; continue; }
-      if (c.type === 'G90') { isRel = false; continue; }
-      if (c.type === 'G20') { unitToMm = 25.4; continue; }
-      if (c.type === 'G21') { unitToMm = 1; continue; }
-      if (c.type === 'G92') {
-        if (c.params.X !== undefined) offsetX = x - c.params.X * unitToMm;
-        if (c.params.Y !== undefined) offsetY = y - c.params.Y * unitToMm;
-        if (c.params.Z !== undefined) offsetZ = z - c.params.Z * unitToMm;
-        continue;
+    if (!this._motionCache || this._motionCache._cmdsRef !== cmds) {
+      const cache = [];
+      let x = 0, y = 0, z = 0, isRel = false, unitToMm = 1;
+      let offsetX = 0, offsetY = 0, offsetZ = 0;
+      for (let i = 0; i < cmds.length; i++) {
+        const c = cmds[i];
+        if (c.type === 'G91') { isRel = true; }
+        else if (c.type === 'G90') { isRel = false; }
+        else if (c.type === 'G20') { unitToMm = 25.4; }
+        else if (c.type === 'G21') { unitToMm = 1; }
+        else if (c.type === 'G92') {
+          if (c.params.X !== undefined) offsetX = x - c.params.X * unitToMm;
+          if (c.params.Y !== undefined) offsetY = y - c.params.Y * unitToMm;
+          if (c.params.Z !== undefined) offsetZ = z - c.params.Z * unitToMm;
+        } else {
+          if (c.params.X !== undefined) { const v = c.params.X * unitToMm; x = isRel ? x + v : v + offsetX; }
+          if (c.params.Y !== undefined) { const v = c.params.Y * unitToMm; y = isRel ? y + v : v + offsetY; }
+          if (c.params.Z !== undefined) { const v = c.params.Z * unitToMm; z = isRel ? z + v : v + offsetZ; }
+        }
+        cache[i] = { x, y, z, isRel, unitToMm, offsetX, offsetY, offsetZ };
       }
-      if (c.params.X !== undefined) { const v = c.params.X * unitToMm; x = isRel ? x + v : v + offsetX; }
-      if (c.params.Y !== undefined) { const v = c.params.Y * unitToMm; y = isRel ? y + v : v + offsetY; }
-      if (c.params.Z !== undefined) { const v = c.params.Z * unitToMm; z = isRel ? z + v : v + offsetZ; }
+      this._motionCache = cache;
+      this._motionCache._cmdsRef = cmds;
     }
-    return { x, y, z, isRel, unitToMm, offsetX, offsetY, offsetZ };
+    if (cmdIdx < 0) return { x: 0, y: 0, z: 0, isRel: false, unitToMm: 1, offsetX: 0, offsetY: 0, offsetZ: 0 };
+    return this._motionCache[Math.min(cmdIdx, this._motionCache.length - 1)] || { x: 0, y: 0, z: 0, isRel: false, unitToMm: 1, offsetX: 0, offsetY: 0, offsetZ: 0 };
   },
 
   _getPosAt(cmdIdx) {

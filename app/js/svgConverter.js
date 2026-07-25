@@ -41,7 +41,7 @@ const svgConverter = {
     const flipY = dimH != null;
     const _y = (y) => flipY ? Number((dimH - y).toFixed(4)) : Number(y.toFixed(4));
     const _x = (x) => Number(x.toFixed(4));
-    const cmds = [];
+    let cmds = [];
     // SM300 mode: implicit motion (no G0/G1), no S param, feed on move line
     const isSM300 = /SM3/i.test(laserOn) || /SM3/i.test(laserOff) ||
                     (template?.options && /^SM3/i.test(String(template.options.laserOnCmd || '')));
@@ -80,7 +80,7 @@ const svgConverter = {
       });
       return { minX, maxX, minY, maxY, area: (maxX - minX) * (maxY - minY) || 0 };
     });
-    const sortedIndices = segments.map((_, i) => i);
+    let sortedIndices = segments.map((_, i) => i);
 
     // Ensure open segments start from their free endpoint
     for (let i = 0; i < segments.length; i++) {
@@ -174,29 +174,134 @@ const svgConverter = {
       const nextClosed = !(Math.abs(next[0].x - next[next.length-1].x) > 0.5 || Math.abs(next[0].y - next[next.length-1].y) > 0.5);
       if (!segOpen || !nextClosed) continue;
       const pe = seg[seg.length - 1];
-      // Find closest vertex on the closed shape
+      const bodyPts = next.slice(0, -1);
+      const n = bodyPts.length;
+      const corner = new Array(n).fill(false);
+      for (let i = 0; i < n; i++) {
+        const prev = bodyPts[(i - 1 + n) % n], p = bodyPts[i], nextP = bodyPts[(i + 1) % n];
+        const a1 = Math.atan2(p.y - prev.y, p.x - prev.x);
+        const a2 = Math.atan2(nextP.y - p.y, nextP.x - p.x);
+        let da = Math.abs(a2 - a1);
+        if (da > Math.PI) da = 2 * Math.PI - da;
+        corner[i] = da > 0.15;
+      }
       let bestK = 0, bestD = Infinity, insertPt = null;
-      for (let k = 0; k < next.length; k++) {
-        const d = Math.abs(next[k].x - pe.x) + Math.abs(next[k].y - pe.y);
-        if (d < bestD) { bestD = d; bestK = k; insertPt = null; }
-        if (k > 0) {
-          const a = next[k-1], b = next[k];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const len2 = dx*dx + dy*dy;
-          if (len2 < 0.0001) continue;
-          let t = ((pe.x - a.x)*dx + (pe.y - a.y)*dy) / len2;
-          t = Math.max(0, Math.min(1, t));
-          const dd = Math.abs(pe.x - (a.x+t*dx)) + Math.abs(pe.y - (a.y+t*dy));
-          if (dd < bestD) { bestD = dd; bestK = k; insertPt = { x: a.x+t*dx, y: a.y+t*dy }; }
+      for (let k = 0; k < n; k++) {
+        const prevCorner = corner[(k - 1 + n) % n], curCorner = corner[k];
+        if (prevCorner || curCorner) continue;
+        const a = bodyPts[(k - 1 + n) % n], b = bodyPts[k];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len2 = dx*dx + dy*dy;
+        if (len2 < 0.0001) continue;
+        let t = ((pe.x - a.x)*dx + (pe.y - a.y)*dy) / len2;
+        t = Math.max(0.05, Math.min(0.95, t));
+        const px = a.x + t*dx, py = a.y + t*dy;
+        const dd = Math.abs(pe.x - px) + Math.abs(pe.y - py);
+        if (dd < bestD) { bestD = dd; bestK = k; insertPt = { x: parseFloat(px.toFixed(3)), y: parseFloat(py.toFixed(3)), cut: true }; }
+      }
+      if (!insertPt) {
+        for (let k = 0; k < next.length; k++) {
+          const d = Math.abs(next[k].x - pe.x) + Math.abs(next[k].y - pe.y);
+          if (d < bestD) { bestD = d; bestK = k; insertPt = null; }
+          if (k > 0) {
+            const a = next[k-1], b = next[k];
+            const dx = b.x - a.x, dy = b.y - a.y;
+            const len2 = dx*dx + dy*dy;
+            if (len2 < 0.0001) continue;
+            let t = ((pe.x - a.x)*dx + (pe.y - a.y)*dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            const dd = Math.abs(pe.x - (a.x+t*dx)) + Math.abs(pe.y - (a.y+t*dy));
+            if (dd < bestD) { bestD = dd; bestK = k; insertPt = { x: parseFloat((a.x+t*dx).toFixed(3)), y: parseFloat((a.y+t*dy).toFixed(3)), cut: true }; }
+          }
         }
       }
-      const bodyPts = next.slice(0, -1);
       const rotated = insertPt
         ? [insertPt, ...bodyPts.slice(bestK), ...bodyPts.slice(0, bestK)]
         : [...bodyPts.slice(bestK), ...bodyPts.slice(0, bestK)];
       const entry = { x: pe.x, y: pe.y, cut: false };
       const exitPt = { x: pe.x, y: pe.y, cut: true };
       segments[nextIdx] = [entry, ...rotated, exitPt];
+    }
+
+    // Rotate remaining closed shapes to start on straight edges (not corners)
+    const connectedSet = new Set();
+    for (let si = 0; si < sortedIndices.length - 1; si++) {
+      const seg = segments[sortedIndices[si]];
+      const next = segments[sortedIndices[si+1]];
+      if (!seg || !next || seg.length < 2 || next.length < 2) continue;
+      const segOpen = Math.abs(seg[0].x - seg[seg.length-1].x) > 0.5 || Math.abs(seg[0].y - seg[seg.length-1].y) > 0.5;
+      const nextClosed = !(Math.abs(next[0].x - next[next.length-1].x) > 0.5 || Math.abs(next[0].y - next[next.length-1].y) > 0.5);
+      if (segOpen && nextClosed) connectedSet.add(sortedIndices[si+1]);
+    }
+    for (const si of sortedIndices) {
+      if (connectedSet.has(si)) continue;
+      const seg = segments[si];
+      if (!seg || seg.length < 3) continue;
+      const isClosed = Math.abs(seg[0].x - seg[seg.length-1].x) < 0.5 && Math.abs(seg[0].y - seg[seg.length-1].y) < 0.5;
+      if (!isClosed) continue;
+      const body = seg.slice(0, -1);
+      const n = body.length;
+      let bestK = 0, bestLen = 0;
+      for (let i = 0; i < n; i++) {
+        const a = body[(i - 1 + n) % n], b = body[i];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len > bestLen) { bestLen = len; bestK = i; }
+      }
+      if (bestLen > 0) {
+        const a = body[(bestK - 1 + n) % n], b = body[bestK];
+        const mx = parseFloat(((a.x + b.x) * 0.5).toFixed(3));
+        const my = parseFloat(((a.y + b.y) * 0.5).toFixed(3));
+        segments[si] = [{ x: mx, y: my, cut: false }, ...body.slice(bestK), ...body.slice(0, bestK), { x: mx, y: my, cut: true }];
+      }
+    }
+
+    // Nearest-neighbor reorder: minimize travel between groups, keep connected pairs together
+    {
+      const groups = [];
+      let i = 0;
+      while (i < sortedIndices.length) {
+        const idx = sortedIndices[i];
+        const seg = segments[idx];
+        if (!seg || seg.length < 2) { groups.push([idx]); i++; continue; }
+        const isOpen = Math.abs(seg[0].x - seg[seg.length-1].x) > 0.5 || Math.abs(seg[0].y - seg[seg.length-1].y) > 0.5;
+        if (isOpen && i + 1 < sortedIndices.length && connectedSet.has(sortedIndices[i+1])) {
+          groups.push([idx, sortedIndices[i+1]]);
+          i += 2;
+        } else {
+          groups.push([idx]);
+          i++;
+        }
+      }
+      if (groups.length > 1) {
+        // Preserve first group (connected pair) at index 0
+        const keepHead = groups.splice(0, 1)[0];
+        const headEnd = segments[keepHead[keepHead.length - 1]];
+        let pos = headEnd && headEnd.length ? headEnd[headEnd.length - 1] : { x: 0, y: 0 };
+        // Nearest-neighbor for remaining groups
+        const used = new Set();
+        const reordered = [keepHead];
+        while (reordered.length < groups.length + 1) {
+          let best = -1, bestDist = Infinity;
+          for (let g = 0; g < groups.length; g++) {
+            if (used.has(g)) continue;
+            const firstSeg = segments[groups[g][0]];
+            if (!firstSeg || !firstSeg.length) continue;
+            const start = firstSeg[0];
+            const d = Math.abs(start.x - pos.x) + Math.abs(start.y - pos.y);
+            if (d < bestDist) { bestDist = d; best = g; }
+          }
+          if (best < 0) break;
+          used.add(best);
+          reordered.push(groups[best]);
+          const lastGroupSeg = segments[groups[best][groups[best].length - 1]];
+          if (lastGroupSeg && lastGroupSeg.length) {
+            const end = lastGroupSeg[lastGroupSeg.length - 1];
+            pos = end;
+          }
+        }
+        sortedIndices = reordered.flat();
+      }
     }
 
     const baseOff = baseCmd(laserOff);
@@ -311,23 +416,57 @@ const svgConverter = {
       if (c.params.Y !== undefined && c.params.Y < minY) minY = c.params.Y;
     });
     if (isFinite(minX) && isFinite(minY) && (Math.abs(minX) > 0.01 || Math.abs(minY) > 0.01)) {
-      cmds.forEach(c => {
-        if (!isRealCmd(c)) return;
-        if (c.params.X !== undefined) c.params.X = parseFloat((c.params.X - minX).toFixed(3));
-        if (c.params.Y !== undefined) c.params.Y = parseFloat((c.params.Y - minY).toFixed(3));
-        c.raw = '';
+      cmds = cmds.map(c => {
+        if (!isRealCmd(c)) return c;
+        const p = { ...c.params };
+        if (p.X !== undefined) p.X = parseFloat((p.X - minX).toFixed(3));
+        if (p.Y !== undefined) p.Y = parseFloat((p.Y - minY).toFixed(3));
+        return { ...c, params: p, raw: '' };
       });
     }
-    // Apply machine origin offset (Start X / Start Y)
     if (machineX || machineY) {
-      cmds.forEach(c => {
-        if (!isRealCmd(c)) return;
-        if (c.params.X !== undefined) c.params.X = parseFloat((c.params.X + machineX).toFixed(3));
-        if (c.params.Y !== undefined) c.params.Y = parseFloat((c.params.Y + machineY).toFixed(3));
-        c.raw = '';
+      cmds = cmds.map(c => {
+        if (!isRealCmd(c)) return c;
+        const p = { ...c.params };
+        if (p.X !== undefined) p.X = parseFloat((p.X + machineX).toFixed(3));
+        if (p.Y !== undefined) p.Y = parseFloat((p.Y + machineY).toFixed(3));
+        return { ...c, params: p, raw: '' };
       });
     }
+    const pointDist = parseFloat(template?.laser?.pointDistance) || 0;
+    if (pointDist > 0) cmds = this._subdivideSegments(cmds, pointDist);
     return cmds;
+  },
+
+  _subdivideSegments(cmds, maxDist) {
+    const result = [];
+    let curX = 0, curY = 0;
+    const isG1 = (c) => {
+      const t = (c.type || '').toUpperCase();
+      return t === 'G1' || t === 'G01' || t === '';
+    };
+    for (const c of cmds) {
+      const hasXY = c.params.X !== undefined || c.params.Y !== undefined;
+      if (!hasXY || c.isComment || c.isBlank) { result.push(c); continue; }
+      const nx = c.params.X !== undefined ? c.params.X : curX;
+      const ny = c.params.Y !== undefined ? c.params.Y : curY;
+      if (isG1(c)) {
+        const dx = nx - curX, dy = ny - curY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > maxDist) {
+          const steps = Math.ceil(dist / maxDist);
+          for (let s = 1; s <= steps; s++) {
+            const t = s / steps;
+            const p = { ...c.params };
+            p.X = parseFloat((curX + dx * t).toFixed(4));
+            p.Y = parseFloat((curY + dy * t).toFixed(4));
+            result.push({ ...c, params: p, raw: '' });
+          }
+        } else { result.push(c); }
+      } else { result.push(c); }
+      curX = nx; curY = ny;
+    }
+    return result;
   },
 
   _cmd(type, params = {}) {

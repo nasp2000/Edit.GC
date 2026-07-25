@@ -54,6 +54,13 @@ const ui = {
       }
 
       state.originalCmds  = gcodeParser.parse(text);
+      if (text.trim() && !state.originalCmds.length) {
+        const lineCount = text.split('\n').length;
+        const reason = lineCount > CFG.MAX_COMMANDS ? `Too large (${lineCount} lines, max ${CFG.MAX_COMMANDS})` : 'Empty or invalid G-code';
+        ui.setProgress(-1);
+        ui.setStatus(`Failed to open: ${file.name} — ${reason}`, 'error');
+        return;
+      }
       document.getElementById('btnLoadKukaDat').style.display = 'none';
       ui.setProgress(50, 'Preparing editor...');
       const isLarge = text.length > 5 * 1024 * 1024 || state.originalCmds.length > 50000;
@@ -78,6 +85,8 @@ const ui = {
       preview.fitView();
       const analysis = gcodeParser.analyzeFull(state.workingCmds);
       let statusMsg = `Opened: ${file.name} (${state.workingCmds.length} lines)`;
+      if (!state.originalCmds.length && state.workingCmds.length > 50000) statusMsg += '  !  Large file — edit tags & Reset disabled';
+      if (!state.originalText) statusMsg += '  !  No original text stored';
       if (analysis.unknownCmds.length) {
         statusMsg += `   !  Unknown: ${analysis.unknownCmds.join(', ')}`;
       }
@@ -963,10 +972,11 @@ const ui = {
     // Working editor ? sync state (debounced)
     let _editTimer = null;
     ui._isRefreshing = false;
-    const _onWorkingInput = (rawText) => {
+    const _onWorkingInput = () => {
       if (ui._isRefreshing) return;
       if (_editTimer) clearTimeout(_editTimer);
       _editTimer = setTimeout(() => {
+        const rawText = document.getElementById('editorWorking').value;
         if (!state._duringUndoRedo) {
           undoRedo.push(state.workingCmds);
         }
@@ -997,7 +1007,7 @@ const ui = {
               ui._isRefreshing = true;
               ta.value = tagged.join('\n');
               ta.selectionStart = ta.selectionEnd = pos + (ta.value.length - oldLen);
-              ui._isRefreshing = false;
+              setTimeout(() => { ui._isRefreshing = false; }, 0);
               applyHighlight(document.getElementById('highlightWorking'), ta.value);
             }
           }
@@ -1006,7 +1016,7 @@ const ui = {
     };
     document.getElementById('editorWorking').addEventListener('input', e => {
       applyHighlight(document.getElementById('highlightWorking'), e.target.value);
-      _onWorkingInput(e.target.value);
+      _onWorkingInput();
     });
     document.getElementById('editorWorkingModal').addEventListener('input', e => {
       const text = e.target.value;
@@ -1385,6 +1395,7 @@ const ui = {
       const tpl = templateManager.getActive(); const td = tpl?.data || tpl;
       const isSM = /SM3/i.test(td?.laserOnCmd || '');
       let changed = false;
+      undoRedo.push(state.workingCmds);
       ui._speedPowerRows.forEach(row => {
         row.assignedPoints.forEach(idx => {
           const c = state.workingCmds[idx];
@@ -1394,6 +1405,7 @@ const ui = {
         });
       });
       if (changed) {
+        state.dirty = true;
         preview._segments = null;
         preview.draw(state.workingCmds);
         ui.refreshWorking();
@@ -2025,12 +2037,14 @@ const ui = {
       });
       text = lines.join('\n');
       state._boundsCache = null;
+      ui._isRefreshing = true;
       ui._updateWorkingEditor(text);
       applyHighlight(document.getElementById('highlightWorking'), text);
       for (const id of ['editorWorkingModal', 'editorWorkingModalDual']) {
         const el = document.getElementById(id);
         if (el) { el.value = text; applyHighlight(document.getElementById(id.replace('editor', 'highlight')), text); }
       }
+      setTimeout(() => { ui._isRefreshing = false; }, 0);
       preview._segments = null;
       preview._segBuilding = false;
       if (preview._rebuildTimer) { clearTimeout(preview._rebuildTimer); preview._rebuildTimer = null; }
@@ -2153,12 +2167,12 @@ const ui = {
                 for (let ai = 0; ai < acts.length; ai++) {
                   const a = acts[ai];
                   const isLast = ai === acts.length - 1;
-                  const firstArc = JSON.parse(JSON.stringify(currentArc));
+                  const firstArc = structuredClone(currentArc);
                   firstArc.params = encodePoint(a, { ...before, x: currentStart.x, y: currentStart.y }, currentArc);
                   firstArc.raw = ''; firstArc._newInsert = true;
                   result.push(firstArc);
                   if (isLast) {
-                    const secondArc = JSON.parse(JSON.stringify(currentArc));
+                    const secondArc = structuredClone(currentArc);
                     secondArc.params = encodePoint(endPos, { ...after, x: a.x, y: a.y }, currentArc);
                     const newI = parseFloat(((centerX - a.x) / unit).toFixed(4));
                     const newJ = parseFloat(((centerY - a.y) / unit).toFixed(4));
@@ -2174,7 +2188,7 @@ const ui = {
                 }
               } else {
                 for (const a of acts) {
-                  const copy = JSON.parse(JSON.stringify(c));
+                  const copy = structuredClone(c);
                   copy.params = encodePoint(a, preview._getMotionStateAt(i), c);
                   copy.type = c.type === '' || c.type === undefined ? '' : 'G1'; copy.raw = ''; copy._newInsert = true;
                   result.push(copy);
@@ -2216,7 +2230,7 @@ const ui = {
       const addPoints = [...sorted].reverse();
       for (const idx of addPoints) {
         const c = state.workingCmds[idx];
-        const copy = JSON.parse(JSON.stringify(c));
+        const copy = structuredClone(c);
         if (copy.params.X !== undefined) copy.params.X = parseFloat((copy.params.X + dx).toFixed(4));
         if (copy.params.Y !== undefined) copy.params.Y = parseFloat((copy.params.Y + dy).toFixed(4));
         if (copy.params.Z !== undefined) copy.params.Z = parseFloat((copy.params.Z + dz).toFixed(4));
@@ -2227,7 +2241,7 @@ const ui = {
           if (isLaserOff(state.workingCmds[j])) { insertAfter = j; break; }
         }
 
-        const travel = JSON.parse(JSON.stringify(copy));
+        const travel = structuredClone(copy);
         if (isSM300) { travel.type = ''; travel.params.F = td?.feedTravel || 5000; }
         else { travel.type = 'G0'; travel.params.F = td?.feedTravel || 8000; }
         travel.raw = '';
@@ -2731,7 +2745,7 @@ const ui = {
       wm.value = tWork;
       applyHighlight(document.getElementById('highlightWorkingModal'), tWork);
     }
-    this._isRefreshing = false;
+    setTimeout(() => { this._isRefreshing = false; }, 0);
     preview.draw(state.workingCmds);
     // Sync original modal (working already done above)
     const origText = state.originalText || (state.originalCmds.length ? gcodeParser.serialize(state.originalCmds) : '');
@@ -2856,7 +2870,11 @@ const ui = {
         if (iTime) iTime.textContent = '';
       }
       if (iWarn) {
-        const analysis = gcodeParser.analyzeFull(state.workingCmds);
+        if (!state._analysisCache || state._analysisCache._cmdsRef !== state.workingCmds) {
+          state._analysisCache = gcodeParser.analyzeFull(state.workingCmds);
+          state._analysisCache._cmdsRef = state.workingCmds;
+        }
+        const analysis = state._analysisCache;
         const tplActive = templateManager.getActive();
         const td = tplActive?.data || tplActive;
         const isSM = /SM3/i.test(td?.laserOnCmd || '');
@@ -3193,20 +3211,27 @@ const ui = {
 
   async _loadSvgFile(file) {
     const text = await fileManager.readGcode(file);
-    let dimW = 100, dimH = 100;
+    let dimW = 100, dimH = 100, dimSource = 'default';
     try {
       const parser = new DOMParser();
       const doc    = parser.parseFromString(text, 'image/svg+xml');
       const svg    = doc.querySelector('svg');
       if (svg) {
-        const vb = svg.getAttribute('viewBox');
-        if (vb) {
+        const wStr = svg.getAttribute('width');
+        const hStr = svg.getAttribute('height');
+        const parsedW = parseFloat(wStr);
+        const parsedH = parseFloat(hStr);
+        const hasViewBox = !!svg.getAttribute('viewBox');
+        if (hasViewBox) {
+          const vb = svg.getAttribute('viewBox');
           const parts = vb.trim().split(/[\s,]+/).map(Number);
-          dimW = parts[2] || 100;
-          dimH = parts[3] || 100;
-        } else {
-          dimW = parseFloat(svg.getAttribute('width'))  || 100;
-          dimH = parseFloat(svg.getAttribute('height')) || 100;
+          dimW = parts[2] || parsedW || 100;
+          dimH = parts[3] || parsedH || 100;
+          dimSource = 'viewBox';
+        } else if (!isNaN(parsedW) && !isNaN(parsedH)) {
+          dimW = parsedW;
+          dimH = parsedH;
+          dimSource = 'width/height';
         }
       }
     } catch (_) {}
@@ -3231,7 +3256,8 @@ const ui = {
       document.getElementById('resizeW').value = dimW.toFixed(3);
       const hEl1 = document.getElementById('resizeHDisplay'); if (hEl1) hEl1.textContent = dimH.toFixed(3);
       preview.resize();
-      ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} ? H: ${dimH.toFixed(1)} ? click "Convert" to generate G-code`);
+      const dimNote = dimSource === 'default' ? ' (estimated)' : '';
+      ui.setStatus(`SVG: ${file.name}  W: ${dimW.toFixed(1)} ? H: ${dimH.toFixed(1)}${dimNote} ? click "Convert" to generate G-code`);
       recentFiles.add(file.name, 'SVG', text);
     };
     img.onerror = () => {

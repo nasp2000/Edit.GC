@@ -10,14 +10,16 @@ const undoRedo = {
     if (state.undoStack.length > this.MAX) state.undoStack.shift();
     state.redoStack = [];
   },
+  _clone(cmds) { return cmds.map(c => ({ ...c, params: { ...c.params } })); },
+
   undo() {
     if (!state.undoStack.length) return null;
-    state.redoStack.push(state.workingCmds);
+    state.redoStack.push(this._clone(state.workingCmds));
     return state.undoStack.pop();
   },
   redo() {
     if (!state.redoStack.length) return null;
-    state.undoStack.push(state.workingCmds);
+    state.undoStack.push(this._clone(state.workingCmds));
     return state.redoStack.pop();
   },
 };

@@ -305,6 +305,9 @@ const templateManager = {
       { id: 'passes', label: 'Passes', type: 'select', values: [1,2,3,4,5,6,8,10], default: 1, unit: '' },
       { id: 'zStep', label: 'Z Step', type: 'select', values: [0, -0.05, -0.1, -0.2, -0.5, -1], default: 0, unit: 'mm' },
     ]};
+    const pointDistOpt = { section: 'Point Distance', options: [
+      { id: 'pointDistance', label: 'Max point distance', type: 'select', values: [0, 0.1, 0.5, 1, 2, 5, 10, 20, 50], default: 10, unit: 'mm' },
+    ]};
     const originOpt = { section: 'Machine Origin', options: [
       { id: 'machineX', label: 'Start X', type: 'number', default: 0, unit: 'mm' },
       { id: 'machineY', label: 'Start Y', type: 'number', default: 0, unit: 'mm' },
@@ -312,6 +315,7 @@ const templateManager = {
     const opts = {
       "SM Motion Control (SM300)": [
         passesOpt,
+        pointDistOpt,
         originOpt,
         { section: 'Laser Program', options: [
           { id: 'laserProgram', label: 'Program (RLAD)', type: 'select', values: [44, 45, 50, 55, 60, 65, 70], default: 55, unit: '' },
@@ -335,6 +339,7 @@ const templateManager = {
       ],
       "Grbl": [
         passesOpt,
+        pointDistOpt,
         originOpt,
         { section: 'Laser', options: [
           { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 500, 750, 1000], default: 1000, unit: '' },
@@ -360,6 +365,7 @@ const templateManager = {
       ],
       "Smoothieware": [
         passesOpt,
+        pointDistOpt,
         originOpt,
         { section: 'Laser', options: [
           { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 500, 750, 1000], default: 1000, unit: '' },
@@ -386,6 +392,7 @@ const templateManager = {
       ],
       "Marlin (Tool)": [
         passesOpt,
+        pointDistOpt,
         originOpt,
         { section: 'Laser', options: [
           { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 500, 750, 1000], default: 1000, unit: '' },
@@ -414,6 +421,7 @@ const templateManager = {
       ],
       "KUKA Robot (KRL)": [
         passesOpt,
+        pointDistOpt,
 { section: 'Machine Origin (XYZ + ABC)', options: [
           { id: 'machineX', label: 'X', type: 'number', default: 3.86, unit: 'mm' },
           { id: 'orientA', label: 'A', type: 'number', default: 137, unit: 'deg' },
@@ -476,6 +484,7 @@ const templateManager = {
         zStep: parseFloat(opts.zStep) || 0,
         focusZ: parseFloat(opts.focusZ) || 0,
         useZ: opts.useZ !== 'no',
+        pointDistance: parseFloat(opts.pointDistance) || 0,
         machineX: parseFloat(opts.machineX) || 0,
         machineY: parseFloat(opts.machineY) || 0,
       },
