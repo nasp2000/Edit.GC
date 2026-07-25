@@ -684,16 +684,24 @@ const ui = {
 
     // Undo / Redo
     document.getElementById('btnUndo').addEventListener('click', () => {
+      if (_editTimer) { clearTimeout(_editTimer); _editTimer = null; }
+      _editGen++;
       state._duringUndoRedo = true;
       const prev = undoRedo.undo();
       if (prev) { state.workingCmds = prev; ui.refreshWorking(); }
       state._duringUndoRedo = false;
+      const ta = document.getElementById('editorWorking');
+      if (ta) ta.value = ta.value.replace(/\s*;\s*edit\.gc\s*$/gm, '');
     });
     document.getElementById('btnRedo').addEventListener('click', () => {
+      if (_editTimer) { clearTimeout(_editTimer); _editTimer = null; }
+      _editGen++;
       state._duringUndoRedo = true;
       const next = undoRedo.redo();
       if (next) { state.workingCmds = next; ui.refreshWorking(); }
       state._duringUndoRedo = false;
+      const ta = document.getElementById('editorWorking');
+      if (ta) ta.value = ta.value.replace(/\s*;\s*edit\.gc\s*$/gm, '');
     });
     document.getElementById('btnRotate90').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code to rotate.', 'error'); return; }
@@ -971,11 +979,14 @@ const ui = {
 
     // Working editor ? sync state (debounced)
     let _editTimer = null;
+    let _editGen = 0;
     ui._isRefreshing = false;
     const _onWorkingInput = () => {
       if (ui._isRefreshing) return;
       if (_editTimer) clearTimeout(_editTimer);
+      const gen = ++_editGen;
       _editTimer = setTimeout(() => {
+        if (gen !== _editGen) return;
         const rawText = document.getElementById('editorWorking').value;
         if (!state._duringUndoRedo) {
           undoRedo.push(state.workingCmds);
@@ -2712,6 +2723,7 @@ const ui = {
   refreshWorking() {
     state._boundsCache = null;
     let text = gcodeParser.serialize(state.workingCmds);
+    text = text.replace(/\s*;\s*edit\.gc\s*$/gm, '');
     if (state.originalCmds && state.originalCmds.length) {
       const lines = text.split('\n');
       state.workingCmds.forEach((cmd, i) => {
