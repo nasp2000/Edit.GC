@@ -2,21 +2,6 @@ const templateManager = {
   _templates: [],
   _builtinTemplates: [],
   _activeTemplate: null,
-  _db: null,
-
-  async _openDB() {
-    if (this._db) return this._db;
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open('editgc-templates', 2);
-      req.onupgradeneeded = e => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles');
-        if (!db.objectStoreNames.contains('templates')) db.createObjectStore('templates');
-      };
-      req.onsuccess = e => { this._db = e.target.result; resolve(this._db); };
-      req.onerror = () => reject(req.error);
-    });
-  },
 
   loadBuiltin() {
     this._builtinTemplates = [
@@ -93,25 +78,6 @@ const templateManager = {
     ].map(t => ({ name: t.name, data: t, builtin: true }));
   },
 
-  async loadUserTemplates() {
-    this._templates = [];
-    try {
-      const db = await this._openDB();
-      const entries = await new Promise(resolve => {
-        const tx = db.transaction('templates', 'readonly');
-        const store = tx.objectStore('templates');
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => resolve([]);
-      });
-      for (const entry of entries) {
-        if (entry && entry.name && entry.data) {
-          this._templates.push({ name: entry.name, data: entry.data });
-        }
-      }
-    } catch (_) {}
-  },
-
   list() {
     const all = [...this._builtinTemplates, ...this._templates];
     return [...new Set(all.map(t => t.name).filter(n => n && typeof n === 'string'))];
@@ -130,13 +96,13 @@ const templateManager = {
   async saveTemplate(name, data) {
     data.name = name;
     try {
-      const db = await this._openDB();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction('templates', 'readwrite');
-        tx.objectStore('templates').put({ name, data });
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
+      const raw = localStorage.getItem('editgc_user_templates');
+      const entries = raw ? JSON.parse(raw) : [];
+      const idx = entries.findIndex(e => e.name === name);
+      const entry = { name, data };
+      if (idx >= 0) entries[idx] = entry;
+      else entries.push(entry);
+      localStorage.setItem('editgc_user_templates', JSON.stringify(entries));
       const existing = this._templates.findIndex(t => t.name === name);
       if (existing >= 0) this._templates[existing] = { name, data };
       else this._templates.push({ name, data });
@@ -154,15 +120,42 @@ const templateManager = {
       return;
     }
     try {
-      const db = await this._openDB();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction('templates', 'readwrite');
-        tx.objectStore('templates').delete(name);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
+      const raw = localStorage.getItem('editgc_user_templates');
+      if (raw) {
+        const entries = JSON.parse(raw);
+        localStorage.setItem('editgc_user_templates', JSON.stringify(entries.filter(e => e.name !== name)));
+      }
       this._templates = this._templates.filter(t => t.name !== name);
     } catch (_) {}
+  },
+
+  async saveTemplate(name, data) {
+    return await this.saveTemplateFile(name, data);
+  },
+
+  async deleteTemplate(name) {
+    if (this._builtinTemplates.some(t => t.name === name)) {
+      ui.setStatus('Cannot delete built-in template.', 'error');
+      return;
+    }
+    try {
+      if (await this._restoreDirHandle()) {
+        const fileName = name.replace(/[^a-zA-Z0-9_\-\.]/g, '_') + '.json';
+        try { await this._dirHandle.removeEntry(fileName); } catch (_) {}
+      }
+      this._templates = this._templates.filter(t => t.name !== name);
+    } catch (_) {}
+  },
+
+  async scan() {
+    const prev = this._templates.length;
+    this._templates = this._templates.filter(t => this._builtinTemplates.some(b => b.name === t.name));
+    await this._loadFromFiles();
+    return this._templates.length - prev;
+  },
+
+  async openFolder() {
+    if (!(await this._ensureDir())) return;
   },
 
   extractFromText(originalText, originalName) {
@@ -302,15 +295,15 @@ const templateManager = {
 
   getTemplateOptions(name) {
     const passesOpt = { section: 'Passes', options: [
-      { id: 'passes', label: 'Passes', type: 'select', values: [1,2,3,4,5,6,8,10], default: 1, unit: '' },
-      { id: 'zStep', label: 'Z Step', type: 'select', values: [0, -0.05, -0.1, -0.2, -0.5, -1], default: 0, unit: 'mm' },
+      { id: 'passes', label: 'Passes', type: 'select', values: [1,2,3,4,5,6,8,10,12,15], default: 1, unit: '', desc: 'Number of cutting passes over the same path' },
+      { id: 'zStep', label: 'Z Step', type: 'select', values: [0, -0.01, -0.05, -0.1, -0.2, -0.3, -0.5, -0.75, -1, -1.5, -2], default: 0, unit: 'mm', desc: 'Z axis increment per pass (negative = deeper)' },
     ]};
     const pointDistOpt = { section: 'Point Distance', options: [
-      { id: 'pointDistance', label: 'Max point distance', type: 'select', values: [0, 0.1, 0.5, 1, 2, 5, 10, 20, 50], default: 10, unit: 'mm' },
+      { id: 'pointDistance', label: 'Max point distance', type: 'select', values: [0, 0.1, 0.2, 0.5, 1, 2, 3, 5, 10, 20, 50], default: 10, unit: 'mm', desc: 'Subdivide G1 moves longer than this. 0 = disabled' },
     ]};
     const originOpt = { section: 'Machine Origin', options: [
-      { id: 'machineX', label: 'Start X', type: 'number', default: 0, unit: 'mm' },
-      { id: 'machineY', label: 'Start Y', type: 'number', default: 0, unit: 'mm' },
+      { id: 'machineX', label: 'Start X', type: 'number', default: 0, unit: 'mm', desc: 'Offset all coordinates on X axis' },
+      { id: 'machineY', label: 'Start Y', type: 'number', default: 0, unit: 'mm', desc: 'Offset all coordinates on Y axis' },
     ]};
     const opts = {
       "SM Motion Control (SM300)": [
@@ -322,8 +315,8 @@ const templateManager = {
           { id: 'rrbmParams', label: 'Buffer (RRBM)', type: 'select', values: ['50;56', '50;60', '50;65', '55;56'], default: '50;56', unit: '' },
         ]},
         { section: 'Feed Rates', options: [
-          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [20, 40, 80, 100, 200, 400, 500], default: 400, unit: 'mm/min' },
-          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [2000, 3000, 5000, 8000, 10000], default: 5000, unit: 'mm/min' },
+          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [20, 40, 80, 100, 200, 300, 400, 500, 600, 800], default: 400, unit: 'mm/min' },
+          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [2000, 3000, 4000, 5000, 6000, 8000, 10000, 12000, 15000, 20000], default: 5000, unit: 'mm/min' },
         ]},
         { section: 'Focus', options: [
           { id: 'focusZ', label: 'Focus Z', type: 'select', values: [-200, -208, -215, -220, -222, -228, -230], default: -220, unit: 'mm' },
@@ -342,25 +335,25 @@ const templateManager = {
         pointDistOpt,
         originOpt,
         { section: 'Laser', options: [
-          { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 500, 750, 1000], default: 1000, unit: '' },
-          { id: 'laserMode', label: 'Laser mode', type: 'select', values: ['M4 (dynamic)', 'M3 (constant)'], default: 'M4 (dynamic)' },
+          { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 400, 500, 600, 750, 850, 1000, 1200, 1500], default: 1000, unit: '', desc: 'Maximum laser PWM power (S value on G1 cuts)' },
+          { id: 'laserMode', label: 'Laser mode', type: 'select', values: ['M4 (dynamic)', 'M3 (constant)'], default: 'M4 (dynamic)', desc: 'M4 = dynamic power / M3 = constant power' },
         ]},
         { section: 'Feed Rates', options: [
-          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [100, 200, 300, 500, 1000, 2000, 3000, 5000], default: 3000, unit: 'mm/min' },
-          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [3000, 5000, 6000, 8000, 10000], default: 6000, unit: 'mm/min' },
+          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000], default: 3000, unit: 'mm/min', desc: 'Feed rate during laser-on cutting moves' },
+          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [2000, 3000, 4000, 5000, 6000, 8000, 10000, 12000, 15000, 20000], default: 6000, unit: 'mm/min', desc: 'Feed rate during G0 rapid travel moves' },
         ]},
         { section: 'Gas', options: [
-          { id: 'gas', label: 'Air assist', type: 'select', values: ['M8', 'M7', 'none'], default: 'none' },
+          { id: 'gas', label: 'Air assist', type: 'select', values: ['M8', 'M7', 'none'], default: 'none', desc: 'M8 = coolant/air on, M7 = mist, none = no air' },
         ]},
         { section: 'Homing', options: [
-          { id: 'homing', label: 'Home on start', type: 'select', values: ['$H (home)', 'none'], default: '$H (home)' },
+          { id: 'homing', label: 'Home on start', type: 'select', values: ['$H (home)', 'none'], default: '$H (home)', desc: 'Run homing cycle before starting' },
         ]},
         { section: 'Z Axis', options: [
-          { id: 'useZ', label: 'Enable Z', type: 'select', values: ['yes', 'no'], default: 'yes' },
+          { id: 'useZ', label: 'Enable Z', type: 'select', values: ['yes', 'no'], default: 'yes', desc: 'Include Z coordinates in G-code output' },
         ]},
         { section: 'Safety', options: [
-          { id: 'spindleOff', label: 'Spindle off', type: 'select', values: ['M5 S0', 'M5'], default: 'M5 S0' },
-          { id: 'returnHome', label: 'Return home', type: 'select', values: ['G0 X0 Y0', 'none'], default: 'G0 X0 Y0' },
+          { id: 'spindleOff', label: 'Spindle off', type: 'select', values: ['M5 S0', 'M5'], default: 'M5 S0', desc: 'Command to turn off laser/spindle at end' },
+          { id: 'returnHome', label: 'Return home', type: 'select', values: ['G0 X0 Y0', 'none'], default: 'G0 X0 Y0', desc: 'Return to origin after job completes' },
         ]},
       ],
       "Smoothieware": [
@@ -368,12 +361,12 @@ const templateManager = {
         pointDistOpt,
         originOpt,
         { section: 'Laser', options: [
-          { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 500, 750, 1000], default: 1000, unit: '' },
+          { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 400, 500, 600, 750, 850, 1000, 1200, 1500], default: 1000, unit: '' },
           { id: 'laserMode', label: 'Laser mode', type: 'select', values: ['M3 (PWM)', 'M4 (dynamic)'], default: 'M3 (PWM)' },
         ]},
         { section: 'Feed Rates', options: [
-          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [100, 200, 300, 500, 1000, 2000, 3000, 5000], default: 3000, unit: 'mm/min' },
-          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [3000, 5000, 6000, 8000, 10000], default: 6000, unit: 'mm/min' },
+          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000], default: 3000, unit: 'mm/min' },
+          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [2000, 3000, 4000, 5000, 6000, 8000, 10000, 12000, 15000, 20000], default: 6000, unit: 'mm/min' },
         ]},
         { section: 'Gas', options: [
           { id: 'gas', label: 'Air assist', type: 'select', values: ['M8', 'M7', 'none'], default: 'none' },
@@ -395,12 +388,12 @@ const templateManager = {
         pointDistOpt,
         originOpt,
         { section: 'Laser', options: [
-          { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 500, 750, 1000], default: 1000, unit: '' },
+          { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 400, 500, 600, 750, 850, 1000, 1200, 1500], default: 1000, unit: '' },
           { id: 'laserMode', label: 'Laser mode', type: 'select', values: ['M3 (PWM)', 'M4 (dynamic)'], default: 'M3 (PWM)' },
         ]},
         { section: 'Feed Rates', options: [
-          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [100, 200, 300, 500, 1000, 2000, 3000, 5000], default: 3000, unit: 'mm/min' },
-          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [3000, 5000, 6000, 8000, 10000], default: 6000, unit: 'mm/min' },
+          { id: 'feedCut', label: 'Cut feed', type: 'select', values: [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000], default: 3000, unit: 'mm/min' },
+          { id: 'feedTravel', label: 'Travel feed', type: 'select', values: [2000, 3000, 4000, 5000, 6000, 8000, 10000, 12000, 15000, 20000], default: 6000, unit: 'mm/min' },
         ]},
         { section: 'Gas', options: [
           { id: 'gas', label: 'Air assist', type: 'select', values: ['M8', 'M7', 'none'], default: 'none' },

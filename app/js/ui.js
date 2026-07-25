@@ -533,7 +533,7 @@ const ui = {
         let cmds, baseName;
         if (hasSvg) {
           cmds = svgConverter.convert(state.svgText, processed);
-          baseName = (state.originalName || 'output').replace(/\.svg$/i, '') + '.gcode';
+          baseName = (state.originalName || 'output').replace(/\.[^.]+$/, '') + '.gcode';
         } else {
           cmds = svgConverter.segmentsToGcode(state.dxfSegments, processed);
           baseName = (state.dxfName || 'output').replace(/\.dxf$/i, '') + '.gcode';
@@ -894,7 +894,7 @@ const ui = {
         ui.updateTemplateIndicator();
         ui.setStatus(`Template "${name}" extracted. Custom: ${data.customCommands.join(', ') || 'none'}. Tool: ${data.laserOnCmd || '?'}/${data.laserOffCmd || '?'}.`);
       } else {
-        ui.setStatus('Error saving template. Open a templates folder first.', 'error');
+        ui.setStatus('Error saving template.', 'error');
       }
     });
 
@@ -2720,6 +2720,19 @@ const ui = {
     }
   },
 
+  _paramsEqual(a, b) {
+    const ka = Object.keys(a), kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    for (let i = 0; i < ka.length; i++) {
+      const k = ka[i];
+      if (b[k] === undefined) return false;
+      const va = typeof a[k] === 'number' ? parseFloat(a[k].toFixed(4)) : a[k];
+      const vb = typeof b[k] === 'number' ? parseFloat(b[k].toFixed(4)) : b[k];
+      if (va !== vb) return false;
+    }
+    return true;
+  },
+
   refreshWorking() {
     state._boundsCache = null;
     let text = gcodeParser.serialize(state.workingCmds);
@@ -2734,14 +2747,10 @@ const ui = {
           delete cmd._newInsert;
         } else if (i < state.originalCmds.length) {
           const orig = state.originalCmds[i];
-          const cmdP = { ...cmd.params }; delete cmdP.N;
-          const origP = { ...orig.params }; delete origP.N;
-          // Round all numeric values to 4 decimal places for comparison
-          const round = (o) => { const r = {}; for (const [k, v] of Object.entries(o)) { r[k] = typeof v === 'number' ? parseFloat(v.toFixed(4)) : v; } return r; };
-          edited = JSON.stringify(round(cmdP)) !== JSON.stringify(round(origP)) || cmd.type !== orig.type;
+          if (cmd.type !== orig.type || !this._paramsEqual(cmd.params, orig.params)) {
+            edited = true;
+          }
         }
-        // Commands past originalCmds.length are shifted from insertion, not edited.
-        // Only tag them if explicitly marked with _newInsert.
         if (edited) {
           lines[i] = lines[i].replace(/\s*;\s*edit\.gc/g, '').trimEnd() + '  ;edit.gc';
         }
@@ -3033,28 +3042,19 @@ const ui = {
     const body = document.getElementById('machineOptionsBody');
     if (!body) return {};
     const opts = {};
-    body.querySelectorAll('select[data-opt-id]').forEach(sel => {
-      if (sel.value === '__custom__') {
-        const container = sel.closest('.mo-container');
-        const inp = container?.querySelector('.mo-custom-input');
-        opts[sel.dataset.optId] = inp ? inp.value : sel.value;
-      } else {
-        opts[sel.dataset.optId] = sel.value;
-      }
-    });
-    body.querySelectorAll('.mo-custom-input:not(.mo-hidden)').forEach(inp => {
-      const id = inp.dataset.optId;
-      if (id && !opts[id]) opts[id] = inp.value;
-    });
     try {
-      body.querySelectorAll('input[type="number"][data-opt-id]:not(.mo-custom-input)').forEach(inp => {
+      body.querySelectorAll('select[data-opt-id]').forEach(sel => {
+        opts[sel.dataset.optId] = sel.value;
+      });
+      body.querySelectorAll('.mo-cust:not([style*="display:none"])').forEach(inp => {
         opts[inp.dataset.optId] = inp.value;
       });
-      body.querySelectorAll('input[type="text"][data-opt-id]').forEach(inp => {
-        opts[inp.dataset.optId] = inp.value;
-      });
-      body.querySelectorAll('input[type="checkbox"][data-opt-id]').forEach(cb => {
-        opts[cb.dataset.optId] = cb.checked ? (cb.dataset.on || 'Inside') : (cb.dataset.off || 'Outside');
+      body.querySelectorAll('input[data-opt-id]:not(.mo-cust)').forEach(inp => {
+        if (inp.type === 'checkbox') {
+          opts[inp.dataset.optId] = inp.checked ? (inp.dataset.on || 'Inside') : (inp.dataset.off || 'Outside');
+        } else {
+          opts[inp.dataset.optId] = inp.value;
+        }
       });
     } catch (_) {}
     return opts;
@@ -3070,57 +3070,78 @@ const ui = {
       body.innerHTML = '<span class="clabel">No options for this template</span>';
       return;
     }
-    let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 4px;width:100%">';
+    const items = [];
     optDefs.forEach(group => {
-      html += `<span class="clabel" style="grid-column:1/-1;font-weight:600;margin-top:4px;font-size:10px">${group.section}</span>`;
+      items.push({ section: group.section });
       group.options.forEach(opt => {
-        const val = saved[opt.id] != null ? saved[opt.id] : opt.default;
-          if (opt.type === 'number') {
-            html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label}`;
-          html += `<input type="number" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:70px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
-          html += `<span style="font-size:9px;color:var(--text-dim)">${opt.unit || ''}</span>`;
-          html += '</label>';
+        items.push({ opt, val: saved[opt.id] != null ? saved[opt.id] : opt.default });
+      });
+    });
+    let split = Math.ceil(items.length / 2);
+    for (let i = split; i < items.length; i++) {
+      if (items[i].section) { split = i; break; }
+    }
+    const col1 = items.slice(0, split);
+    const col2 = items.slice(split);
+    const renderItems = (list) => {
+      let h = '';
+      list.forEach(item => {
+        if (item.section) {
+          h += `<span class="clabel" style="display:block;font-weight:600;margin-top:4px;font-size:10px">${item.section}</span>`;
+          return;
+        }
+        const opt = item.opt;
+        const val = item.val;
+        if (opt.type === 'number') {
+          h += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px" title="${opt.desc || opt.id + ': ' + opt.label}">${opt.label}`;
+          h += `<input type="number" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:70px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
+          h += `<span style="font-size:9px;color:var(--text-dim)">${opt.unit || ''}</span>`;
+          h += '</label>';
           return;
         }
         if (opt.type === 'text') {
-          html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label}`;
-          html += `<input type="text" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:100px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
-          html += '</label>';
+          h += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px" title="${opt.desc || opt.id + ': ' + opt.label}">${opt.label}`;
+          h += `<input type="text" class="cinput" data-opt-id="${opt.id}" value="${val}" style="width:100px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
+          h += '</label>';
           return;
         }
         if (opt.type === 'toggle') {
           const on = String(val) === (opt.values ? opt.values[1] : 'Inside');
-          html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label || ''}`;
-          html += `<label class="toggle-switch" style="transform:scale(0.65);margin:0;transform-origin:left center" title="${opt.id}">`;
-          html += `<input type="checkbox" data-opt-id="${opt.id}" data-on="${opt.values ? opt.values[1] : 'Inside'}" data-off="${opt.values ? opt.values[0] : 'Outside'}" ${on ? 'checked' : ''}>`;
-          html += `<span class="toggle-slider"></span>`;
-          html += '</label>';
-          html += `<span class="mo-toggle-label" style="font-size:8px;color:var(--muted);margin-left:1px">${on ? 'Inside' : 'Outside'}</span>`;
-          html += '</label>';
+          h += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px" title="${opt.desc || opt.id + ': ' + opt.label}">${opt.label || ''}`;
+          h += `<label class="toggle-switch" style="transform:scale(0.65);margin:0;transform-origin:left center" title="${opt.id}">`;
+          h += `<input type="checkbox" data-opt-id="${opt.id}" data-on="${opt.values ? opt.values[1] : 'Inside'}" data-off="${opt.values ? opt.values[0] : 'Outside'}" ${on ? 'checked' : ''}>`;
+          h += `<span class="toggle-slider"></span>`;
+          h += '</label>';
+          h += `<span class="mo-toggle-label" style="font-size:8px;color:var(--muted);margin-left:1px">${on ? 'Inside' : 'Outside'}</span>`;
+          h += '</label>';
           return;
         }
-        const isCustom = !opt.values.some(v => String(v) === String(val));
-        html += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px">${opt.label}`;
-        html += `<select class="bselect" data-opt-id="${opt.id}" style="width:auto;min-width:0;max-width:100px;height:18px;font-size:10px">`;
+        h += `<label class="clabel mo-container" style="display:flex;align-items:center;gap:3px" title="${opt.desc || opt.id + ': ' + opt.label}">${opt.label}`;
+        h += `<span class="mo-wrap" style="position:relative;display:inline-flex">`;
+        h += `<input type="text" list="mo-dl-${opt.id}" class="mo-preset" data-opt-id="${opt.id}" value="${val}" autocomplete="off" style="width:80px;height:18px;font-size:10px;padding:0 20px 0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
+        h += `<span class="mo-arrow" style="position:absolute;right:1px;top:1px;bottom:1px;width:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:9px;color:var(--text-dim);background:var(--bg2);border-radius:0 2px 2px 0;user-select:none">▼</span>`;
+        h += `<datalist id="mo-dl-${opt.id}">`;
         opt.values.forEach(v => {
-          const sel = String(v) === String(val) ? ' selected' : '';
-          html += `<option value="${v}"${sel}>${v}${opt.unit ? ' ' + opt.unit : ''}</option>`;
+          h += `<option value="${v}">${v}${opt.unit ? ' ' + opt.unit : ''}</option>`;
         });
-        html += `<option value="__custom__"${isCustom ? ' selected' : ''}>Custom...</option>`;
-        html += '</select>';
-        const hiddenClass = isCustom ? '' : ' mo-hidden';
-        html += `<input type="number" class="mo-custom-input${hiddenClass}" data-opt-id="${opt.id}" value="${isCustom ? val : ''}" style="width:70px;height:18px;font-size:10px;padding:0 4px;border:1px solid var(--border2);border-radius:3px;background:#fff" />`;
-        html += '</label>';
+        h += '</datalist>';
+        h += '</span>';
+        h += '</label>';
       });
-    });
+      return h;
+    };
+    let html = `<div style="display:flex;gap:8px;width:100%">`;
+    html += `<div style="flex:1;min-width:0">${renderItems(col1)}</div>`;
+    html += `<div style="flex:1;min-width:0">${renderItems(col2)}</div>`;
     html += '</div>';
     body.innerHTML = html;
     // Add Defaults button
     const btnDiv = document.createElement('div');
-    btnDiv.style.cssText = 'display:flex;width:100%;margin-top:4px';
+    btnDiv.style.cssText = 'display:flex;gap:4px;width:100%;margin-top:4px';
     const btn = document.createElement('button');
     btn.className = 'btn-action';
     btn.textContent = 'Defaults';
+    btn.style.cssText = 'flex:1';
     btn.title = 'Reset all machine options to defaults for this template';
     btn.addEventListener('click', () => {
       const key = ui._getMachineOptsKey();
@@ -3130,40 +3151,78 @@ const ui = {
     });
     btnDiv.appendChild(btn);
     body.appendChild(btnDiv);
+    const onChange = () => {
+      this._saveMachineOpts(this._getSelectedMachineOpts());
+      if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
+    };
+    body.querySelectorAll('.mo-preset').forEach(inp => {
+      let prevVal = inp.value;
+      inp.addEventListener('focus', () => { prevVal = inp.value; });
+      inp.addEventListener('input', onChange);
+      inp.addEventListener('blur', () => {
+        if (inp.value === '' && prevVal) inp.value = prevVal;
+        if (inp.value !== prevVal) onChange();
+      });
+      const arrow = inp.parentElement?.querySelector('.mo-arrow');
+      if (arrow) {
+        arrow.addEventListener('mousedown', e => {
+          e.preventDefault();
+          prevVal = inp.value;
+          inp.value = '';
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.focus();
+        });
+      }
+    });
     body.querySelectorAll('select[data-opt-id]').forEach(sel => {
       sel.addEventListener('change', () => {
-        const container = sel.closest('.mo-container');
-        const inp = container?.querySelector('.mo-custom-input');
-        if (!inp) return;
+        const wrapper = sel.closest('.mo-wrapper');
+        const inp = wrapper?.querySelector('.mo-custom-input');
         if (sel.value === '__custom__') {
-          inp.classList.remove('mo-hidden');
-          inp.focus();
+          sel.style.display = 'none';
+          if (inp) { inp.style.display = ''; inp.focus(); }
         } else {
-          inp.classList.add('mo-hidden');
+          sel.style.display = '';
+          if (inp) inp.style.display = 'none';
+          onChange();
         }
-        this._saveMachineOpts(this._getSelectedMachineOpts());
-        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
       });
     });
     body.querySelectorAll('.mo-custom-input').forEach(inp => {
-      inp.addEventListener('input', () => {
-        this._saveMachineOpts(this._getSelectedMachineOpts());
-        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
+      inp.addEventListener('blur', () => {
+        const wrapper = inp.closest('.mo-wrapper');
+        const sel = wrapper?.querySelector('.mo-select');
+        if (sel) sel.style.display = '';
+        inp.style.display = 'none';
+        if (sel) sel.value = '__custom__';
+        onChange();
+      });
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          inp.blur();
+        }
+        if (e.key === 'Escape') {
+          const wrapper = inp.closest('.mo-wrapper');
+          const sel = wrapper?.querySelector('.mo-select');
+          inp.value = sel?.querySelector('option:not([value="__custom__"])')?.value || '';
+          inp.blur();
+        }
       });
     });
-    body.querySelectorAll('input[type="number"][data-opt-id]').forEach(inp => {
-      inp.addEventListener('change', () => {
-        this._saveMachineOpts(this._getSelectedMachineOpts());
-        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
-      });
-    });
-    body.querySelectorAll('input[type="checkbox"][data-opt-id]').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const label = cb.closest('.mo-container')?.querySelector('.mo-toggle-label');
-        if (label) label.textContent = cb.checked ? (cb.dataset.on || 'Inside') : (cb.dataset.off || 'Outside');
-        this._saveMachineOpts(this._getSelectedMachineOpts());
-        if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
-      });
+    body.querySelectorAll('input[data-opt-id]:not(.mo-preset-input)').forEach(inp => {
+      if (inp.type === 'checkbox') {
+        inp.addEventListener('change', () => {
+          const labelSpan = inp.closest('.mo-container')?.querySelector('.mo-toggle-label');
+          if (labelSpan) labelSpan.textContent = inp.checked ? (inp.dataset.on || 'Inside') : (inp.dataset.off || 'Outside');
+          onChange();
+        });
+      } else {
+        inp.addEventListener('input', onChange);
+        inp.addEventListener('change', () => {
+          this._saveMachineOpts(this._getSelectedMachineOpts());
+          if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
+        });
+      }
     });
   },
 
