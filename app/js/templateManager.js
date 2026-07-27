@@ -448,8 +448,8 @@ const templateManager = {
           { id: 'travelVel', label: 'Travel vel', type: 'select', values: [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], default: 10, unit: '%', desc: 'PTP travel velocity between positions' },
           { id: 'homeVel', label: 'Home vel', type: 'select', values: [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], default: 10, unit: '%', desc: 'PTP velocity for home movements' },
           { id: 'accel', label: 'CP Accel', type: 'select', values: [5, 10, 25, 50, 75, 100], default: 10, unit: '%', desc: 'CP path acceleration' },
-          { id: 'axisVel', label: 'Axis vel', type: 'select', values: [10, 25, 50, 75, 100], default: 100, unit: '%', desc: 'Maximum axis velocity override' },
-          { id: 'axisAcc', label: 'Axis accel', type: 'select', values: [10, 25, 50, 75, 100], default: 100, unit: '%', desc: 'Maximum axis acceleration override' },
+          { id: 'axisVel', label: 'Axis vel', type: 'select', values: [5, 10, 25, 50, 75, 100], default: 10, unit: '%', desc: 'Maximum axis velocity override' },
+          { id: 'axisAcc', label: 'Axis accel', type: 'select', values: [5, 10, 25, 50, 75, 100], default: 10, unit: '%', desc: 'Maximum axis acceleration override' },
         ]},
         { section: 'Program Name', options: [
           { id: 'programName', label: 'Name', type: 'text', default: 'KUKA_Program', unit: '' },

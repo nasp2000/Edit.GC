@@ -754,11 +754,9 @@ const preview = {
         });
       }, 120);
       this._drawCore(cmds, n);
-      this._drawHead(cmds, 0);
       return;
     }
     this._drawCore(cmds, n);
-    this._drawHead(cmds, 0);
   },
 
 
@@ -2004,13 +2002,22 @@ _drawHead(commands, idx, segFrac, segIdx) {
 
     const b = this._segBounds || this._getCutBounds() || this._getBounds(state.workingCmds);
     if (!b) return;
-    const { minX, minY, rangeX, rangeY } = b;
-    const pad = 40;
-    const baseFit = Math.min((cssW - pad * 2) / rangeX, (cssH - pad * 2) / rangeY);
-    const cx0 = (cssW - pad * 2 - rangeX * baseFit) / 2;
-    const cy0 = (cssH - pad * 2 - rangeY * baseFit) / 2;
-    const toCanvasX = x => pad + cx0 + (x - minX) * baseFit * state.previewScale + state.previewOffX;
-    const toCanvasY = y => cssH - pad - cy0 - (y - minY) * baseFit * state.previewScale + state.previewOffY;
+    const lt = this._lastTransform;
+    const toScreen = (x, y, zz) => {
+      if (lt && lt.prj) {
+        const p = lt.prj({ x, y, z: zz || 0 });
+        return [p.x, p.y];
+      }
+      const { minX, minY, rangeX, rangeY } = b;
+      const pad = 40;
+      const baseFit = Math.min((cssW - pad * 2) / rangeX, (cssH - pad * 2) / rangeY);
+      const cx0 = (cssW - pad * 2 - rangeX * baseFit) / 2;
+      const cy0 = (cssH - pad * 2 - rangeY * baseFit) / 2;
+      return [
+        pad + cx0 + (x - minX) * baseFit * state.previewScale + state.previewOffX,
+        cssH - pad - cy0 - (y - minY) * baseFit * state.previewScale + state.previewOffY
+      ];
+    };
     // Use segments for hit-testing (handles arc subdivisions correctly)
     const segs = this._segments;
     let bestCmdIdx = -1, bestDist = Infinity;
@@ -2020,14 +2027,13 @@ _drawHead(commands, idx, segFrac, segIdx) {
         const s = segs[i];
         if (visited.has(s.cmdIdx)) continue;
         visited.add(s.cmdIdx);
-        const px = toCanvasX(s.b.x);
-        const py = toCanvasY(s.b.y);
+        const [px, py] = toScreen(s.b.x, s.b.y, s.b.z);
         const d = Math.hypot(cx - px, cy - py);
         if (d < bestDist) { bestDist = d; bestCmdIdx = s.cmdIdx; }
       }
     } else {
       // Fallback: iterate commands (no retained point array needed)
-      let _curX = 0, _curY = 0, _isRel = false, _unitToMm = 1, _offsetX = 0, _offsetY = 0;
+      let _curX = 0, _curY = 0, _curZ = 0, _isRel = false, _unitToMm = 1, _offsetX = 0, _offsetY = 0, _offsetZ = 0;
       state.workingCmds.forEach((c, i) => {
         if (c.type === 'G91') { _isRel = true; return; }
         if (c.type === 'G90') { _isRel = false; return; }
@@ -2036,13 +2042,14 @@ _drawHead(commands, idx, segFrac, segIdx) {
         if (c.type === 'G92') {
           if (c.params.X !== undefined) _offsetX = _curX - c.params.X * _unitToMm;
           if (c.params.Y !== undefined) _offsetY = _curY - c.params.Y * _unitToMm;
+          if (c.params.Z !== undefined) _offsetZ = _curZ - c.params.Z * _unitToMm;
           return;
         }
         if (c.params.X !== undefined) _curX = _isRel ? _curX + c.params.X * _unitToMm : c.params.X * _unitToMm + _offsetX;
         if (c.params.Y !== undefined) _curY = _isRel ? _curY + c.params.Y * _unitToMm : c.params.Y * _unitToMm + _offsetY;
-        if (c.params.X === undefined && c.params.Y === undefined) return;
-        const px = toCanvasX(_curX);
-        const py = toCanvasY(_curY);
+        if (c.params.Z !== undefined) _curZ = _isRel ? _curZ + c.params.Z * _unitToMm : c.params.Z * _unitToMm + _offsetZ;
+        if (c.params.X === undefined && c.params.Y === undefined && c.params.Z === undefined) return;
+        const [px, py] = toScreen(_curX, _curY, _curZ);
         const d = Math.hypot(cx - px, cy - py);
         if (d < bestDist) { bestDist = d; bestCmdIdx = i; }
       });
