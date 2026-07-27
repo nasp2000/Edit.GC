@@ -275,37 +275,21 @@ const preview = {
   _toolDir(degA, degB, degC, travelDx, travelDy) {
     const a = (degA || 0) * Math.PI / 180;
     const b = (degB || 0) * Math.PI / 180;
+    const c = (degC || 0) * Math.PI / 180;
 
-    let vx = 0, vy = 0, vz = 1;
-    // Rotate B around Y
+    let vx = 0, vy = 0, vz = -1;
+    const cosC = Math.cos(c), sinC = Math.sin(c);
+    let ny = vy * cosC - vz * sinC;
+    let nz = vy * sinC + vz * cosC;
+    vy = ny; vz = nz;
     const cosB = Math.cos(b), sinB = Math.sin(b);
     let nx = vx * cosB + vz * sinB;
-    let nz = -vx * sinB + vz * cosB;
+    nz = -vx * sinB + vz * cosB;
     vx = nx; vz = nz;
-    // Rotate A around Z
     const cosA = Math.cos(a), sinA = Math.sin(a);
     nx = vx * cosA - vy * sinA;
-    let ny = vx * sinA + vy * cosA;
+    ny = vx * sinA + vy * cosA;
     vx = nx; vy = ny;
-
-    // Path-relative C tilt: rotate around travel axis
-    if (degC && travelDx !== undefined && travelDy !== undefined) {
-      const tLen = Math.hypot(travelDx, travelDy);
-      if (tLen > 0.001) {
-        const opts = typeof ui !== 'undefined' ? ui._loadMachineOpts() : {};
-        const cMode = opts.cMode || 'Outside';
-        const sign = cMode === 'Outside' ? 1 : -1;
-        const tx = travelDx / tLen, ty = travelDy / tLen;
-        const cRad = sign * degC * Math.PI / 180;
-        const cosC = Math.cos(cRad), sinC = Math.sin(cRad);
-        const ax = tx, ay = ty, az = 0;
-        const dot = vx*ax + vy*ay + vz*az;
-        nx = vx*cosC + (ay*vz - az*vy)*sinC + ax*dot*(1-cosC);
-        ny = vy*cosC + (az*vx - ax*vz)*sinC + ay*dot*(1-cosC);
-        nz = vz*cosC + (ax*vy - ay*vx)*sinC + az*dot*(1-cosC);
-        vx = nx; vy = ny; vz = nz;
-      }
-    }
 
     return { x: vx, y: vy, z: vz };
   },
@@ -925,11 +909,10 @@ _drawHead(commands, idx, segFrac, segIdx) {
 
     if (plane === 'ISO') {
       const opts = typeof ui !== 'undefined' ? ui._loadMachineOpts() : {};
-      const oA = 0, oB = 0; // Cone always vertical — A/B from machine options go to .dat only
-      const oC = parseFloat(opts.orientC) || 90;
-      // Tilt = deviation from vertical (90°), applied relative to travel direction
-      const tilt = oC - 90;
-      const dir = this._toolDir(oA, oB, tilt, curX - prevX, curY - prevY);
+      const oA = parseFloat(opts.orientA) || 0;
+      const oB = parseFloat(opts.orientB) || -77;
+      const oC = parseFloat(opts.orientC) || 89;
+      const dir = this._toolDir(oA, oB, oC, curX - prevX, curY - prevY);
 
     if (dir) {
         const coneH = 15; // mm
