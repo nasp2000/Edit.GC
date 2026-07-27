@@ -801,6 +801,10 @@ const preview = {
     this._pb.lastTick = performance.now();
     this._pb.accum = 0;
     this._pb.distAccum = 0;
+    const slider = document.getElementById('playProgress');
+    if (slider) slider.value = 0;
+    const info = document.getElementById('scrubInfo');
+    if (info) info.textContent = `0 / ${(this._segTotalDist || 0).toFixed(0)} mm`;
     document.getElementById('btnPlay').textContent = 'Play';
     this._tick();
   },
@@ -845,10 +849,13 @@ const preview = {
     this._pb.lastTick = now;
     // Distance-based playback: 5 mm/s × speed multiplier
     const distPerSec = speed * 5;
-    this._pb.distAccum = (this._pb.distAccum || 0) + distPerSec * dt;
     const totalDist = this._segTotalDist || 1;
     const segCumDist = this._segCumDist;
-    if (!segCumDist || !segCumDist.length) return;
+    if (!segCumDist || !segCumDist.length) {
+      this._pb.rafId = requestAnimationFrame(() => this._tick());
+      return;
+    }
+    this._pb.distAccum = (this._pb.distAccum || 0) + distPerSec * dt;
     // Find segment index by distance
     const targetDist = Math.min(this._pb.distAccum, totalDist);
     let segIdx = 0;
