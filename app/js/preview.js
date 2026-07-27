@@ -720,7 +720,10 @@ const preview = {
       this._segBounds = null;
       state._boundsCache = null;
       this._segCommands = cmds;
-      this._segBuilding = false; // abort any stale build
+      this._segBuilding = false;
+      this._segCumDist = null;
+      this._segCmdIdx = null;
+      this._segTotalDist = null;
       this._segVersion++;
     }
     // Reset scrub bar to 100% (show all)
