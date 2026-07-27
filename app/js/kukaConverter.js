@@ -25,6 +25,8 @@ const kukaConverter = {
 const orientC = parseFloat(opts.orientC) || 89;
     const homeE1 = parseFloat(opts.homeE1) || 0;
     const accel = parseFloat(opts.accel) || 10;
+    const axisVel = parseFloat(opts.axisVel) || 100;
+    const axisAcc = parseFloat(opts.axisAcc) || 100;
     const homeX = parseFloat(opts.machineX) || 2.67;
     const homeY = parseFloat(opts.machineY) || -3.62;
     const homeZ = parseFloat(opts.homeZ) || -101.20;
@@ -346,7 +348,7 @@ const orientC = parseFloat(opts.orientC) || 89;
     // One LDAT per point
     for (let i = 0; i < allPoints.length; i++) {
       const idx = i + 1;
-      datLines.push('DECL LDAT LCPDAT' + idx + '={VEL 2.0,ACC ' + accel + '.0,APO_DIST 50.0,APO_FAC 50.0,AXIS_VEL 100.0,AXIS_ACC 100.0,ORI_TYP #VAR,CIRC_TYP #BASE,JERK_FAC 50.0,GEAR_JERK 50.0,EXAX_IGN 0}');
+      datLines.push('DECL LDAT LCPDAT' + idx + '={VEL 2.0,ACC ' + accel + '.0,APO_DIST 50.0,APO_FAC 50.0,AXIS_VEL ' + axisVel + '.0,AXIS_ACC ' + axisAcc + '.0,ORI_TYP #VAR,CIRC_TYP #BASE,JERK_FAC 50.0,GEAR_JERK 50.0,EXAX_IGN 0}');
     }
     datLines.push('');
 

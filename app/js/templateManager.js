@@ -443,11 +443,13 @@ const templateManager = {
           { id: 'triggerOffDelay', label: 'OFF delay', type: 'select', values: [0, -50, -100, -150, -200, -250, -300, -400, -500, -600, -700, -800, -900, -1000, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000], default: 0, unit: 'ms' },
         ]},
         { section: 'Velocities', options: [
-          { id: 'weldVel', label: 'Weld vel', type: 'select', values: [0.005, 0.008, 0.01, 0.012, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05], default: 0.01, unit: 'm/s' },
-          { id: 'approachVel', label: 'Approach vel', type: 'select', values: [0.01, 0.02, 0.03, 0.05, 0.1, 0.15, 0.2], default: 0.1, unit: 'm/s' },
-          { id: 'travelVel', label: 'Travel vel', type: 'select', values: [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], default: 10, unit: '%' },
-          { id: 'homeVel', label: 'Home vel', type: 'select', values: [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], default: 10, unit: '%' },
-          { id: 'accel', label: 'Accel', type: 'select', values: [5, 10, 25, 50, 75, 100], default: 10, unit: '%' },
+          { id: 'weldVel', label: 'Weld vel', type: 'select', values: [0.005, 0.008, 0.01, 0.012, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05], default: 0.01, unit: 'm/s', desc: 'CP velocity during welding trajectory' },
+          { id: 'approachVel', label: 'Approach vel', type: 'select', values: [0.01, 0.02, 0.03, 0.05, 0.1, 0.15, 0.2], default: 0.1, unit: 'm/s', desc: 'CP velocity during approach/retreat' },
+          { id: 'travelVel', label: 'Travel vel', type: 'select', values: [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], default: 10, unit: '%', desc: 'PTP travel velocity between positions' },
+          { id: 'homeVel', label: 'Home vel', type: 'select', values: [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], default: 10, unit: '%', desc: 'PTP velocity for home movements' },
+          { id: 'accel', label: 'CP Accel', type: 'select', values: [5, 10, 25, 50, 75, 100], default: 10, unit: '%', desc: 'CP path acceleration' },
+          { id: 'axisVel', label: 'Axis vel', type: 'select', values: [10, 25, 50, 75, 100], default: 100, unit: '%', desc: 'Maximum axis velocity override' },
+          { id: 'axisAcc', label: 'Axis accel', type: 'select', values: [10, 25, 50, 75, 100], default: 100, unit: '%', desc: 'Maximum axis acceleration override' },
         ]},
         { section: 'Program Name', options: [
           { id: 'programName', label: 'Name', type: 'text', default: 'KUKA_Program', unit: '' },
