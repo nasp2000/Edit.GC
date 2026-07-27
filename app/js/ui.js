@@ -933,6 +933,7 @@ const ui = {
       ui.updateTemplateIndicator();
       ui._populateMachineOptions();
       if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
+      preview.draw(state.workingCmds);
     });
 
     // Import template from file(s) outside the templates folder
@@ -3154,6 +3155,7 @@ const ui = {
     const onChange = () => {
       this._saveMachineOpts(this._getSelectedMachineOpts());
       if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
+      preview.draw(state.workingCmds);
     };
     body.querySelectorAll('.mo-preset').forEach(inp => {
       let prevVal = inp.value;
@@ -3221,6 +3223,7 @@ const ui = {
         inp.addEventListener('change', () => {
           this._saveMachineOpts(this._getSelectedMachineOpts());
           if (state.mode === 'svg' || state.mode === 'dxf') ui._regenerateFromSource();
+          preview.draw(state.workingCmds);
         });
       }
     });
