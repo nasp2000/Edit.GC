@@ -726,11 +726,11 @@ const preview = {
       this._segTotalDist = null;
       this._segVersion++;
     }
-    // Reset scrub bar to 100% (show all)
+    // Reset scrub bar to 100% (show all) — but not during active playback
     const slider = document.getElementById('playProgress');
-    if (slider) slider.value = 100;
+    if (slider && !this._pb.active) slider.value = 100;
     const info = document.getElementById('scrubInfo');
-    if (info) info.textContent = `${n}/${n}`;
+    if (info && !this._pb.active) info.textContent = `${n}/${n}`;
     if (state.mode === 'gcode' && !this._segments && !this._segBuilding && n > 0) {
       // Analyse bounds first so view is centered from the start
       const preBounds = this._getBounds(cmds);
@@ -971,19 +971,29 @@ _drawHead(commands, idx, segFrac, segIdx) {
             if (cj.params.X !== undefined) { const v = cj.params.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
             if (cj.params.Y !== undefined) { const v = cj.params.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
           }
+          const nc = commands[nextI].params;
           if (nc.X !== undefined) { const v = nc.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
           if (nc.Y !== undefined) { const v = nc.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
           travelDx = nx - curX; travelDy = ny - curY;
         }
       }
-      const tiltAmount = Math.abs(90 + oB) || 8;
-      const dir = this._toolDir(oA, oB, tiltAmount, travelDx, travelDy);
+      const tLen = Math.hypot(travelDx, travelDy);
+      let dir = null;
+      if (tLen > 0.01) {
+        const outNx = -travelDy / tLen, outNy = travelDx / tLen;
+        const tilt = Math.abs(oB) * Math.PI / 180;
+        dir = {
+          x: Math.sin(tilt) * outNx,
+          y: Math.sin(tilt) * outNy,
+          z: -Math.cos(tilt)
+        };
+      }
 
     if (dir) {
-        const coneH = 15; // mm
-        const coneR = 4;  // mm
+        const coneH = 8; // mm
+        const coneR = 2.5;  // mm
         const apex = prj({ x: curX, y: curY, z: curZ });
-        const baseCtr = prj({ x: curX - dir.x * coneH, y: curY - dir.y * coneH, z: curZ - dir.z * coneH });
+        const baseCtr = prj({ x: curX + dir.x * coneH, y: curY + dir.y * coneH, z: curZ - dir.z * coneH });
         // Base circle around pos, perpendicular to toolDir
         const n = Math.hypot(dir.x, dir.y, dir.z) || 1;
         const nx = dir.x / n, ny = dir.y / n, nz = dir.z / n;
@@ -997,8 +1007,8 @@ _drawHead(commands, idx, segFrac, segIdx) {
         // Base ellipse
         ctx.beginPath();
         for (let a = 0; a < Math.PI * 2; a += Math.PI / nBase) {
-          const bx = curX - dir.x * coneH + (ux * Math.cos(a) + vx * Math.sin(a)) * coneR;
-          const by = curY - dir.y * coneH + (uy * Math.cos(a) + vy * Math.sin(a)) * coneR;
+          const bx = curX + dir.x * coneH + (ux * Math.cos(a) + vx * Math.sin(a)) * coneR;
+          const by = curY + dir.y * coneH + (uy * Math.cos(a) + vy * Math.sin(a)) * coneR;
           const bz = curZ - dir.z * coneH + (uz * Math.cos(a) + vz * Math.sin(a)) * coneR;
           const bp = prj({ x: bx, y: by, z: bz });
           if (a === 0) ctx.moveTo(bp.x, bp.y);
@@ -1011,8 +1021,8 @@ _drawHead(commands, idx, segFrac, segIdx) {
         ctx.lineWidth = 1.2 * dpr;
         ctx.stroke();
         // Cone lines: apex to base sides
-        const bR = prj({ x: curX - dir.x * coneH + ux * coneR, y: curY - dir.y * coneH + uy * coneR, z: curZ - dir.z * coneH + uz * coneR });
-        const bL = prj({ x: curX - dir.x * coneH - ux * coneR, y: curY - dir.y * coneH - uy * coneR, z: curZ - dir.z * coneH - uz * coneR });
+        const bR = prj({ x: curX + dir.x * coneH + ux * coneR, y: curY + dir.y * coneH + uy * coneR, z: curZ - dir.z * coneH + uz * coneR });
+        const bL = prj({ x: curX + dir.x * coneH - ux * coneR, y: curY + dir.y * coneH - uy * coneR, z: curZ - dir.z * coneH - uz * coneR });
         ctx.beginPath();
         ctx.moveTo(bR.x, bR.y); ctx.lineTo(apex.x, apex.y); ctx.lineTo(bL.x, bL.y);
         ctx.strokeStyle = 'rgba(127,29,29,0.55)';

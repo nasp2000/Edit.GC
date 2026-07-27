@@ -35,7 +35,7 @@ const orientC = parseFloat(opts.orientC) || 89;
     const triggerOnDelay = parseFloat(opts.triggerOnDelay) || 0;
     const triggerOffDelay = parseFloat(opts.triggerOffDelay) || 0;
 
-    const homePoint = { x: homeX, y: homeY, z: homeZ, c: 0 };
+    const homePoint = { x: homeX, y: homeY, z: homeZ, a: orientA, b: orientB, c: orientC };
     const APPROACH_Z_OFFSET = 10;
     const weldBlocks = [];
     let currentBlock = null;
@@ -111,7 +111,7 @@ const orientC = parseFloat(opts.orientC) || 89;
     let ptCounter = 0;
     const allPoints = [homePoint];
     const addPt = (x, y, z) => {
-      const pt = { x, y, z, c: 0 };
+      const pt = { x, y, z: homeZ + (z || 0), a: orientA, b: orientB, c: orientC };
       allPoints.push(pt);
       ptCounter++;
       return ptCounter;
@@ -335,6 +335,29 @@ const orientC = parseFloat(opts.orientC) || 89;
 
     const src = srcLines.join('\r\n');
 
+    for (let i = 0; i < allPoints.length - 1; i++) {
+      const pt = allPoints[i];
+      const next = allPoints[i + 1];
+      const dx = next.x - pt.x;
+      const dy = next.y - pt.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.01) continue;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const phi = Math.atan2(ny, nx);
+      const aRad = orientA * Math.PI / 180;
+      const tilt = Math.abs(orientB) * Math.PI / 180;
+      const phiA = phi - aRad;
+      const sinT = Math.sin(tilt), cosT = Math.cos(tilt);
+      const vx = sinT * Math.cos(phiA);
+      const vz = -cosT;
+      pt.b = Math.atan2(-vx, -vz) * 180 / Math.PI;
+      const sinCv = -sinT * Math.sin(phiA);
+      const cosBv = Math.cos(pt.b * Math.PI / 180);
+      const cosCv = Math.abs(cosBv) > 0.001 ? vz / cosBv : 1;
+      pt.c = Math.atan2(sinCv, cosCv) * 180 / Math.PI;
+    }
+
     let datLines = [];
     datLines.push('&ACCESS RVP');
     datLines.push('&REL N');
@@ -362,7 +385,7 @@ const orientC = parseFloat(opts.orientC) || 89;
     for (let i = 0; i < allPoints.length; i++) {
       const idx = i + 1;
       const p = allPoints[i];
-      datLines.push('DECL E6POS XP' + idx + '={X ' + p.x.toFixed(2) + ', Y ' + p.y.toFixed(2) + ', Z ' + p.z.toFixed(2) + ', A ' + p.a + ', B ' + p.b + ', C ' + p.c + ', S 6, T 26, E1 ' + homeE1.toFixed(1) + ', E2 0.0, E3 0.0, E4 0.0, E5 0.0, E6 0.0}');
+      datLines.push('DECL E6POS XP' + idx + '={X ' + p.x.toFixed(8) + ',Y ' + p.y.toFixed(8) + ',Z ' + p.z.toFixed(8) + ',A ' + p.a.toFixed(6) + ',B ' + p.b.toFixed(7) + ',C ' + p.c.toFixed(6) + ',S 6,T 26,E1 ' + homeE1.toFixed(1) + ',E2 0.0,E3 0.0,E4 0.0,E5 0.0,E6 0.0}');
       datLines.push('DECL FDAT FP' + idx + '={TOOL_NO ' + toolNo + ', BASE_NO ' + baseNo + ', IPO_FRAME #BASE, POINT2[] " ", TQ_STATE FALSE}');
       datLines.push('DECL LDAT LCPDAT' + idx + '={VEL 2.0,ACC ' + accel + '.0,APO_DIST 50.0,APO_FAC 50.0,AXIS_VEL ' + axisVel + '.0,AXIS_ACC ' + axisAcc + '.0,ORI_TYP #VAR,CIRC_TYP #BASE,JERK_FAC 50.0,GEAR_JERK 50.0,EXAX_IGN 0}');
     }
