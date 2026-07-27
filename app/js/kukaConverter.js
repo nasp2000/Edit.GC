@@ -542,3 +542,5 @@ const orientC = parseFloat(opts.orientC) || 89;
   }
 
 };
+
+if (typeof module !== 'undefined') module.exports = kukaConverter;
