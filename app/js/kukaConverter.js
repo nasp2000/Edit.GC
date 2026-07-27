@@ -21,14 +21,14 @@ const kukaConverter = {
     const travelVelPct = parseFloat(opts.travelVel) || 10;
     const homeVelPct = parseFloat(opts.homeVel) || 10;
     const orientA = parseFloat(opts.orientA) || 137;
-    const orientB = parseFloat(opts.orientB) || -75;
-const orientC = parseFloat(opts.orientC) || 90;
+    const orientB = parseFloat(opts.orientB) || -77;
+const orientC = parseFloat(opts.orientC) || 89;
     const cMode = opts.cMode || 'Outside';
     const homeE1 = parseFloat(opts.homeE1) || 0;
     const accel = parseFloat(opts.accel) || 10;
-    const homeX = parseFloat(opts.machineX) || 3.86;
-    const homeY = parseFloat(opts.machineY) || -1.05;
-    const homeZ = parseFloat(opts.homeZ) || -96.19;
+    const homeX = parseFloat(opts.machineX) || 2.67;
+    const homeY = parseFloat(opts.machineY) || -3.62;
+    const homeZ = parseFloat(opts.homeZ) || -101.20;
     const programName = opts.programName || 'KUKA_Program';
     const tableMode = opts.tableMode || 'Horizontal';
     const triggerOnDelay = parseFloat(opts.triggerOnDelay) || 0;
@@ -351,25 +351,39 @@ const orientC = parseFloat(opts.orientC) || 90;
     }
     datLines.push('');
 
-    // Per-point C from path curvature
+    // Per-point orientation from path contour normal
     for (let i = 0; i < allPoints.length; i++) allPoints[i].c = orientC;
+    for (let i = 0; i < allPoints.length; i++) allPoints[i].a = orientA;
+    for (let i = 0; i < allPoints.length; i++) allPoints[i].b = orientB;
 
-    const signC = cMode === 'Inside' ? -1 : 1;
-    const adj = Math.abs(orientC - 90) || 2;
-    for (let i = 1; i < allPoints.length - 1; i++) {
-      const p0 = allPoints[i - 1], p1 = allPoints[i], p2 = allPoints[i + 1];
-      const dx1 = p1.x - p0.x, dy1 = p1.y - p0.y;
-      const dx2 = p2.x - p1.x, dy2 = p2.y - p1.y;
-      if (Math.hypot(dx1, dy1) < 0.01 || Math.hypot(dx2, dy2) < 0.01) continue;
-      const cross = dx1 * dy2 - dy1 * dx2;
-      if (cross > 0.002) allPoints[i].c += signC * adj;
-      else if (cross < -0.002) allPoints[i].c -= signC * adj;
+    const signCMode = cMode === 'Inside' ? -1 : 1;
+    const tilt = Math.abs(90 + orientB) || 8;
+    for (let i = 0; i < allPoints.length; i++) {
+      let dx, dy;
+      if (i === 0 && allPoints.length > 1) {
+        dx = allPoints[i + 1].x - allPoints[i].x;
+        dy = allPoints[i + 1].y - allPoints[i].y;
+      } else if (i === allPoints.length - 1 && allPoints.length > 1) {
+        dx = allPoints[i].x - allPoints[i - 1].x;
+        dy = allPoints[i].y - allPoints[i - 1].y;
+      } else if (allPoints.length > 2) {
+        dx = allPoints[i + 1].x - allPoints[i - 1].x;
+        dy = allPoints[i + 1].y - allPoints[i - 1].y;
+      } else {
+        dx = 1; dy = 0;
+      }
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) continue;
+      const nx = -dy / len * signCMode;
+      const ny = dx / len * signCMode;
+      const normAngle = Math.atan2(ny, nx) * 180 / Math.PI;
+      allPoints[i].c = orientC + normAngle;
     }
 
     for (let i = 0; i < allPoints.length; i++) {
       const idx = i + 1;
       const p = allPoints[i];
-      datLines.push('DECL E6POS XP' + idx + '={X ' + p.x.toFixed(2) + ', Y ' + p.y.toFixed(2) + ', Z ' + p.z.toFixed(2) + ', A ' + orientA + ', B ' + orientB + ', C ' + p.c + ', S 6, T 26, E1 ' + homeE1.toFixed(1) + ', E2 0.0, E3 0.0, E4 0.0, E5 0.0, E6 0.0}');
+      datLines.push('DECL E6POS XP' + idx + '={X ' + p.x.toFixed(2) + ', Y ' + p.y.toFixed(2) + ', Z ' + p.z.toFixed(2) + ', A ' + p.a + ', B ' + p.b + ', C ' + p.c + ', S 6, T 26, E1 ' + homeE1.toFixed(1) + ', E2 0.0, E3 0.0, E4 0.0, E5 0.0, E6 0.0}');
     }
 
     for (let i = 0; i < allPoints.length; i++) {
