@@ -949,31 +949,27 @@ _drawHead(commands, idx, segFrac, segIdx) {
         let nextI = idx + 1;
         while (nextI < commands.length && !commands[nextI].params) nextI++;
         if (nextI < commands.length && commands[nextI].params) {
-          const nc = commands[nextI].params;
-          if (nc.X !== undefined || nc.Y !== undefined) {
-            let nx = curX, ny = curY, isRel2 = false, utm2 = 1, offX2 = 0, offY2 = 0;
-            for (let j = 0; j <= idx; j++) {
-              const cj = commands[j];
-              if (cj.type === 'G91') isRel2 = true;
-              else if (cj.type === 'G90') isRel2 = false;
-              else if (cj.type === 'G20') utm2 = 25.4;
-              else if (cj.type === 'G21') utm2 = 1;
-              else if (cj.type === 'G92') {
-                if (cj.params.X !== undefined) offX2 = nx - cj.params.X * utm2;
-                if (cj.params.Y !== undefined) offY2 = ny - cj.params.Y * utm2;
-              }
-              if (cj.params.X !== undefined) { const v = cj.params.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
-              if (cj.params.Y !== undefined) { const v = cj.params.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
+          let nx = curX, ny = curY, isRel2 = false, utm2 = 1, offX2 = 0, offY2 = 0;
+          for (let j = 0; j <= idx; j++) {
+            const cj = commands[j];
+            if (cj.type === 'G91') isRel2 = true;
+            else if (cj.type === 'G90') isRel2 = false;
+            else if (cj.type === 'G20') utm2 = 25.4;
+            else if (cj.type === 'G21') utm2 = 1;
+            else if (cj.type === 'G92') {
+              if (cj.params.X !== undefined) offX2 = nx - cj.params.X * utm2;
+              if (cj.params.Y !== undefined) offY2 = ny - cj.params.Y * utm2;
             }
-            if (nc.X !== undefined) { const v = nc.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
-            if (nc.Y !== undefined) { const v = nc.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
-            travelDx = nx - curX; travelDy = ny - curY;
+            if (cj.params.X !== undefined) { const v = cj.params.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
+            if (cj.params.Y !== undefined) { const v = cj.params.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
           }
+          if (nc.X !== undefined) { const v = nc.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
+          if (nc.Y !== undefined) { const v = nc.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
+          travelDx = nx - curX; travelDy = ny - curY;
         }
       }
-      const normalAngle = Math.atan2(travelDx, -travelDy) * 180 / Math.PI;
-      const tiltC = oC + normalAngle;
-      const dir = this._toolDir(oA, oB, tiltC, travelDx, travelDy);
+      const tiltAmount = Math.abs(90 + oB) || 8;
+      const dir = this._toolDir(oA, oB, tiltAmount, travelDx, travelDy);
 
     if (dir) {
         const coneH = 15; // mm
