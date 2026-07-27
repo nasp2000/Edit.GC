@@ -744,9 +744,11 @@ const preview = {
         });
       }, 120);
       this._drawCore(cmds, n);
+      this._drawHead(cmds, 0);
       return;
     }
     this._drawCore(cmds, n);
+    this._drawHead(cmds, 0);
   },
 
 
