@@ -275,21 +275,31 @@ const preview = {
   _toolDir(degA, degB, degC, travelDx, travelDy) {
     const a = (degA || 0) * Math.PI / 180;
     const b = (degB || 0) * Math.PI / 180;
-    const c = (degC || 0) * Math.PI / 180;
 
-    let vx = 0, vy = 0, vz = -1;
-    const cosC = Math.cos(c), sinC = Math.sin(c);
-    let ny = vy * cosC - vz * sinC;
-    let nz = vy * sinC + vz * cosC;
-    vy = ny; vz = nz;
+    let vx = 0, vy = 0, vz = 1;
     const cosB = Math.cos(b), sinB = Math.sin(b);
     let nx = vx * cosB + vz * sinB;
-    nz = -vx * sinB + vz * cosB;
+    let nz = -vx * sinB + vz * cosB;
     vx = nx; vz = nz;
     const cosA = Math.cos(a), sinA = Math.sin(a);
     nx = vx * cosA - vy * sinA;
-    ny = vx * sinA + vy * cosA;
+    let ny = vx * sinA + vy * cosA;
     vx = nx; vy = ny;
+
+    if (degC && travelDx !== undefined && travelDy !== undefined) {
+      const tLen = Math.hypot(travelDx, travelDy);
+      if (tLen > 0.001) {
+        const tx = travelDx / tLen, ty = travelDy / tLen;
+        const cRad = degC * Math.PI / 180;
+        const cosC = Math.cos(cRad), sinC = Math.sin(cRad);
+        const ax = tx, ay = ty, az = 0;
+        const dot = vx*ax + vy*ay + vz*az;
+        nx = vx*cosC + (ay*vz - az*vy)*sinC + ax*dot*(1-cosC);
+        ny = vy*cosC + (az*vx - ax*vz)*sinC + ay*dot*(1-cosC);
+        nz = vz*cosC + (ax*vy - ay*vx)*sinC + az*dot*(1-cosC);
+        vx = nx; vy = ny; vz = nz;
+      }
+    }
 
     return { x: vx, y: vy, z: vz };
   },
@@ -934,7 +944,36 @@ _drawHead(commands, idx, segFrac, segIdx) {
       const oA = parseFloat(opts.orientA) || 0;
       const oB = parseFloat(opts.orientB) || -77;
       const oC = parseFloat(opts.orientC) || 89;
-      const dir = this._toolDir(oA, oB, oC, curX - prevX, curY - prevY);
+      let travelDx = curX - prevX, travelDy = curY - prevY;
+      if (Math.hypot(travelDx, travelDy) < 0.01 && idx >= 0 && commands) {
+        let nextI = idx + 1;
+        while (nextI < commands.length && !commands[nextI].params) nextI++;
+        if (nextI < commands.length && commands[nextI].params) {
+          const nc = commands[nextI].params;
+          if (nc.X !== undefined || nc.Y !== undefined) {
+            let nx = curX, ny = curY, isRel2 = false, utm2 = 1, offX2 = 0, offY2 = 0;
+            for (let j = 0; j <= idx; j++) {
+              const cj = commands[j];
+              if (cj.type === 'G91') isRel2 = true;
+              else if (cj.type === 'G90') isRel2 = false;
+              else if (cj.type === 'G20') utm2 = 25.4;
+              else if (cj.type === 'G21') utm2 = 1;
+              else if (cj.type === 'G92') {
+                if (cj.params.X !== undefined) offX2 = nx - cj.params.X * utm2;
+                if (cj.params.Y !== undefined) offY2 = ny - cj.params.Y * utm2;
+              }
+              if (cj.params.X !== undefined) { const v = cj.params.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
+              if (cj.params.Y !== undefined) { const v = cj.params.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
+            }
+            if (nc.X !== undefined) { const v = nc.X * utm2; nx = isRel2 ? nx + v : v + offX2; }
+            if (nc.Y !== undefined) { const v = nc.Y * utm2; ny = isRel2 ? ny + v : v + offY2; }
+            travelDx = nx - curX; travelDy = ny - curY;
+          }
+        }
+      }
+      const normalAngle = Math.atan2(travelDx, -travelDy) * 180 / Math.PI;
+      const tiltC = oC + normalAngle;
+      const dir = this._toolDir(oA, oB, tiltC, travelDx, travelDy);
 
     if (dir) {
         const coneH = 15; // mm
