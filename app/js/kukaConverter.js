@@ -14,7 +14,7 @@ const kukaConverter = {
   },
 
   convert(cmds, opts) {
-    const toolNo = parseInt(opts.toolNo) || 1;
+    const toolNo = parseInt(opts.toolNo) || 5;
     const baseNo = parseInt(opts.baseNo) || 1;
     const weldVel = parseFloat(opts.weldVel) || 0.01;
     const approachVel = parseFloat(opts.approachVel) || 0.1;
@@ -23,7 +23,6 @@ const kukaConverter = {
     const orientA = parseFloat(opts.orientA) || 137;
     const orientB = parseFloat(opts.orientB) || -77;
 const orientC = parseFloat(opts.orientC) || 89;
-    const cMode = opts.cMode || 'Outside';
     const homeE1 = parseFloat(opts.homeE1) || 0;
     const accel = parseFloat(opts.accel) || 10;
     const homeX = parseFloat(opts.machineX) || 2.67;
@@ -356,7 +355,6 @@ const orientC = parseFloat(opts.orientC) || 89;
     for (let i = 0; i < allPoints.length; i++) allPoints[i].a = orientA;
     for (let i = 0; i < allPoints.length; i++) allPoints[i].b = orientB;
 
-    const signCMode = cMode === 'Inside' ? -1 : 1;
     const tilt = Math.abs(90 + orientB) || 8;
     for (let i = 0; i < allPoints.length; i++) {
       let dx, dy;
@@ -374,8 +372,8 @@ const orientC = parseFloat(opts.orientC) || 89;
       }
       const len = Math.hypot(dx, dy);
       if (len < 0.001) continue;
-      const nx = -dy / len * signCMode;
-      const ny = dx / len * signCMode;
+      const nx = -dy / len;
+      const ny = dx / len;
       const normAngle = Math.atan2(ny, nx) * 180 / Math.PI;
       allPoints[i].c = orientC + normAngle;
     }
