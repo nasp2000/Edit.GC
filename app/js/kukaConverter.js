@@ -25,8 +25,8 @@ const kukaConverter = {
 const orientC = parseFloat(opts.orientC) || 89;
     const homeE1 = parseFloat(opts.homeE1) || 0;
     const accel = parseFloat(opts.accel) || 10;
-    const axisVel = parseFloat(opts.axisVel) || 100;
-    const axisAcc = parseFloat(opts.axisAcc) || 100;
+    const axisVel = parseFloat(opts.axisVel) || 10;
+    const axisAcc = parseFloat(opts.axisAcc) || 10;
     const homeX = parseFloat(opts.machineX) || 2.67;
     const homeY = parseFloat(opts.machineY) || -3.62;
     const homeZ = parseFloat(opts.homeZ) || -101.20;
@@ -196,11 +196,11 @@ const orientC = parseFloat(opts.orientC) || 89;
         block._approachIdx = approachIdx;
       }
 
-      const entryToIdx = {};
+      const entryToIdx = new Map();
       for (const e of entries) {
         if (e.type === 'line') {
           const idx = addPt(e.x, e.y, e.z);
-          entryToIdx[e] = idx;
+          entryToIdx.set(e, idx);
         } else if (e.type === 'circ') {
           const auxIdx = addPt(e.auxX, e.auxY, e.auxZ);
           const endIdx2 = addPt(e.x, e.y, e.z);
@@ -209,9 +209,9 @@ const orientC = parseFloat(opts.orientC) || 89;
         }
       }
 
-      const startIdx = entryToIdx[firstEntry];
+      const startIdx = entryToIdx.get(firstEntry);
       const endIdx = entries[entries.length - 1].type === 'line'
-        ? entryToIdx[lastEntry]
+        ? entryToIdx.get(lastEntry)
         : lastEntry._endIdx;
 
       srcLines.push('    ;--- Weld block ' + (bi + 1));
@@ -264,7 +264,7 @@ const orientC = parseFloat(opts.orientC) || 89;
       srcLines.push('    ;--- Welding Trajectory');
       for (const e of entries) {
         if (e.type === 'line') {
-          const idx = entryToIdx[e];
+          const idx = entryToIdx.get(e);
           srcLines.push('    ;FOLD SLIN XP' + idx + ' CONT Vel=' + weldVel + ' m/s CPDAT1 Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
           srcLines.push('    SLIN XP' + idx + ' WITH $VEL=SVEL_CP(' + weldVel + ', ,LCPDAT' + idx + '), $TOOL=STOOL2(FP' + idx + '), $BASE=EK(K_ROOT(FP' + idx + '.BASE_NO),K_TYPE(FP' + idx + '.BASE_NO),K_OFFS(FP' + idx + '.BASE_NO)), $IPO_MODE=SIPO_MODE(FP' + idx + '.IPO_FRAME), $LOAD=SLOAD(FP' + idx + '.TOOL_NO), $ACC=SACC_CP(LCPDAT' + idx + '), $APO=SAPO(LCPDAT' + idx + '), $ORI_TYPE=SORI_TYP(LCPDAT' + idx + '), $JERK=SJERK(LCPDAT' + idx + ') C_SPL');
           srcLines.push('    ;ENDFOLD');
@@ -336,63 +336,38 @@ const orientC = parseFloat(opts.orientC) || 89;
     const src = srcLines.join('\r\n');
 
     let datLines = [];
-    datLines.push('DEFDAT ' + programName + ' PUBLIC');
+    datLines.push('&ACCESS RVP');
+    datLines.push('&REL N');
+    datLines.push('&PARAM EDITMASK = *');
+    datLines.push('&PARAM TEMPLATE = C:\\KRC\\Roboter\\Template\\vorgabe');
+    datLines.push('&PARAM DISKPATH = KRC:\\R1\\Program\\referencias');
+    datLines.push('DEFDAT ' + programName);
+    datLines.push(';FOLD EXTERNAL DECLARATIONS;%{PE}%MKUKATPBASIS,%CEXT,%VCOMMON,%P');
+    datLines.push(';FOLD BASISTECH EXT;%{PE}%MKUKATPBASIS,%CEXT,%VEXT,%P');
+    datLines.push('EXT  BAS (BAS_COMMAND  :IN,REAL  :IN )');
+    datLines.push('DECL INT SUCCESS');
+    datLines.push(';ENDFOLD (BASISTECH EXT)');
+    datLines.push(';FOLD USER EXT;%{E}%MKUKATPUSER,%CEXT,%VEXT,%P');
+    datLines.push(';Make your modifications here');
     datLines.push('');
-    datLines.push(';--- PDAT');
+    datLines.push(';ENDFOLD (USER EXT)');
+    datLines.push(';ENDFOLD (EXTERNAL DECLARATIONS)');
+    datLines.push('DECL BASIS_SUGG_T LAST_BASIS={POINT1[] "P0                      ",POINT2[] "P0                      ",CP_PARAMS[] "CPDAT0                  ",PTP_PARAMS[] "PDAT0                   ",CONT[] "                        ",CP_VEL[] "0.08                    ",PTP_VEL[] " 100                    ",SYNC_PARAMS[] "SYNCDAT                 ",SPL_NAME[] "S0                      ",A_PARAMS[] "ADAT0                   "}');
+    datLines.push('DECL PDAT PPDAT5={VEL 80.0000,ACC 80.0000,APO_DIST 100.000,APO_MODE #CDIS,GEAR_JERK 50.0000,EXAX_IGN 0}');
     datLines.push('DECL PDAT PDEFAULT={VEL 100.0,ACC 80.0,APO_DIST 100.0,APO_FAC 50.0,APO_MODE #CDIS,GEAR_JERK 50.0,EXAX_IGN 0}');
     datLines.push('DECL PDAT PPDAT1={VEL 100.0,ACC 50.0,APO_DIST 50.0,APO_MODE #CDIS,GEAR_JERK 50.0,EXAX_IGN 0}');
-    datLines.push('DECL PDAT PPDAT5={VEL 80.0,ACC 80.0,APO_DIST 100.0,APO_MODE #CDIS,GEAR_JERK 50.0,EXAX_IGN 0}');
-    datLines.push('DECL PDAT LPDAT1={VEL 50.0,ACC ' + accel + '.0,APO_DIST 50.0,APO_FAC 50.0}');
     datLines.push('');
 
-    // One LDAT per point
-    for (let i = 0; i < allPoints.length; i++) {
-      const idx = i + 1;
-      datLines.push('DECL LDAT LCPDAT' + idx + '={VEL 2.0,ACC ' + accel + '.0,APO_DIST 50.0,APO_FAC 50.0,AXIS_VEL ' + axisVel + '.0,AXIS_ACC ' + axisAcc + '.0,ORI_TYP #VAR,CIRC_TYP #BASE,JERK_FAC 50.0,GEAR_JERK 50.0,EXAX_IGN 0}');
-    }
-    datLines.push('');
-
-    // Per-point orientation from path contour normal
-    for (let i = 0; i < allPoints.length; i++) allPoints[i].c = orientC;
-    for (let i = 0; i < allPoints.length; i++) allPoints[i].a = orientA;
-    for (let i = 0; i < allPoints.length; i++) allPoints[i].b = orientB;
-
-    const tilt = Math.abs(90 + orientB) || 8;
-    for (let i = 0; i < allPoints.length; i++) {
-      let dx, dy;
-      if (i === 0 && allPoints.length > 1) {
-        dx = allPoints[i + 1].x - allPoints[i].x;
-        dy = allPoints[i + 1].y - allPoints[i].y;
-      } else if (i === allPoints.length - 1 && allPoints.length > 1) {
-        dx = allPoints[i].x - allPoints[i - 1].x;
-        dy = allPoints[i].y - allPoints[i - 1].y;
-      } else if (allPoints.length > 2) {
-        dx = allPoints[i + 1].x - allPoints[i - 1].x;
-        dy = allPoints[i + 1].y - allPoints[i - 1].y;
-      } else {
-        dx = 1; dy = 0;
-      }
-      const len = Math.hypot(dx, dy);
-      if (len < 0.001) continue;
-      const nx = -dy / len;
-      const ny = dx / len;
-      const normAngle = Math.atan2(ny, nx) * 180 / Math.PI;
-      allPoints[i].c = orientC + normAngle;
-    }
-
+    // Per-point E6POS + FDAT + LDAT interleaved
     for (let i = 0; i < allPoints.length; i++) {
       const idx = i + 1;
       const p = allPoints[i];
       datLines.push('DECL E6POS XP' + idx + '={X ' + p.x.toFixed(2) + ', Y ' + p.y.toFixed(2) + ', Z ' + p.z.toFixed(2) + ', A ' + p.a + ', B ' + p.b + ', C ' + p.c + ', S 6, T 26, E1 ' + homeE1.toFixed(1) + ', E2 0.0, E3 0.0, E4 0.0, E5 0.0, E6 0.0}');
-    }
-
-    for (let i = 0; i < allPoints.length; i++) {
-      const idx = i + 1;
       datLines.push('DECL FDAT FP' + idx + '={TOOL_NO ' + toolNo + ', BASE_NO ' + baseNo + ', IPO_FRAME #BASE, POINT2[] " ", TQ_STATE FALSE}');
+      datLines.push('DECL LDAT LCPDAT' + idx + '={VEL 2.0,ACC ' + accel + '.0,APO_DIST 50.0,APO_FAC 50.0,AXIS_VEL ' + axisVel + '.0,AXIS_ACC ' + axisAcc + '.0,ORI_TYP #VAR,CIRC_TYP #BASE,JERK_FAC 50.0,GEAR_JERK 50.0,EXAX_IGN 0}');
     }
 
     datLines.push('');
-    datLines.push(';--- LAST_BASIS');
     datLines.push('DECL LAST_BASIS LAST_BASIS={TOOL_NO ' + toolNo + ', BASE_NO ' + baseNo + ', POINT2[] " "}');
     datLines.push('');
     datLines.push('ENDDAT');
