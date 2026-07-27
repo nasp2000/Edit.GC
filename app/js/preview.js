@@ -879,12 +879,31 @@ _drawHead(commands, idx, segFrac, segIdx) {
       curZ = (s.a.z || 0) + ((s.b.z || 0) - (s.a.z || 0)) * segFrac;
       if (segIdx > 0) { const ps = segs[segIdx - 1]; prevX = ps.b.x; prevY = ps.b.y; }
       else { prevX = s.a.x; prevY = s.a.y; }
-    } else if (!idx || !commands[idx - 1]) {
+    } else if (!commands || !commands.length) {
       return;
     } else {
-      // Fallback: walk commands
       let isRel = false, unitToMm = 1, offsetX = 0, offsetY = 0, offsetZ = 0;
-      for (let i = 0; i < idx; i++) {
+      if (idx <= 0) {
+        for (let i = 0; i < commands.length; i++) {
+          const cmd = commands[i];
+          if (cmd.type === 'G91') { isRel = true; continue; }
+          if (cmd.type === 'G90') { isRel = false; continue; }
+          if (cmd.type === 'G20') { unitToMm = 25.4; continue; }
+          if (cmd.type === 'G21') { unitToMm = 1; continue; }
+          if (cmd.type === 'G92') {
+            if (cmd.params.X !== undefined) offsetX = curX - cmd.params.X * unitToMm;
+            if (cmd.params.Y !== undefined) offsetY = curY - cmd.params.Y * unitToMm;
+            if (cmd.params.Z !== undefined) offsetZ = curZ - cmd.params.Z * unitToMm;
+            continue;
+          }
+          if (cmd.params.X !== undefined) { const vx = cmd.params.X * unitToMm; curX = isRel ? curX + vx : vx + offsetX; }
+          if (cmd.params.Y !== undefined) { const vy = cmd.params.Y * unitToMm; curY = isRel ? curY + vy : vy + offsetY; }
+          if (cmd.params.Z !== undefined) { const vz = cmd.params.Z * unitToMm; curZ = isRel ? curZ + vz : vz + offsetZ; }
+          if (cmd.params.X !== undefined || cmd.params.Y !== undefined) break;
+        }
+        prevX = curX; prevY = curY;
+      } else {
+        for (let i = 0; i < idx; i++) {
         const cmd = commands[i];
         if (cmd.type === 'G91') { isRel = true; continue; }
         if (cmd.type === 'G90') { isRel = false; continue; }
@@ -900,6 +919,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
         if (cmd.params.X !== undefined) { const vx = cmd.params.X * unitToMm; curX = isRel ? curX + vx : vx + offsetX; }
         if (cmd.params.Y !== undefined) { const vy = cmd.params.Y * unitToMm; curY = isRel ? curY + vy : vy + offsetY; }
         if (cmd.params.Z !== undefined) { const vz = cmd.params.Z * unitToMm; curZ = isRel ? curZ + vz : vz + offsetZ; }
+      }
       }
     }
     const ctx = this.ctx;
