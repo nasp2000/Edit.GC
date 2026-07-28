@@ -513,9 +513,42 @@ const preview = {
       scheduleDraw();
     }, { passive: false });
 
-    // Left button: drag to pan
+    // Left button: drag to pan or drag point
+    let dragPtIdx = -1;
+    let dragStartX = 0, dragStartY = 0;
+    let dragPending = false;
     c.addEventListener('mousedown', e => {
       if (e.button === 0) {
+        if (state.mode === 'gcode') {
+          const rect = c.getBoundingClientRect();
+          const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+          const lt = this._lastTransform;
+          if (lt && lt.prj) {
+            let bestIdx = -1, bestDist = 15;
+            const segs = this._segments;
+            if (segs && segs.length) {
+              const visited = new Set();
+              for (let i = 0; i < segs.length; i++) {
+                const s = segs[i];
+                if (visited.has(s.cmdIdx)) continue;
+                visited.add(s.cmdIdx);
+                const p = lt.prj(s.b);
+                const d = Math.hypot(mx - p.x, my - p.y);
+                if (d < bestDist) { bestDist = d; bestIdx = s.cmdIdx; }
+              }
+            }
+            if (bestIdx >= 0 && state.workingCmds[bestIdx] && state.workingCmds[bestIdx].params &&
+                (state.workingCmds[bestIdx].params.X !== undefined || state.workingCmds[bestIdx].params.Y !== undefined)) {
+              dragPtIdx = bestIdx;
+              this._dragPtIdx = bestIdx;
+              this._dragSnap = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+              dragStartX = e.clientX;
+              dragStartY = e.clientY;
+              dragPending = true;
+              return;
+            }
+          }
+        }
         dragging = true; lastX = e.clientX; lastY = e.clientY;
       }
     });
@@ -523,17 +556,104 @@ const preview = {
     c.addEventListener('mousedown', e => {
       if (e.button === 1) { e.preventDefault(); dragging = true; lastX = e.clientX; lastY = e.clientY; }
     });
-    window.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('mouseup', () => {
+      if (this._draggingPoint && this._dragWorldPos) {
+        const cmd = state.workingCmds[dragPtIdx];
+        const wp = this._dragWorldPos;
+        if (cmd && cmd.params) {
+          if (cmd.params.X !== undefined) cmd.params.X = parseFloat(wp.x.toFixed(4));
+          if (cmd.params.Y !== undefined) cmd.params.Y = parseFloat(wp.y.toFixed(4));
+        }
+        this._dragWorldPos = null;
+        this._dragScreenX = null;
+        this._dragScreenY = null;
+        this._dragSnap = null;
+        dragPtIdx = -1;
+        this._dragPtIdx = -1;
+        dragPending = false;
+        this._draggingPoint = false;
+        this._justDragged = true;
+        setTimeout(() => { this._justDragged = false; }, 50);
+        preview._segments = null;
+        preview._segCommands = null;
+        this.draw(state.workingCmds);
+        if (window.ui && ui.refreshWorking) ui.refreshWorking();
+        return;
+      }
+      this._dragWorldPos = null;
+      this._dragScreenX = null;
+      this._dragScreenY = null;
+      this._dragSnap = null;
+      this._dragPtIdx = -1;
+      dragPtIdx = -1;
+      dragPending = false;
+      dragging = false;
+    });
 
     // Click: point select (only if no drag occurred)
     c.addEventListener('click', e => {
       if (e.button !== 0) return;
-      if (Math.abs(e.clientX - lastX) > 3 || Math.abs(e.clientY - lastY) > 3) return;
+      if (this._draggingPoint) return;
+      if (this._justDragged) return;
       if (state.mode === 'gcode') {
         this._selectPointFromClick(e);
       }
     });
     window.addEventListener('mousemove', e => {
+      if (dragPending && !this._draggingPoint) {
+        if (Math.abs(e.clientX - dragStartX) > 3 || Math.abs(e.clientY - dragStartY) > 3) {
+          this._draggingPoint = true;
+        } else {
+          return;
+        }
+      }
+      if (dragPtIdx >= 0 && this._draggingPoint) {
+        const rect = c.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const lt = this._lastTransform;
+        if (lt && lt.rp) {
+          const rp = lt.rp;
+          const dpr = window.devicePixelRatio || 1;
+          const w = c.width / dpr, h = c.height / dpr;
+          const pad = 40;
+          const cx = (w - pad*2 - rp.rangeH * rp.baseFit) / 2;
+          const cy = (h - pad*2 - rp.rangeV * rp.baseFit) / 2;
+          const horz = (mx - pad - cx) / (rp.baseFit * state.previewScale) + rp.minH;
+          const vert = (my - pad - cy) / (rp.baseFit * state.previewScale) + rp.minV;
+          const cmd = state.workingCmds[dragPtIdx];
+          if (cmd && cmd.params) {
+            let wx, wy;
+            if (rp.plane === 'ISO') {
+              const cos30 = Math.cos(Math.PI / 6);
+              const z = cmd.params.Z || 0;
+              wx = (horz / cos30 - 2 * (vert - z)) / 2;
+              wy = (-horz / cos30 - 2 * (vert - z)) / 2;
+            } else if (rp.plane === 'XZ') {
+              wx = horz;
+              wy = vert;
+            } else if (rp.plane === 'YZ') {
+              wx = horz;
+              wy = vert;
+            } else {
+              wx = horz;
+              wy = -vert;
+            }
+            this._dragWorldPos = { x: wx, y: wy, plane: rp.plane };
+            if (this._dragSnap) {
+              const ctx = c.getContext('2d');
+              ctx.putImageData(this._dragSnap, 0, 0);
+              ctx.fillStyle = 'rgba(37,99,235,0.95)';
+              ctx.beginPath();
+              ctx.arc(mx, my, 5, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = '#fff';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+          }
+        }
+        return;
+      }
       if (!dragging) return;
       state.previewOffX += e.clientX - lastX;
       state.previewOffY += e.clientY - lastY;
@@ -598,24 +718,40 @@ const preview = {
       const cmdIdx = _findNearest(canvasX, canvasY);
 
       const inGcode = state.mode === 'gcode';
+      const tpl = typeof templateManager !== 'undefined' ? templateManager.getActive() : null;
+      const isKuka = tpl && tpl.data && tpl.data.name === 'KUKA Robot (KRL)';
+      const hasSelection = state.selectedPoints.size >= 1;
       menu.querySelectorAll('[data-action]').forEach(el => {
         const a = el.dataset.action;
         if (a === 'markStart') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
         else if (a === 'setSide') el.style.display = inGcode ? '' : 'none';
         else if (a === 'deletePoint') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
         else if (a === 'addPoint') el.style.display = inGcode ? '' : 'none';
-        else if (a === 'sp1' || a === 'sp2' || a === 'sp3') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
+        else if (a === 'setAsRapid') el.style.display = inGcode && hasSelection ? '' : 'none';
+        else if (a === 'sp1' || a === 'sp2' || a === 'sp3') el.style.display = inGcode && (isKuka || cmdIdx >= 0) ? '' : 'none';
+        else if (a === '__toggleSp') el.style.display = inGcode ? '' : 'none';
         else el.style.display = '';
+      });
+      menu.querySelectorAll('.ctx-submenu').forEach(el => {
+        if (el.dataset.action === 'speedPowerGroup') el.style.display = inGcode ? '' : 'none';
       });
       menu._ctxData = { cmdIdx, canvasX, canvasY };
 
       // Update speed/power labels
       if (window.ui && window.ui._speedPowerRows) {
         const rows = window.ui._speedPowerRows;
+        const toggleEl = menu.querySelector('[data-action="__toggleSp"]');
+        if (toggleEl) {
+          toggleEl.textContent = isKuka ? 'Weld Speed ▸' : 'Speed & Power ▸';
+        }
         for (let ri = 0; ri < 3; ri++) {
           const el = menu.querySelector(`[data-action="sp${ri + 1}"]`);
           if (el && rows[ri]) {
-            el.innerHTML = `<span class="ctx-swatch" style="background:${rows[ri].color}"></span>F:${rows[ri].speed} S:${rows[ri].power}%`;
+            if (isKuka) {
+              el.innerHTML = `<span class="ctx-swatch" style="background:${rows[ri].color}"></span>${rows[ri].speed} m/s`;
+            } else {
+              el.innerHTML = `<span class="ctx-swatch" style="background:${rows[ri].color}"></span>F:${rows[ri].speed} S:${rows[ri].power}%`;
+            }
           }
         }
       }
@@ -678,6 +814,70 @@ const preview = {
         state.selectedPoints.clear();
         state.selectedPoints.add(ctx.cmdIdx);
         document.getElementById('btnPointsDelete').click();
+      } else if (action === 'setAsRapid' && state.selectedPoints.size >= 1) {
+        const sorted = [...state.selectedPoints].sort((a, b) => a - b);
+        const from = sorted[0];
+        const to = sorted[sorted.length - 1];
+        const cmds = state.workingCmds;
+        const baseCmd = (s) => (s || '').trim().toUpperCase().split(/\s+/)[0];
+        const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
+        const td = tpl?.data || tpl;
+        const laserOnTypes = (td?.laserOnCmd || 'M3,M4').split(',').map(baseCmd);
+        const laserOffTypes = (td?.laserOffCmd || 'M5').split(',').map(baseCmd);
+        const isSM300 = laserOnTypes.includes('SM3');
+        const feedTravel = td?.feedTravel || 6000;
+        let laserWasOn = false;
+        for (let i = 0; i < from; i++) {
+          const c = cmds[i]; if (!c) continue;
+          const t = baseCmd(c.type || '');
+          if (laserOnTypes.includes(t)) laserWasOn = true;
+          if (laserOffTypes.includes(t)) laserWasOn = false;
+        }
+        let hasSInRange = false;
+        for (let i = from; i <= to && i < cmds.length; i++) {
+          const c = cmds[i]; if (!c) continue;
+          if (c.params && c.params.S !== undefined && c.params.S > 0) hasSInRange = true;
+        }
+        const shouldWrap = laserWasOn || hasSInRange;
+        if (typeof undoRedo !== 'undefined') undoRedo.push(cmds);
+        if (shouldWrap) {
+          const offCmd = td?.laserOffCmd || 'M5';
+          cmds.splice(from, 0, { lineIndex: -1, raw: offCmd, type: baseCmd(offCmd), params: {}, comment: '', isBlank: false, isComment: false, blockDelete: false });
+        }
+        let newTo = to + (shouldWrap ? 1 : 0);
+        for (let i = from + (shouldWrap ? 1 : 0); i <= newTo && i < cmds.length; i++) {
+          const c = cmds[i];
+          if (!c || c.isBlank || c.isComment) continue;
+          if (c.type === 'G1' || c.type === 'G01') {
+            c.type = 'G0';
+            delete c.params.S;
+          } else if (isSM300 && (c.type === '' || c.type === undefined || c.type === null)) {
+            c.params.F = feedTravel;
+            delete c.params.S;
+          }
+        }
+        if (shouldWrap) {
+          const onCmd = td?.laserOnCmd || 'M3';
+          let foundOffAfter = false;
+          for (let i = newTo + 1; i < cmds.length; i++) {
+            const c = cmds[i]; if (!c) continue;
+            const t = baseCmd(c.type || '');
+            if (laserOffTypes.includes(t)) { foundOffAfter = true; break; }
+            if (laserOnTypes.includes(t)) break;
+          }
+          if (!foundOffAfter) {
+            let insertAt = newTo + 1;
+            while (insertAt < cmds.length && cmds[insertAt] && cmds[insertAt].isBlank) insertAt++;
+            cmds.splice(insertAt, 0, { lineIndex: -1, raw: onCmd, type: baseCmd(onCmd), params: {}, comment: '', isBlank: false, isComment: false, blockDelete: false });
+          }
+        }
+        state.selectedPoints.clear();
+        preview._segments = null;
+        preview._segCommands = null;
+        preview._motionCache = null;
+        if (window.ui) ui.refreshWorking();
+        this.draw(state.workingCmds);
+        ui.setStatus(`Set ${to - from + 1} command(s) as rapid`);
       } else if (action === 'fitView') {
         this.fitView();
       } else if (action === 'resetView') {
@@ -981,7 +1181,11 @@ _drawHead(commands, idx, segFrac, segIdx) {
       let dir = null;
       if (tLen > 0.01) {
         const outNx = -travelDy / tLen, outNy = travelDx / tLen;
-        const tilt = Math.abs(oB) * Math.PI / 180;
+        const homeC = 89;
+        let tiltDeg = Math.abs(oC - homeC);
+        if (tiltDeg > 180) tiltDeg = 360 - tiltDeg;
+        if (tiltDeg < 0.5) tiltDeg = Math.abs(oB);
+        const tilt = tiltDeg * Math.PI / 180;
         dir = {
           x: Math.sin(tilt) * outNx,
           y: Math.sin(tilt) * outNy,
@@ -990,10 +1194,10 @@ _drawHead(commands, idx, segFrac, segIdx) {
       }
 
     if (dir) {
-        const coneH = 8; // mm
-        const coneR = 2.5;  // mm
+        const coneH = 4; // mm
+        const coneR = 1.8;  // mm
         const apex = prj({ x: curX, y: curY, z: curZ });
-        const baseCtr = prj({ x: curX + dir.x * coneH, y: curY + dir.y * coneH, z: curZ - dir.z * coneH });
+        const baseCtr = prj({ x: curX + dir.x * coneH, y: curY + dir.y * coneH, z: curZ + dir.z * coneH });
         // Base circle around pos, perpendicular to toolDir
         const n = Math.hypot(dir.x, dir.y, dir.z) || 1;
         const nx = dir.x / n, ny = dir.y / n, nz = dir.z / n;
@@ -1009,7 +1213,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
         for (let a = 0; a < Math.PI * 2; a += Math.PI / nBase) {
           const bx = curX + dir.x * coneH + (ux * Math.cos(a) + vx * Math.sin(a)) * coneR;
           const by = curY + dir.y * coneH + (uy * Math.cos(a) + vy * Math.sin(a)) * coneR;
-          const bz = curZ - dir.z * coneH + (uz * Math.cos(a) + vz * Math.sin(a)) * coneR;
+          const bz = curZ + dir.z * coneH + (uz * Math.cos(a) + vz * Math.sin(a)) * coneR;
           const bp = prj({ x: bx, y: by, z: bz });
           if (a === 0) ctx.moveTo(bp.x, bp.y);
           else ctx.lineTo(bp.x, bp.y);
@@ -1021,8 +1225,8 @@ _drawHead(commands, idx, segFrac, segIdx) {
         ctx.lineWidth = 1.2 * dpr;
         ctx.stroke();
         // Cone lines: apex to base sides
-        const bR = prj({ x: curX + dir.x * coneH + ux * coneR, y: curY + dir.y * coneH + uy * coneR, z: curZ - dir.z * coneH + uz * coneR });
-        const bL = prj({ x: curX + dir.x * coneH - ux * coneR, y: curY + dir.y * coneH - uy * coneR, z: curZ - dir.z * coneH - uz * coneR });
+        const bR = prj({ x: curX + dir.x * coneH + ux * coneR, y: curY + dir.y * coneH + uy * coneR, z: curZ + dir.z * coneH + uz * coneR });
+        const bL = prj({ x: curX + dir.x * coneH - ux * coneR, y: curY + dir.y * coneH - uy * coneR, z: curZ + dir.z * coneH - uz * coneR });
         ctx.beginPath();
         ctx.moveTo(bR.x, bR.y); ctx.lineTo(apex.x, apex.y); ctx.lineTo(bL.x, bL.y);
         ctx.strokeStyle = 'rgba(127,29,29,0.55)';
@@ -2084,8 +2288,16 @@ _drawHead(commands, idx, segFrac, segIdx) {
       return;
     }
     if (bestCmdIdx < 0 || bestDist > 25) return;
-    state.selectedPoints.clear();
-    state.selectedPoints.add(bestCmdIdx);
+    if (e.ctrlKey || e.metaKey) {
+      if (state.selectedPoints.has(bestCmdIdx)) {
+        state.selectedPoints.delete(bestCmdIdx);
+      } else {
+        state.selectedPoints.add(bestCmdIdx);
+      }
+    } else {
+      state.selectedPoints.clear();
+      state.selectedPoints.add(bestCmdIdx);
+    }
     this._updatePointsInfo();
     document.getElementById('pointsOffsetX').value = '0';
     document.getElementById('pointsOffsetY').value = '0';

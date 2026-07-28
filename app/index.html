@@ -15,7 +15,7 @@
   <header id="banner">
     <span class="banner-title">Edit<span class="banner-dot">.</span>GC</span>
     <span class="banner-sub">G-code Editor</span>
-    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.005</span>
+    <span style="font-size:14px;color:var(--text-dim);font-weight:700;position:absolute;right:16px">v1.006</span>
   </header>
 
   <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt,.src" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
@@ -549,8 +549,9 @@
     <div class="ctx-item" data-action="setSide">Toggle Set Side</div>
     <div class="ctx-item" data-action="addPoint">Add Point Here</div>
     <div class="ctx-item" data-action="deletePoint">Delete Point</div>
+    <div class="ctx-item" data-action="setAsRapid">Set as Rapid</div>
     <div class="ctx-sep"></div>
-    <div class="ctx-submenu">
+    <div class="ctx-submenu" data-action="speedPowerGroup">
       <span class="ctx-item ctx-submenu-label" data-action="__toggleSp">Speed &amp; Power ▸</span>
       <div class="ctx-submenu-items ctx-menu" style="left:100%;top:-4px">
         <div class="ctx-item" data-action="sp1"><span class="ctx-swatch" style="background:#F97316"></span>Speed 1000 / Power 10%</div>

@@ -1295,6 +1295,7 @@ const ui = {
 
     // ---- Speed/Power Control (3 colors × 3 rows) ------------------------------------------------
     const SPEED_PRESETS = [1000,2000,3000,4000,5000,6000,7000,8000,9000,10000];
+    const KUKA_VEL_PRESETS = [0.005,0.008,0.01,0.012,0.015,0.02,0.025,0.03,0.04,0.05];
     const POWER_PRESETS = [10,20,30,40,50,60,70,80,90,100];
     const SPEED_POWER_COLORS = ['#F97316','#EC4899','#84CC16'];
     ui._speedPowerRows = SPEED_POWER_COLORS.map((c, ri) => ({
@@ -1306,24 +1307,26 @@ const ui = {
       if (!table) return;
       const tpl = templateManager.getActive(); const td = tpl?.data || tpl;
       const isSM = /SM3/i.test(td?.laserOnCmd || '');
+      const isKuka = td?.name === 'KUKA Robot (KRL)';
+      const speedOnly = isSM || isKuka;
       const label = document.getElementById('speedPowerPowerLabel');
-      if (label) label.textContent = isSM ? 'Power (Machine Options)' : 'Power (S)';
+      if (label) label.textContent = isSM ? 'Power (Machine Options)' : speedOnly ? 'Speed Only' : 'Power (S)';
       for (let ri = 0; ri < 3; ri++) {
         const row = ui._speedPowerRows[ri];
-        if (isSM) {
-          // SM300: speed per-point, power is global (Machine Options)
-          // Show speed dropdown + color indicator, hide power
+        if (speedOnly) {
           const colorCell = document.createElement('span');
           colorCell.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:2px;background:${row.color};color:#fff;font-size:9px;font-weight:700;width:18px;height:24px;flex-shrink:0`;
           colorCell.textContent = ri + 1;
           colorCell.title = 'Click or press ' + (ri + 1) + ' to assign to focused point';
           colorCell.dataset.speedRow = ri;
           colorCell.addEventListener('click', () => ui._speedPowerAssignRow(ri));
+          const presets = isKuka ? KUKA_VEL_PRESETS : SPEED_PRESETS;
+          const unit = isKuka ? ' m/s' : '';
           const speedSel = document.createElement('select');
           speedSel.className = 'bselect';
           speedSel.style.cssText = 'width:100%;height:24px;font-size:11px';
-          row.speed = SPEED_PRESETS[ri] || 3000;
-          SPEED_PRESETS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; speedSel.appendChild(o); });
+          row.speed = presets[ri] || (isKuka ? 0.01 : 3000);
+          presets.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v + unit; speedSel.appendChild(o); });
           const custOpt = document.createElement('option'); custOpt.value = 'custom'; custOpt.textContent = 'Custom'; speedSel.appendChild(custOpt);
           speedSel.value = row.speed;
           speedSel.addEventListener('change', () => {
@@ -1333,12 +1336,12 @@ const ui = {
           const speedInput = document.createElement('input');
           speedInput.type = 'number'; speedInput.className = 'cinput';
           speedInput.style.cssText = 'width:100%;height:24px;font-size:11px;display:none';
-          speedInput.placeholder = 'F';
+          speedInput.placeholder = isKuka ? 'mm/s' : 'F';
           speedInput.addEventListener('change', () => { row.speed = parseFloat(speedInput.value) || 0; });
-          speedInput.addEventListener('blur', () => { if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || SPEED_PRESETS[ri]; row.speedCustom = false; } });
+          speedInput.addEventListener('blur', () => { if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || presets[ri]; row.speedCustom = false; } });
           const infoSpan = document.createElement('span');
           infoSpan.style.cssText = 'font-size:9px;color:var(--text-dim);display:flex;align-items:center;padding:0 2px';
-          infoSpan.textContent = 'Machine Options';
+          infoSpan.textContent = isKuka ? 'KUKA VEL' : 'Machine Options';
           row.power = 0;
           table.appendChild(colorCell);
           const spWrap = document.createElement('span'); spWrap.style.cssText = 'display:flex;gap:1px;width:100%'; spWrap.appendChild(speedSel); spWrap.appendChild(speedInput); table.appendChild(spWrap);
@@ -1400,28 +1403,41 @@ const ui = {
       preview._updatePointsInfo();
       preview.draw(state.workingCmds);
       ui._updatePointsPanel();
-      ui.setStatus(`Point ${idx + 1} assigned to color ${ri + 1} (F:${row.speed} S:${row.power})`);
+      const tpl = templateManager.getActive(); const td = tpl?.data || tpl;
+      const isKuka = td?.name === 'KUKA Robot (KRL)';
+      const isSM = /SM3/i.test(td?.laserOnCmd || '');
+      const speedOnly = isKuka || isSM;
+      if (speedOnly) {
+        ui.setStatus(`Point ${idx + 1} → color ${ri + 1} (${row.speed} ${isKuka ? 'm/s' : 'mm/s'})`);
+      } else {
+        ui.setStatus(`Point ${idx + 1} → color ${ri + 1} (F:${row.speed} S:${row.power}%)`);
+      }
     };
     document.getElementById('btnSpeedPowerApply').addEventListener('click', () => {
       if (!state.workingCmds.length) { ui.setStatus('No G-code loaded.', 'error'); return; }
       const tpl = templateManager.getActive(); const td = tpl?.data || tpl;
       const isSM = /SM3/i.test(td?.laserOnCmd || '');
+      const isKuka = td?.name === 'KUKA Robot (KRL)';
+      const speedOnly = isSM || isKuka;
       let changed = false;
-      undoRedo.push(state.workingCmds);
       ui._speedPowerRows.forEach(row => {
+        if (!row.assignedPoints.length) return;
+        if (!changed) undoRedo.push(state.workingCmds);
         row.assignedPoints.forEach(idx => {
           const c = state.workingCmds[idx];
           if (!c || !c.params) return;
           if (row.speed) { c.params.F = row.speed; changed = true; }
-          if (!isSM && row.power) { c.params.S = row.power; changed = true; }
+          if (!speedOnly && row.power) { c.params.S = row.power; changed = true; }
         });
       });
       if (changed) {
         state.dirty = true;
         preview._segments = null;
+        preview._motionCache = null;
         preview.draw(state.workingCmds);
         ui.refreshWorking();
-        ui.setStatus('Speed/power applied to assigned points.');
+        const msg = speedOnly ? 'Speed applied to assigned points.' : 'Speed/power applied to assigned points.';
+        ui.setStatus(msg);
       } else {
         ui.setStatus('No points assigned. Select points first with Tab + color click.', 'error');
       }
@@ -1686,7 +1702,13 @@ const ui = {
       if (pos >= list.length) pos = list.length - 1;
       ui._focusedPointPos = pos;
       const p = list[pos];
-      if (!keepSelection) {
+      if (keepSelection) {
+        if (state.selectedPoints.has(p.idx)) {
+          state.selectedPoints.delete(p.idx);
+        } else {
+          state.selectedPoints.add(p.idx);
+        }
+      } else {
         state.selectedPoints.clear();
         state.selectedPoints.add(p.idx);
       }
@@ -1761,8 +1783,8 @@ const ui = {
           dist = Math.hypot(p.x - prev.x, p.y - prev.y).toFixed(3);
         }
         tr.innerHTML = `<td style="text-align:center${isMarkStart ? ';color:var(--accent2);font-weight:700' : ''}">${p.idx + 1}</td><td style="text-align:right">${p.x.toFixed(3)}</td><td style="text-align:right">${p.y.toFixed(3)}</td><td style="text-align:right">${p.z.toFixed(3)}</td><td style="text-align:right;color:var(--text-dim)">${dist}</td>`;
-        tr.addEventListener('click', () => {
-          ui._focusPoint(pi);
+        tr.addEventListener('click', (e) => {
+          ui._focusPoint(pi, e.ctrlKey || e.metaKey);
         });
         frag.appendChild(tr);
       });
@@ -2983,7 +3005,7 @@ const ui = {
     const originHeader = document.getElementById('originHeader');
     const speedPowerHeader = document.getElementById('speedPowerHeader');
     if (originHeader) originHeader.style.display = isKuka ? 'none' : '';
-    if (speedPowerHeader) speedPowerHeader.style.display = isKuka ? 'none' : '';
+    if (speedPowerHeader) speedPowerHeader.style.display = '';
     if (isKuka && state.previewPlane === 'XY') {
       state.previewPlane = 'ISO';
       if (sel) sel.value = 'ISO';

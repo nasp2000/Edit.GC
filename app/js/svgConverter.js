@@ -223,62 +223,13 @@ const svgConverter = {
       segments[nextIdx] = [entry, ...rotated, exitPt];
     }
 
-    // Rotate remaining closed shapes to start on straight edges (not corners)
-    const connectedSet = new Set();
-    for (let si = 0; si < sortedIndices.length - 1; si++) {
-      const seg = segments[sortedIndices[si]];
-      const next = segments[sortedIndices[si+1]];
-      if (!seg || !next || seg.length < 2 || next.length < 2) continue;
-      const segOpen = Math.abs(seg[0].x - seg[seg.length-1].x) > 0.5 || Math.abs(seg[0].y - seg[seg.length-1].y) > 0.5;
-      const nextClosed = !(Math.abs(next[0].x - next[next.length-1].x) > 0.5 || Math.abs(next[0].y - next[next.length-1].y) > 0.5);
-      if (segOpen && nextClosed) connectedSet.add(sortedIndices[si+1]);
-    }
-    for (const si of sortedIndices) {
-      if (connectedSet.has(si)) continue;
-      const seg = segments[si];
-      if (!seg || seg.length < 3) continue;
-      const isClosed = Math.abs(seg[0].x - seg[seg.length-1].x) < 0.5 && Math.abs(seg[0].y - seg[seg.length-1].y) < 0.5;
-      if (!isClosed) continue;
-      const body = seg.slice(0, -1);
-      const n = body.length;
-      let bestK = 0, bestLen = 0;
-      for (let i = 0; i < n; i++) {
-        const a = body[(i - 1 + n) % n], b = body[i];
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const len = Math.sqrt(dx*dx + dy*dy);
-        if (len > bestLen) { bestLen = len; bestK = i; }
-      }
-      if (bestLen > 0) {
-        const a = body[(bestK - 1 + n) % n], b = body[bestK];
-        const mx = parseFloat(((a.x + b.x) * 0.5).toFixed(3));
-        const my = parseFloat(((a.y + b.y) * 0.5).toFixed(3));
-        segments[si] = [{ x: mx, y: my, cut: false }, ...body.slice(bestK), ...body.slice(0, bestK), { x: mx, y: my, cut: true }];
-      }
-    }
-
-    // Nearest-neighbor reorder: minimize travel between groups, keep connected pairs together
+    // Nearest-neighbor reorder: minimize travel between groups
     {
-      const groups = [];
-      let i = 0;
-      while (i < sortedIndices.length) {
-        const idx = sortedIndices[i];
-        const seg = segments[idx];
-        if (!seg || seg.length < 2) { groups.push([idx]); i++; continue; }
-        const isOpen = Math.abs(seg[0].x - seg[seg.length-1].x) > 0.5 || Math.abs(seg[0].y - seg[seg.length-1].y) > 0.5;
-        if (isOpen && i + 1 < sortedIndices.length && connectedSet.has(sortedIndices[i+1])) {
-          groups.push([idx, sortedIndices[i+1]]);
-          i += 2;
-        } else {
-          groups.push([idx]);
-          i++;
-        }
-      }
+      const groups = sortedIndices.map(idx => [idx]);
       if (groups.length > 1) {
-        // Preserve first group (connected pair) at index 0
         const keepHead = groups.splice(0, 1)[0];
         const headEnd = segments[keepHead[keepHead.length - 1]];
         let pos = headEnd && headEnd.length ? headEnd[headEnd.length - 1] : { x: 0, y: 0 };
-        // Nearest-neighbor for remaining groups
         const used = new Set();
         const reordered = [keepHead];
         while (reordered.length < groups.length + 1) {
@@ -302,6 +253,51 @@ const svgConverter = {
         }
         sortedIndices = reordered.flat();
       }
+    }
+
+    // Merge connected segments: if end of previous ≈ start of next, join into one (no laser toggle)
+    {
+      const merged = [];
+      let cur = sortedIndices[0] != null ? segments[sortedIndices[0]] : null;
+      for (let si = 1; si < sortedIndices.length; si++) {
+        const next = segments[sortedIndices[si]];
+        if (cur && next && cur.length >= 2 && next.length >= 2) {
+          const last = cur[cur.length - 1];
+          const first = next[0];
+          if (Math.abs(last.x - first.x) < 0.5 && Math.abs(last.y - first.y) < 0.5) {
+            cur = cur.concat(next.slice(1));
+            continue;
+          }
+        }
+        if (cur) merged.push(cur);
+        cur = next;
+      }
+      if (cur) merged.push(cur);
+      // Post-merge: rotate closed shapes to start at midpoint of longest edge (never at corners)
+      for (let i = 0; i < merged.length; i++) {
+        const seg = merged[i];
+        if (!seg || seg.length < 3) continue;
+        const isClosed = Math.abs(seg[0].x - seg[seg.length-1].x) < 0.5 && Math.abs(seg[0].y - seg[seg.length-1].y) < 0.5;
+        if (!isClosed) continue;
+        const body = seg.slice(0, -1);
+        const n = body.length;
+        let bestK = 0, bestLen = 0;
+        for (let j = 0; j < n; j++) {
+          const a = body[(j - 1 + n) % n], b = body[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const len = Math.sqrt(dx*dx + dy*dy);
+          if (len > bestLen) { bestLen = len; bestK = j; }
+        }
+        if (bestLen > 0) {
+          const a = body[(bestK - 1 + n) % n], b = body[bestK];
+          const mx = parseFloat(((a.x + b.x) * 0.5).toFixed(3));
+          const my = parseFloat(((a.y + b.y) * 0.5).toFixed(3));
+          merged[i] = [{ x: mx, y: my, cut: false }, ...body.slice(bestK), ...body.slice(0, bestK), { x: mx, y: my, cut: true }];
+        }
+      }
+      for (let i = 0; i < merged.length; i++) segments[i] = merged[i];
+      segments.length = merged.length;
+      sortedIndices = segments.map((_, i) => i);
     }
 
     const baseOff = baseCmd(laserOff);

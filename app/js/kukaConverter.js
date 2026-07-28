@@ -119,7 +119,6 @@ const orientC = parseFloat(opts.orientC) || 89;
 
     let srcLines = [];
     srcLines.push('&ACCESS RVP');
-    srcLines.push('&REL N');
     srcLines.push('&PARAM EDITMASK = *');
     srcLines.push('&PARAM TEMPLATE = C:\\KRC\\Roboter\\Template\\vorgabe');
     srcLines.push('&PARAM DISKPATH = KRC:\\R1\\Program\\referencias');
@@ -360,7 +359,6 @@ const orientC = parseFloat(opts.orientC) || 89;
 
     let datLines = [];
     datLines.push('&ACCESS RVP');
-    datLines.push('&REL N');
     datLines.push('&PARAM EDITMASK = *');
     datLines.push('&PARAM TEMPLATE = C:\\KRC\\Roboter\\Template\\vorgabe');
     datLines.push('&PARAM DISKPATH = KRC:\\R1\\Program\\referencias');
@@ -377,7 +375,6 @@ const orientC = parseFloat(opts.orientC) || 89;
     datLines.push(';ENDFOLD (EXTERNAL DECLARATIONS)');
     datLines.push('DECL BASIS_SUGG_T LAST_BASIS={POINT1[] "P0                      ",POINT2[] "P0                      ",CP_PARAMS[] "CPDAT0                  ",PTP_PARAMS[] "PDAT0                   ",CONT[] "                        ",CP_VEL[] "0.08                    ",PTP_VEL[] " 100                    ",SYNC_PARAMS[] "SYNCDAT                 ",SPL_NAME[] "S0                      ",A_PARAMS[] "ADAT0                   "}');
     datLines.push('DECL PDAT PPDAT5={VEL 80.0000,ACC 80.0000,APO_DIST 100.000,APO_MODE #CDIS,GEAR_JERK 50.0000,EXAX_IGN 0}');
-    datLines.push('DECL PDAT PDEFAULT={VEL 100.0,ACC 80.0,APO_DIST 100.0,APO_FAC 50.0,APO_MODE #CDIS,GEAR_JERK 50.0,EXAX_IGN 0}');
     datLines.push('DECL PDAT PPDAT1={VEL 100.0,ACC 50.0,APO_DIST 50.0,APO_MODE #CDIS,GEAR_JERK 50.0,EXAX_IGN 0}');
     datLines.push('');
 
@@ -390,8 +387,6 @@ const orientC = parseFloat(opts.orientC) || 89;
       datLines.push('DECL LDAT LCPDAT' + idx + '={VEL 2.0,ACC ' + accel + '.0,APO_DIST 50.0,APO_FAC 50.0,AXIS_VEL ' + axisVel + '.0,AXIS_ACC ' + axisAcc + '.0,ORI_TYP #VAR,CIRC_TYP #BASE,JERK_FAC 50.0,GEAR_JERK 50.0,EXAX_IGN 0}');
     }
 
-    datLines.push('');
-    datLines.push('DECL LAST_BASIS LAST_BASIS={TOOL_NO ' + toolNo + ', BASE_NO ' + baseNo + ', POINT2[] " "}');
     datLines.push('');
     datLines.push('ENDDAT');
 
