@@ -581,6 +581,7 @@ const preview = {
         preview._segments = null;
         preview._segCommands = null;
         this.draw(state.workingCmds);
+        if (typeof gcodeParser !== 'undefined') gcodeParser._serCache = null;
         if (window.ui && ui.refreshWorking) ui.refreshWorking();
         return;
       }
@@ -767,7 +768,7 @@ const preview = {
         else if (a === 'deletePoint') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
         else if (a === 'addPoint') el.style.display = inGcode ? '' : 'none';
         else if (a === 'setAsRapid') el.style.display = inGcode && (hasSelection || cmdIdx >= 0) ? '' : 'none';
-        else if (a === 'sp1' || a === 'sp2' || a === 'sp3') el.style.display = inGcode && (isKuka || cmdIdx >= 0) ? '' : 'none';
+        else if (a === 'sp1' || a === 'sp2' || a === 'sp3') el.style.display = inGcode ? '' : 'none';
         else if (a === '__toggleSp') el.style.display = inGcode ? '' : 'none';
         else el.style.display = '';
       });
@@ -921,6 +922,7 @@ const preview = {
         preview._segments = null;
         preview._segCommands = null;
         preview._motionCache = null;
+        if (typeof gcodeParser !== 'undefined') gcodeParser._serCache = null;
         if (window.ui) ui.refreshWorking();
         this.draw(state.workingCmds);
         ui.setStatus(`Set ${to - from + 1} command(s) as rapid`);
@@ -929,15 +931,20 @@ const preview = {
       } else if (action === 'resetView') {
         state.previewScale = 1; state.previewOffX = 0; state.previewOffY = 0;
         this.draw(state.workingCmds);
-      } else if (action.startsWith('sp') && ctx.cmdIdx >= 0 && ui._speedPowerRows) {
+      } else if (action.startsWith('sp') && ui._speedPowerRows) {
         const ri = parseInt(action.charAt(2)) - 1;
-        const rows = ui._speedPowerRows;
-        rows.forEach(r => { r.assignedPoints = r.assignedPoints.filter(p => p !== ctx.cmdIdx); });
-        rows[ri].assignedPoints.push(ctx.cmdIdx);
-        state.selectedPoints.clear();
-        state.selectedPoints.add(ctx.cmdIdx);
-        document.getElementById('btnSpeedPowerApply').click();
-        ui.setStatus(`Point ${ctx.cmdIdx + 1} assigned to row ${ri + 1}`);
+        if (ctx.cmdIdx >= 0) {
+          const rows = ui._speedPowerRows;
+          rows.forEach(r => { r.assignedPoints = r.assignedPoints.filter(p => p !== ctx.cmdIdx); });
+          rows[ri].assignedPoints.push(ctx.cmdIdx);
+          state.selectedPoints.clear();
+          state.selectedPoints.add(ctx.cmdIdx);
+          document.getElementById('btnSpeedPowerApply').click();
+          ui.setStatus(`Point ${ctx.cmdIdx + 1} assigned to row ${ri + 1}`);
+        } else {
+          const rows = ui._speedPowerRows;
+          ui.setStatus(`Row ${ri + 1}: F=${rows[ri].speed} S=${rows[ri].power}% (right-click near a point to assign)`);
+        }
       }
     });
   },

@@ -44,7 +44,7 @@ const gcodeParser = {
   },
 
   serialize(commands) {
-    if (this._serCache && this._serCache.cmds === commands) return this._serCache.text;
+    if (this._serCache && this._serCache.cmds === commands && this._serCache.len === commands.length) return this._serCache.text;
     const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
     const lineEnd = (tpl && tpl.data && tpl.data.lineEnd) || '\n';
     const canonicalOrder = ['X','Y','Z','I','J','R','F','S','T','P','Q','L','A','B','C','U','V','W','D','H','M','K'];
@@ -68,7 +68,7 @@ const gcodeParser = {
       if (c.comment) line += ` ; ${c.comment}`;
       return line;
     }).join(lineEnd);
-    this._serCache = { cmds: commands, text: result };
+    this._serCache = { cmds: commands, text: result, len: commands.length };
     return result;
   },
 
