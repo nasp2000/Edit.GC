@@ -113,11 +113,12 @@ const ui = {
       if (!parsedSrc) {
         const keys = Object.keys(points).sort((a, b) => a - b);
         if (!keys.length) { ui.setStatus('.dat has no E6POS points.', 'error'); return; }
-        const cmds = [];
+        const cmds = [{ type: 'M3', params: {}, raw: 'M3' }];
         for (const k of keys) {
           const p = points[k];
           cmds.push({ type: 'G1', params: { X: p.x, Y: p.y, Z: p.z, F: 3000 }, raw: 'G1 X' + p.x + ' Y' + p.y + ' Z' + p.z + ' F3000' });
         }
+        cmds.push({ type: 'M5', params: {}, raw: 'M5' });
         state.originalCmds = cmds.map(c => ({...c}));
         state.workingCmds = cmds.map(c => ({...c}));
         state.originalText = gcodeParser.serialize(cmds);
@@ -133,7 +134,10 @@ const ui = {
         ui.syncModals();
         ui.updateFooterInfo();
         ui.updateResizePanel();
-        ui.setStatus('.dat loaded: ' + keys.length + ' E6POS points -> G-code.');
+        ui.setStatus('.dat loaded: ' + keys.length + ' E6POS points -> G-code (M3/M5 wrapped).');
+        recentFiles.add(file.name, 'KUKA .dat', text);
+        const _rsD = document.getElementById('recentFilesSelect');
+        if (_rsD) recentFiles.populateSelect(_rsD);
         return;
       }
       const cmds = kukaConverter.toGcode(parsedSrc, points);

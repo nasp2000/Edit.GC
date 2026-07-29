@@ -38,7 +38,7 @@ const recentFiles = {
     if (!sel) return;
     // Clean corrupted entries on access
     const all = this.list();
-    const valid = all.filter(f => f.type === 'G-code' && f.name && typeof f.name === 'string');
+    const valid = all.filter(f => (f.type === 'G-code' || f.type === 'KUKA .src' || f.type === 'KUKA .dat') && f.name && typeof f.name === 'string');
     if (valid.length < all.length) {
       // Automatically purge corrupted entries
       try { localStorage.setItem(this._key, JSON.stringify(all.filter(f => f && f.name))); } catch (_) {}
