@@ -1331,6 +1331,7 @@ const ui = {
           return arr;
         })();
       }
+      const speedRowMult = [0.25, 0.50, 1.0];
       for (let ri = 0; ri < 3; ri++) {
         const row = ui._speedPowerRows[ri];
         if (speedOnly) {
@@ -1344,7 +1345,7 @@ const ui = {
           const speedSel = document.createElement('select');
           speedSel.className = 'bselect';
           speedSel.style.cssText = 'width:100%;height:24px;font-size:11px';
-          row.speed = speedPresets[ri] || speedPresets[0];
+          row.speed = isKuka ? speedPresets[ri] : Math.round(feedCut * speedRowMult[ri]);
           speedPresets.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v + unit; speedSel.appendChild(o); });
           const custOpt = document.createElement('option'); custOpt.value = 'custom'; custOpt.textContent = 'Custom'; speedSel.appendChild(custOpt);
           speedSel.value = row.speed;
@@ -1376,7 +1377,7 @@ const ui = {
         const speedSel = document.createElement('select');
         speedSel.className = 'bselect';
         speedSel.style.cssText = 'width:100%;height:24px;font-size:11px';
-        row.speed = speedPresets[ri] || speedPresets[0];
+        row.speed = Math.round(feedCut * speedRowMult[ri]);
         speedPresets.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; speedSel.appendChild(o); });
         const custOpt = document.createElement('option'); custOpt.value = 'custom'; custOpt.textContent = 'Custom'; speedSel.appendChild(custOpt);
         speedSel.value = row.speed;
@@ -1389,7 +1390,7 @@ const ui = {
         speedInput.style.cssText = 'width:100%;height:24px;font-size:11px;display:none';
         speedInput.placeholder = 'F';
         speedInput.addEventListener('change', () => { row.speed = parseFloat(speedInput.value) || 0; });
-        speedInput.addEventListener('blur', () => {           if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || speedPresets[ri]; row.speedCustom = false; } });
+        speedInput.addEventListener('blur', () => {           if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || (isKuka ? speedPresets[ri] : Math.round(feedCut * speedRowMult[ri])); row.speedCustom = false; } });
         table.appendChild(colorCell);
         const spWrap = document.createElement('span'); spWrap.style.cssText = 'display:flex;gap:1px;width:100%'; spWrap.appendChild(speedSel); spWrap.appendChild(speedInput); table.appendChild(spWrap);
         const powerSel = document.createElement('select');

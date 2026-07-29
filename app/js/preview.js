@@ -565,8 +565,34 @@ const preview = {
         const cmd = state.workingCmds[dragPtIdx];
         const wp = this._dragWorldPos;
         if (cmd && cmd.params) {
-          if (cmd.params.X !== undefined) cmd.params.X = parseFloat(wp.x.toFixed(4));
-          if (cmd.params.Y !== undefined) cmd.params.Y = parseFloat(wp.y.toFixed(4));
+          let wx = wp.x, wy = wp.y;
+          const cmds = state.workingCmds;
+          let prevIdx = -1, nextIdx = -1;
+          for (let i = dragPtIdx - 1; i >= 0; i--) {
+            const c = cmds[i];
+            if (!c || c.isComment || c.isBlank) continue;
+            const t = (c.type || '').toUpperCase();
+            if ((t === 'G1' || t === 'G01' || t === '' || t === null) && c.params && c.params.X !== undefined && c.params.Y !== undefined) { prevIdx = i; break; }
+          }
+          for (let i = dragPtIdx + 1; i < cmds.length; i++) {
+            const c = cmds[i];
+            if (!c || c.isComment || c.isBlank) continue;
+            const t = (c.type || '').toUpperCase();
+            if ((t === 'G1' || t === 'G01' || t === '' || t === null) && c.params && c.params.X !== undefined && c.params.Y !== undefined) { nextIdx = i; break; }
+          }
+          if (prevIdx >= 0 && nextIdx >= 0) {
+            const ax = cmds[prevIdx].params.X, ay = cmds[prevIdx].params.Y;
+            const bx = cmds[nextIdx].params.X, by = cmds[nextIdx].params.Y;
+            const abx = bx - ax, aby = by - ay;
+            const abLen2 = abx * abx + aby * aby;
+            if (abLen2 > 0.001) {
+              const t = Math.max(0, Math.min(1, ((wx - ax) * abx + (wy - ay) * aby) / abLen2));
+              wx = ax + t * abx;
+              wy = ay + t * aby;
+            }
+          }
+          if (cmd.params.X !== undefined) cmd.params.X = parseFloat(wx.toFixed(4));
+          if (cmd.params.Y !== undefined) cmd.params.Y = parseFloat(wy.toFixed(4));
         }
         this._dragWorldPos = null;
         this._dragScreenX = null;
