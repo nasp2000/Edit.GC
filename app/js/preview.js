@@ -469,6 +469,10 @@ const preview = {
     }
     this._setupPanZoom();
     this._setupContextMenu();
+    const c = this.canvas;
+    c.addEventListener('mousedown', () => c.focus());
+    c.addEventListener('focus', () => { c.style.outline = '1px solid rgba(59,130,246,0.4)'; });
+    c.addEventListener('blur', () => { c.style.outline = 'none'; });
   },
   resize() {
     if (!this.canvas) return;

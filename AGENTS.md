@@ -19,8 +19,7 @@ node test/canvas.test.js           # 64 canvas preview tests
 
 ## Version
 - Version format: `v1.000` in `index.html` header
-- When user says "commit and push", increment version by 1 (e.g., v1.000 → v1.001 → v1.002)
-- Only increment when user explicitly says to commit and push
+- Do NOT increment version / bump firmware on commit — only when user explicitly says "bump version"
 
 ## Code style
 - No comments in JS files (unless absolutely necessary)
