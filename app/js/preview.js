@@ -1961,6 +1961,25 @@ _drawHead(commands, idx, segFrac, segIdx) {
           ctx.fillText('END', samePoint ? offX : 0, -14);
           ctx.restore();
         }
+        // Overrun indicator: show original end position when overrun > 0
+        if (state.workingCmds) {
+          const origEndCmd = state.workingCmds.find(c => c.isComment && c.comment && c.comment.startsWith('@ORIG_END'));
+          if (origEndCmd) {
+            const m = origEndCmd.comment.match(/X([-\d.]+)\s+Y([-\d.]+)/);
+            if (m) {
+              const oe = prj({ x: parseFloat(m[1]), y: parseFloat(m[2]) });
+              if (oe) {
+                ctx.save(); ctx.translate(oe.x, oe.y);
+                ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2);
+                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
+                ctx.font = '8px sans-serif'; ctx.fillStyle = '#22c55e';
+                ctx.textAlign = 'center'; ctx.fillText('END+OVR', 0, -11);
+                ctx.restore();
+              }
+            }
+          }
+        }
       }
       // Mark Start ? circle + label only (no arrow)
       if (typeof ui !== 'undefined' && ui._markStartIdx != null && ui._markStartIdx >= 0 && ui._pointsList && ui._pointsList.length) {

@@ -315,11 +315,15 @@ const templateManager = {
       { id: 'machineY', label: 'Start Y', type: 'number', default: 0, unit: 'mm', desc: 'Offset all coordinates on Y axis' },
       { id: 'machineZ', label: 'Start Z', type: 'number', default: 0, unit: 'mm', desc: 'Offset all coordinates on Z axis' },
     ]};
+    const overrunOpt = { section: 'Path', options: [
+      { id: 'overrun', label: 'End Overrun', type: 'number', default: 0, unit: 'mm', desc: 'Extend the final cutting point along the path direction' },
+    ]};
     const opts = {
       "SM Motion Control (SM300)": [
         passesOpt,
         pointDistOpt,
         originOpt,
+        overrunOpt,
         { section: 'Laser Program', options: [
           { id: 'laserProgram', label: 'Program (RLAD)', type: 'select', values: [44, 45, 50, 55, 60, 65, 70], default: 55, unit: '' },
           { id: 'rrbmParams', label: 'Buffer (RRBM)', type: 'select', values: ['50;56', '50;60', '50;65', '55;56'], default: '50;56', unit: '' },
@@ -344,6 +348,7 @@ const templateManager = {
         passesOpt,
         pointDistOpt,
         originOpt,
+        overrunOpt,
         { section: 'Laser', options: [
           { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 400, 500, 600, 750, 850, 1000, 1200, 1500], default: 1000, unit: '', desc: 'Maximum laser PWM power (S value on G1 cuts)' },
           { id: 'laserMode', label: 'Laser mode', type: 'select', values: ['M4 (dynamic)', 'M3 (constant)'], default: 'M4 (dynamic)', desc: 'M4 = dynamic power / M3 = constant power' },
@@ -370,6 +375,7 @@ const templateManager = {
         passesOpt,
         pointDistOpt,
         originOpt,
+        overrunOpt,
         { section: 'Laser', options: [
           { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 400, 500, 600, 750, 850, 1000, 1200, 1500], default: 1000, unit: '' },
           { id: 'laserMode', label: 'Laser mode', type: 'select', values: ['M3 (PWM)', 'M4 (dynamic)'], default: 'M3 (PWM)' },
@@ -397,6 +403,7 @@ const templateManager = {
         passesOpt,
         pointDistOpt,
         originOpt,
+        overrunOpt,
         { section: 'Laser', options: [
           { id: 'sMax', label: 'Power (S)', type: 'select', values: [100, 250, 400, 500, 600, 750, 850, 1000, 1200, 1500], default: 1000, unit: '' },
           { id: 'laserMode', label: 'Laser mode', type: 'select', values: ['M3 (PWM)', 'M4 (dynamic)'], default: 'M3 (PWM)' },
@@ -425,6 +432,7 @@ const templateManager = {
       "KUKA Robot (KRL)": [
         passesOpt,
         pointDistOpt,
+        overrunOpt,
 { section: 'Machine Origin (XYZ + ABC)', options: [
           { id: 'machineX', label: 'X', type: 'number', default: 2.67, unit: 'mm' },
           { id: 'orientA', label: 'A', type: 'number', default: 137, unit: 'deg' },
@@ -493,6 +501,7 @@ const templateManager = {
         machineX: parseFloat(opts.machineX) || 0,
         machineY: parseFloat(opts.machineY) || 0,
         machineZ: parseFloat(opts.machineZ) || 0,
+        overrun: parseFloat(opts.overrun) || 0,
       },
       header: this._buildHeader(t, opts),
       footer: this._buildFooter(t, opts),

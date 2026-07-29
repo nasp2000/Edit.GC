@@ -421,6 +421,42 @@ const svgConverter = {
         return { ...c, params: p, raw: '' };
       });
     }
+    // End Overrun: extend the last cutting command along the path direction
+    const overrun = parseFloat(template?.laser?.overrun) || 0;
+    if (overrun > 0) {
+      let lastCutIdx = -1, prevCutIdx = -1;
+      for (let i = cmds.length - 1; i >= 0; i--) {
+        const c = cmds[i];
+        if (!c || c.isComment || c.isBlank) continue;
+        const t = (c.type || '').toUpperCase();
+        const isCut = (t === 'G1' || t === 'G01' || t === '' || t === null || t === undefined) &&
+                      c.params && c.params.X !== undefined && c.params.Y !== undefined;
+        if (isCut) {
+          if (lastCutIdx === -1) { lastCutIdx = i; }
+          else if (prevCutIdx === -1) { prevCutIdx = i; break; }
+        }
+      }
+      if (lastCutIdx >= 0 && prevCutIdx >= 0) {
+        const lastP = cmds[lastCutIdx].params;
+        const prevP = cmds[prevCutIdx].params;
+        const dx = lastP.X - prevP.X;
+        const dy = lastP.Y - prevP.Y;
+        const len = Math.hypot(dx, dy);
+        if (len > 0.001) {
+          const origEndX = lastP.X;
+          const origEndY = lastP.Y;
+          lastP.X = parseFloat((lastP.X + overrun * dx / len).toFixed(3));
+          lastP.Y = parseFloat((lastP.Y + overrun * dy / len).toFixed(3));
+          cmds[lastCutIdx] = { ...cmds[lastCutIdx], params: { ...lastP }, raw: '' };
+          cmds.push({
+            lineIndex: -1,
+            raw: ';@ORIG_END X' + this._r(origEndX) + ' Y' + this._r(origEndY),
+            type: '', params: {}, comment: '@ORIG_END X' + this._r(origEndX) + ' Y' + this._r(origEndY),
+            isBlank: false, isComment: true, blockDelete: false
+          });
+        }
+      }
+    }
     if (machineX || machineY || machineZ) {
       cmds = cmds.map(c => {
         if (!isRealCmd(c)) return c;
