@@ -245,6 +245,15 @@ const orientC = parseFloat(opts.orientC) || 89;
       srcLines.push('    TRIGGER WHEN DISTANCE=1 DELAY=' + triggerOnDelay + ' DO $OUT[67]=TRUE');
       srcLines.push('    ;ENDFOLD');
       srcLines.push('');
+      srcLines.push('    ;--- Welding Init Point');
+      srcLines.push('    ;FOLD LIN P' + startIdx + ' Vel=' + approachVel + ' m/s CPDAT' + startIdx + ' Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
+      srcLines.push('    $BWDSTART=FALSE');
+      srcLines.push('    LDAT_ACT=LCPDAT' + startIdx);
+      srcLines.push('    FDAT_ACT=FP' + startIdx);
+      srcLines.push('    BAS(#CP_PARAMS,' + approachVel + ')');
+      srcLines.push('    LIN XP' + startIdx);
+      srcLines.push('    ;ENDFOLD');
+      srcLines.push('');
       srcLines.push('    ;--- Confirmation Welding ON');
       srcLines.push("    ;FOLD WAIT FOR ( IN 68 'permiso soldar' ) CONT;%{PE}");
       srcLines.push('    CONTINUE');
@@ -255,16 +264,6 @@ const orientC = parseFloat(opts.orientC) || 89;
       srcLines.push('    $OUT[67]=FALSE');
       srcLines.push('    ;ENDFOLD');
       srcLines.push('');
-      srcLines.push('    ;--- Welding Init');
-      srcLines.push('    ;FOLD LIN P' + startIdx + ' Vel=' + approachVel + ' m/s CPDAT' + startIdx + ' Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
-      srcLines.push('    $BWDSTART=FALSE');
-      srcLines.push('    LDAT_ACT=LCPDAT' + startIdx);
-      srcLines.push('    FDAT_ACT=FP' + startIdx);
-      srcLines.push('    BAS(#CP_PARAMS,' + approachVel + ')');
-      srcLines.push('    LIN XP' + startIdx);
-      srcLines.push('    ;ENDFOLD');
-      srcLines.push('');
-
       srcLines.push('    ;--- Welding Trajectory');
       for (const e of entries) {
         if (e.type === 'line') {
@@ -277,17 +276,20 @@ const orientC = parseFloat(opts.orientC) || 89;
           srcLines.push('    CIRC XP' + e._auxIdx + ', XP' + e._endIdx + ' WITH $VEL=SVEL_CP(' + weldVel + ', ,LCPDAT' + e._endIdx + '), $TOOL=STOOL2(FP' + e._endIdx + '), $BASE=EK(K_ROOT(FP' + e._endIdx + '.BASE_NO),K_TYPE(FP' + e._endIdx + '.BASE_NO),K_OFFS(FP' + e._endIdx + '.BASE_NO)), $IPO_MODE=SIPO_MODE(FP' + e._endIdx + '.IPO_FRAME), $LOAD=SLOAD(FP' + e._endIdx + '.TOOL_NO), $ACC=SACC_CP(LCPDAT' + e._endIdx + '), $APO=SAPO(LCPDAT' + e._endIdx + '), $ORI_TYPE=SORI_TYP(LCPDAT' + e._endIdx + '), $JERK=SJERK(LCPDAT' + e._endIdx + ') C_SPL');
           srcLines.push('    ;ENDFOLD');
         }
+        srcLines.push('');
       }
-
-      srcLines.push('');
       srcLines.push('    ;--- Request Welding OFF');
       srcLines.push("    ;FOLD SYN OUT 68 '' State=TRUE at END Delay=" + triggerOffDelay + ' ms;%{PE}');
       srcLines.push('    TRIGGER WHEN DISTANCE=1 DELAY=' + triggerOffDelay + ' DO $OUT[68]=TRUE');
       srcLines.push('    ;ENDFOLD');
       srcLines.push('');
-      srcLines.push('    ;--- Welding Final');
-      srcLines.push('    ;FOLD SLIN XP' + endIdx + ' Vel=' + weldVel + ' m/s CPDAT' + endIdx + ' Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
-      srcLines.push('    SLIN XP' + endIdx + ' WITH $VEL=SVEL_CP(' + weldVel + ', ,LCPDAT' + endIdx + '), $TOOL=STOOL2(FP' + endIdx + '), $BASE=EK(K_ROOT(FP' + endIdx + '.BASE_NO),K_TYPE(FP' + endIdx + '.BASE_NO),K_OFFS(FP' + endIdx + '.BASE_NO)), $IPO_MODE=SIPO_MODE(FP' + endIdx + '.IPO_FRAME), $LOAD=SLOAD(FP' + endIdx + '.TOOL_NO), $ACC=SACC_CP(LCPDAT' + endIdx + '), $APO=SAPO(LCPDAT' + endIdx + '), $ORI_TYPE=SORI_TYP(LCPDAT' + endIdx + '), $JERK=SJERK(LCPDAT' + endIdx + ')');
+      srcLines.push('    ;--- Welding Final Point');
+      srcLines.push('    ;FOLD LIN P' + endIdx + ' Vel=' + weldVel + ' m/s CPDAT' + endIdx + ' Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
+      srcLines.push('    $BWDSTART=FALSE');
+      srcLines.push('    LDAT_ACT=LCPDAT' + endIdx);
+      srcLines.push('    FDAT_ACT=FP' + endIdx);
+      srcLines.push('    BAS(#CP_PARAMS,' + weldVel + ')');
+      srcLines.push('    LIN XP' + endIdx);
       srcLines.push('    ;ENDFOLD');
       srcLines.push('');
       srcLines.push('    ;--- Confirmation Welding OFF');

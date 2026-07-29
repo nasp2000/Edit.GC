@@ -862,14 +862,15 @@ const preview = {
         }
         if (shouldWrap) {
           const onCmd = td?.laserOnCmd || 'M3';
-          let foundOffAfter = false;
+          let needsOn = false;
           for (let i = newTo + 1; i < cmds.length; i++) {
             const c = cmds[i]; if (!c) continue;
             const t = baseCmd(c.type || '');
-            if (laserOffTypes.includes(t)) { foundOffAfter = true; break; }
-            if (laserOnTypes.includes(t)) break;
+            if (laserOffTypes.includes(t)) break;
+            if (laserOnTypes.includes(t)) { needsOn = false; break; }
+            if (t === 'G1' || t === 'G01' || (isSM300 && (t === '' || t === undefined || t === null) && c.params?.F > 0)) { needsOn = true; }
           }
-          if (!foundOffAfter) {
+          if (needsOn) {
             let insertAt = newTo + 1;
             while (insertAt < cmds.length && cmds[insertAt] && cmds[insertAt].isBlank) insertAt++;
             cmds.splice(insertAt, 0, { lineIndex: -1, raw: onCmd, type: baseCmd(onCmd), params: {}, comment: '', isBlank: false, isComment: false, blockDelete: false });

@@ -1294,12 +1294,10 @@ const ui = {
     });
 
     // ---- Speed/Power Control (3 colors × 3 rows) ------------------------------------------------
-    const SPEED_PRESETS = [1000,2000,3000,4000,5000,6000,7000,8000,9000,10000];
-    const KUKA_VEL_PRESETS = [0.005,0.008,0.01,0.012,0.015,0.02,0.025,0.03,0.04,0.05];
-    const POWER_PRESETS = [10,20,30,40,50,60,70,80,90,100];
     const SPEED_POWER_COLORS = ['#F97316','#EC4899','#84CC16'];
-    ui._speedPowerRows = SPEED_POWER_COLORS.map((c, ri) => ({
-      color: c, speed: SPEED_PRESETS[ri] || 3000, power: POWER_PRESETS[ri] || 50,
+    const POWER_PRESETS = [10,20,30,40,50,60,70,80,90,100];
+    ui._speedPowerRows = SPEED_POWER_COLORS.map((c) => ({
+      color: c, speed: 1000, power: 10,
       speedCustom: false, powerCustom: false, assignedPoints: []
     }));
     ui._speedPowerInit = () => {
@@ -1311,6 +1309,28 @@ const ui = {
       const speedOnly = isSM || isKuka;
       const label = document.getElementById('speedPowerPowerLabel');
       if (label) label.textContent = isSM ? 'Power (Machine Options)' : speedOnly ? 'Speed Only' : 'Power (S)';
+      const opts = typeof ui._loadMachineOpts === 'function' ? ui._loadMachineOpts() : {};
+      const feedCut = parseFloat(opts.feedCut) || td?.feedCut || 3000;
+      const sMax = parseFloat(opts.sMax) || td?.sMax || 1000;
+      const weldVel = parseFloat(opts.weldVel) || 0.01;
+      let speedPresets;
+      if (isKuka) {
+        speedPresets = [0.005,0.008,0.01,0.012,0.015,0.02,0.025,0.03,0.04,0.05];
+      } else if (isSM) {
+        speedPresets = (() => {
+          const base = feedCut;
+          const arr = [];
+          for (let i = 0; i < 10; i++) arr.push(Math.round(base * (0.25 + i * 0.25)));
+          return arr;
+        })();
+      } else {
+        speedPresets = (() => {
+          const base = feedCut;
+          const arr = [];
+          for (let i = 0; i < 10; i++) arr.push(Math.round(base * (0.25 + i * 0.25)));
+          return arr;
+        })();
+      }
       for (let ri = 0; ri < 3; ri++) {
         const row = ui._speedPowerRows[ri];
         if (speedOnly) {
@@ -1320,13 +1340,12 @@ const ui = {
           colorCell.title = 'Click or press ' + (ri + 1) + ' to assign to focused point';
           colorCell.dataset.speedRow = ri;
           colorCell.addEventListener('click', () => ui._speedPowerAssignRow(ri));
-          const presets = isKuka ? KUKA_VEL_PRESETS : SPEED_PRESETS;
           const unit = isKuka ? ' m/s' : '';
           const speedSel = document.createElement('select');
           speedSel.className = 'bselect';
           speedSel.style.cssText = 'width:100%;height:24px;font-size:11px';
-          row.speed = presets[ri] || (isKuka ? 0.01 : 3000);
-          presets.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v + unit; speedSel.appendChild(o); });
+          row.speed = speedPresets[ri] || speedPresets[0];
+          speedPresets.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v + unit; speedSel.appendChild(o); });
           const custOpt = document.createElement('option'); custOpt.value = 'custom'; custOpt.textContent = 'Custom'; speedSel.appendChild(custOpt);
           speedSel.value = row.speed;
           speedSel.addEventListener('change', () => {
@@ -1357,7 +1376,8 @@ const ui = {
         const speedSel = document.createElement('select');
         speedSel.className = 'bselect';
         speedSel.style.cssText = 'width:100%;height:24px;font-size:11px';
-        SPEED_PRESETS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; speedSel.appendChild(o); });
+        row.speed = speedPresets[ri] || speedPresets[0];
+        speedPresets.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; speedSel.appendChild(o); });
         const custOpt = document.createElement('option'); custOpt.value = 'custom'; custOpt.textContent = 'Custom'; speedSel.appendChild(custOpt);
         speedSel.value = row.speed;
         speedSel.addEventListener('change', () => {
@@ -1369,7 +1389,7 @@ const ui = {
         speedInput.style.cssText = 'width:100%;height:24px;font-size:11px;display:none';
         speedInput.placeholder = 'F';
         speedInput.addEventListener('change', () => { row.speed = parseFloat(speedInput.value) || 0; });
-        speedInput.addEventListener('blur', () => { if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || SPEED_PRESETS[ri]; row.speedCustom = false; } });
+        speedInput.addEventListener('blur', () => {           if (!speedInput.value) { speedInput.style.display = 'none'; speedSel.style.display = ''; speedSel.value = row.speed || speedPresets[ri]; row.speedCustom = false; } });
         table.appendChild(colorCell);
         const spWrap = document.createElement('span'); spWrap.style.cssText = 'display:flex;gap:1px;width:100%'; spWrap.appendChild(speedSel); spWrap.appendChild(speedInput); table.appendChild(spWrap);
         const powerSel = document.createElement('select');
