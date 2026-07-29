@@ -313,6 +313,7 @@ const templateManager = {
     const originOpt = { section: 'Machine Origin', options: [
       { id: 'machineX', label: 'Start X', type: 'number', default: 0, unit: 'mm', desc: 'Offset all coordinates on X axis' },
       { id: 'machineY', label: 'Start Y', type: 'number', default: 0, unit: 'mm', desc: 'Offset all coordinates on Y axis' },
+      { id: 'machineZ', label: 'Start Z', type: 'number', default: 0, unit: 'mm', desc: 'Offset all coordinates on Z axis' },
     ]};
     const opts = {
       "SM Motion Control (SM300)": [
@@ -491,6 +492,7 @@ const templateManager = {
         pointDistance: parseFloat(opts.pointDistance) || 0,
         machineX: parseFloat(opts.machineX) || 0,
         machineY: parseFloat(opts.machineY) || 0,
+        machineZ: parseFloat(opts.machineZ) || 0,
       },
       header: this._buildHeader(t, opts),
       footer: this._buildFooter(t, opts),

@@ -32,6 +32,7 @@ const svgConverter = {
     const useZ       = template?.laser?.useZ !== false;
     const machineX   = parseFloat(template?.laser?.machineX) || 0;
     const machineY   = parseFloat(template?.laser?.machineY) || 0;
+    const machineZ   = parseFloat(template?.laser?.machineZ) || 0;
     const laserOn    = template?.laser?.laserOnCmd || 'M4';
     const laserOff   = template?.laser?.laserOffCmd || 'M5';
     const baseCmd    = (s) => s.trim().toUpperCase().split(/\s+/)[0];
@@ -420,12 +421,13 @@ const svgConverter = {
         return { ...c, params: p, raw: '' };
       });
     }
-    if (machineX || machineY) {
+    if (machineX || machineY || machineZ) {
       cmds = cmds.map(c => {
         if (!isRealCmd(c)) return c;
         const p = { ...c.params };
         if (p.X !== undefined) p.X = parseFloat((p.X + machineX).toFixed(3));
         if (p.Y !== undefined) p.Y = parseFloat((p.Y + machineY).toFixed(3));
+        if (p.Z !== undefined) p.Z = parseFloat((p.Z + machineZ).toFixed(3));
         return { ...c, params: p, raw: '' };
       });
     }
