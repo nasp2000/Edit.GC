@@ -2401,15 +2401,17 @@ const ui = {
         e.preventDefault();
         preview.fitView();
       }
-      // Tab / Shift+Tab ? navigate points in table (keep selection)
+      // Tab / Shift+Tab ? navigate points (replace selection, same as point editor click)
       if (e.key === 'Tab' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const list = ui._pointsList;
         if (!list.length) return;
         if (ui._focusedPointPos < 0) {
-          ui._focusPoint(e.shiftKey ? list.length - 1 : 0, true);
+          ui._focusPoint(e.shiftKey ? list.length - 1 : 0, false);
         } else {
-          ui._focusPoint(e.shiftKey ? ui._focusedPointPos - 1 : ui._focusedPointPos + 1, true);
+          const next = e.shiftKey ? ui._focusedPointPos - 1 : ui._focusedPointPos + 1;
+          if (next < 0 || next >= list.length) return;
+          ui._focusPoint(next, false);
         }
       }
       // Arrow Up/Down ? navigate points in table (keep selection)

@@ -2109,11 +2109,12 @@ _drawHead(commands, idx, segFrac, segIdx) {
       ctx.font = `bold ${fs}px sans-serif`;
       let maxLabelW = 0;
       for (const it of items) { const m = ctx.measureText(it.label).width; if (m > maxLabelW) maxLabelW = m; }
-      const boxW = padX * 2 + fs * 1.2 + fs * 1.5 + maxLabelW + 4 * dpr2;
+      const swatchW = fs * 1.2;
+      const boxW = padX * 2 + maxLabelW + 4 * dpr2 + swatchW;
       const lineH = fs * 1.5;
       const boxH = items.length * lineH + padY * 2;
-      const bx = cssW - boxW - 2 * dpr2;
-      const by = 2 * dpr2;
+      const bx = cssW - boxW - 1 * dpr2;
+      const by = 1 * dpr2;
       ctx.save();
       // Dark background
       ctx.fillStyle = 'rgba(15,23,42,0.82)';
@@ -2129,18 +2130,17 @@ _drawHead(commands, idx, segFrac, segIdx) {
       ctx.strokeStyle = 'rgba(255,255,255,0.15)';
       ctx.lineWidth = 1;
       ctx.stroke();
-      // Items
+      // Items — right-aligned
       ctx.font = `bold ${fs}px sans-serif`;
-      ctx.textAlign = 'left';
+      ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       let iy = by + padY + lineH * 0.5;
+      const textX = bx + boxW - padX;
       for (const it of items) {
-        // Color swatch
-        ctx.fillStyle = it.color;
-        ctx.fillRect(bx + padX, iy - fs * 0.35, fs * 1.2, fs * 0.7);
-        // Label
         ctx.fillStyle = '#e2e8f0';
-        ctx.fillText(it.label, bx + padX + fs * 1.5, iy);
+        ctx.fillText(it.label, textX - 2 * dpr2, iy);
+        ctx.fillStyle = it.color;
+        ctx.fillRect(textX, iy - fs * 0.35, fs * 1.2, fs * 0.7);
         iy += lineH;
       }
       ctx.restore();
