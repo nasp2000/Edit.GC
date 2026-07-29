@@ -1948,13 +1948,32 @@ const ui = {
         }
       }
 
-      // Set Side: reverse motion order + swap G2/G3
+      // Set Side: reverse each closed path individually (split by G0/implicit travels between shapes)
       if (ui._pointsSide) {
-        newMotions.reverse();
+        const isTravel = (m) => /^G0/i.test(m.type) || ((m.type === '' || m.type === undefined) && m.params && (m.params.F || 0) >= (td?.feedTravel || 5000));
+        const groups = [];
+        let curGroup = [];
+        let prevTravel = false;
         for (const m of newMotions) {
-          if (/^G2/i.test(m.type)) { m.type = 'G3'; m.raw = (m.raw || '').replace(/^G2/i, 'G3'); }
-          else if (/^G3/i.test(m.type)) { m.type = 'G2'; m.raw = (m.raw || '').replace(/^G3/i, 'G2'); }
+          const it = isTravel(m);
+          if (it && curGroup.length && !prevTravel) { groups.push(curGroup); curGroup = []; }
+          prevTravel = it;
+          curGroup.push(m);
         }
+        if (curGroup.length) groups.push(curGroup);
+        for (const grp of groups) {
+          let cutStart = grp.findIndex(m => !isTravel(m));
+          if (cutStart < 0) continue;
+          const travels = grp.splice(0, cutStart);
+          grp.reverse();
+          for (const m of grp) {
+            if (/^G2/i.test(m.type)) { m.type = 'G3'; m.raw = (m.raw || '').replace(/^G2/i, 'G3'); }
+            else if (/^G3/i.test(m.type)) { m.type = 'G2'; m.raw = (m.raw || '').replace(/^G3/i, 'G2'); }
+          }
+          grp.unshift(...travels);
+        }
+        newMotions.length = 0;
+        for (const grp of groups) newMotions.push(...grp);
       }
 
       // Ensure first motion is a travel, not a cut

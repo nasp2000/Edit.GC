@@ -7,9 +7,13 @@
 ## Development workflow (per request)
 For each feature/bugfix request:
 1. **Implement** — make the code change
-2. **Logic test** — run only the relevant test(s) in `test/comprehensive.test.js` with **2 variations** (e.g., Grbl + SM300, or rect + circle)
-3. **Canvas test** — run only the relevant test(s) in `test/canvas.test.js` with **2 variations** (e.g., Grbl + SM300)
-4. Do NOT run full test suite unless user explicitly asks
+2. **Multi-template logic** — every feature MUST handle all template differences inline (Grbl, SM300, KUKA, Marlin, Smoothieware). Do NOT add template-specific logic later — build it from the start. Key differences:
+   - Grbl/Smoothieware/Marlin: standard G0/G1/M3/M5, `laserOnCmd`/`laserOffCmd` comma-separated
+   - SM300: implicit motions (`type: ''`), `feedTravel` for travel detection, SM3/RM3 laser commands
+   - KUKA: standard G-code in editor (converted to KRL on export), M3/M5, separate `kukaConverter`
+3. **Logic test** — run only the relevant test(s) in `test/comprehensive.test.js` with **2 variations** (e.g., Grbl + SM300, or rect + circle)
+4. **Canvas test** — run only the relevant test(s) in `test/canvas.test.js` with **2 variations** (e.g., Grbl + SM300)
+5. Do NOT run full test suite unless user explicitly asks
 
 ## Full test commands (when requested)
 ```powershell
