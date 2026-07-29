@@ -53,6 +53,64 @@ const ui = {
         return;
       }
 
+      const isDat = /\.dat$/i.test(file.name);
+      if (isDat) {
+        const points = kukaConverter.parseDat(text);
+        state._kukaDatPoints = points;
+        const parsedSrc = state._kukaParsedSrc;
+        if (!parsedSrc) {
+          const keys = Object.keys(points).sort((a, b) => a - b);
+          if (!keys.length) { ui.setStatus('.dat has no E6POS points.', 'error'); return; }
+          const cmds = [{ type: 'M3', params: {}, raw: 'M3' }];
+          for (const k of keys) {
+            const p = points[k];
+            cmds.push({ type: 'G1', params: { X: p.x, Y: p.y, Z: p.z, F: 3000 }, raw: 'G1 X' + p.x + ' Y' + p.y + ' Z' + p.z + ' F3000' });
+          }
+          cmds.push({ type: 'M5', params: {}, raw: 'M5' });
+          state.originalCmds = cmds.map(c => ({...c}));
+          state.workingCmds = cmds.map(c => ({...c}));
+          state.originalText = gcodeParser.serialize(cmds);
+          state.originalName = file.name.replace('.dat', '.gcode');
+          state.dirty = false;
+          const gcodeText = gcodeParser.serialize(cmds);
+          document.getElementById('editorOriginal').value = gcodeText;
+          document.getElementById('editorWorking').value = gcodeText;
+          applyHighlight(document.getElementById('highlightOriginal'), gcodeText);
+          applyHighlight(document.getElementById('highlightWorking'), gcodeText);
+          preview.resize();
+          preview.fitView();
+          ui.syncModals();
+          ui.updateFooterInfo();
+          ui.updateResizePanel();
+          recentFiles.add(file.name, 'KUKA .dat', text);
+          const _rsD = document.getElementById('recentFilesSelect');
+          if (_rsD) recentFiles.populateSelect(_rsD);
+          ui.setProgress(100, 'Done');
+          setTimeout(() => ui.setProgress(-1), 1000);
+          ui.setStatus('.dat loaded: ' + keys.length + ' E6POS points -> G-code (M3/M5 wrapped).');
+          return;
+        }
+        const cmds = kukaConverter.toGcode(parsedSrc, points);
+        state.originalCmds = cmds.map(c => ({...c}));
+        state.workingCmds = cmds.map(c => ({...c}));
+        state.dirty = false;
+        const gcodeText = gcodeParser.serialize(cmds);
+        document.getElementById('editorWorking').value = gcodeText;
+        applyHighlight(document.getElementById('highlightWorking'), gcodeText);
+        preview.resize();
+        preview.fitView();
+        ui.syncModals();
+        ui.updateFooterInfo();
+        ui.updateResizePanel();
+        recentFiles.add(file.name, 'KUKA .dat', text);
+        const _rsD2 = document.getElementById('recentFilesSelect');
+        if (_rsD2) recentFiles.populateSelect(_rsD2);
+        ui.setProgress(100, 'Done');
+        setTimeout(() => ui.setProgress(-1), 1000);
+        ui.setStatus('KUKA .dat loaded: ' + file.name + ' (' + Object.keys(points).length + ' points). G-code updated.');
+        return;
+      }
+
       state.originalCmds  = gcodeParser.parse(text);
       if (text.trim() && !state.originalCmds.length) {
         const lineCount = text.split('\n').length;
