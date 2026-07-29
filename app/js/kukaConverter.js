@@ -36,7 +36,8 @@ const orientC = parseFloat(opts.orientC) || 89;
     const triggerOffDelay = parseFloat(opts.triggerOffDelay) || 0;
 
     const homePoint = { x: homeX, y: homeY, z: homeZ, a: orientA, b: orientB, c: orientC };
-    const APPROACH_Z_OFFSET = 10;
+    const APPROACH_Z_OFFSET = 20;
+    const APPROACH_LATERAL_OFFSET = 20;
     const weldBlocks = [];
     let currentBlock = null;
     let curX = 0, curY = 0, curZ = 0;
@@ -185,15 +186,18 @@ const orientC = parseFloat(opts.orientC) || 89;
       const firstEntry = entries[0];
       const lastEntry = entries[entries.length - 1];
 
-      const approachIdx = bi === 0
-        ? addPt(firstEntry.x, firstEntry.y, (firstEntry.z || 0) + APPROACH_Z_OFFSET)
-        : 0;
-      if (bi > 0) {
-        const _ai = addPt(firstEntry.x, firstEntry.y, (firstEntry.z || 0) + APPROACH_Z_OFFSET);
-        block._approachIdx = _ai;
-      } else {
-        block._approachIdx = approachIdx;
+      let appX = firstEntry.x, appY = firstEntry.y;
+      if (entries.length > 1) {
+        const segDx = entries[1].x - firstEntry.x;
+        const segDy = entries[1].y - firstEntry.y;
+        const segLen = Math.hypot(segDx, segDy);
+        if (segLen > 0.01) {
+          appX = firstEntry.x + APPROACH_LATERAL_OFFSET * (-segDy / segLen);
+          appY = firstEntry.y + APPROACH_LATERAL_OFFSET * (segDx / segLen);
+        }
       }
+      const _ai = addPt(appX, appY, (firstEntry.z || 0) + APPROACH_Z_OFFSET);
+      block._approachIdx = _ai;
 
       const entryToIdx = new Map();
       for (const e of entries) {
@@ -209,13 +213,14 @@ const orientC = parseFloat(opts.orientC) || 89;
       }
 
       const startIdx = entryToIdx.get(firstEntry);
+      block._firstWeldIdx = startIdx;
       const endIdx = entries[entries.length - 1].type === 'line'
         ? entryToIdx.get(lastEntry)
         : lastEntry._endIdx;
 
       srcLines.push('    ;--- Weld block ' + (bi + 1));
       if (bi === 0) {
-        srcLines.push('    ;--- Welding Approach');
+        srcLines.push('    ;--- Welding Approach Point');
         srcLines.push('    ;FOLD PTP P' + block._approachIdx + ' CONT Vel=' + travelVelPct + ' % PDAT1 Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
         srcLines.push('    $BWDSTART=FALSE');
         srcLines.push('    PDAT_ACT=PPDAT1');
@@ -355,6 +360,15 @@ const orientC = parseFloat(opts.orientC) || 89;
       const cosBv = Math.cos(pt.b * Math.PI / 180);
       const cosCv = Math.abs(cosBv) > 0.001 ? vz / cosBv : 1;
       pt.c = Math.atan2(sinCv, cosCv) * 180 / Math.PI;
+    }
+
+    for (const block of weldBlocks) {
+      const appPt = allPoints[block._approachIdx];
+      const weldPt = allPoints[block._firstWeldIdx];
+      if (appPt && weldPt) {
+        appPt.b = weldPt.b;
+        appPt.c = weldPt.c;
+      }
     }
 
     let datLines = [];
