@@ -117,15 +117,14 @@ const templateManager = {
       else this._templates.push({ name, data });
       return true;
     } catch (e) {
-      console.error('Save template error:', e);
-      ui.setStatus('Error saving template: ' + e.message, 'error');
+      if (typeof ui !== 'undefined') ui.setStatus('Error saving template: ' + e.message, 'error');
       return false;
     }
   },
 
   async deleteTemplate(name) {
     if (this._builtinTemplates.some(t => t.name === name)) {
-      ui.setStatus('Cannot delete built-in template.', 'error');
+      if (typeof ui !== 'undefined') ui.setStatus('Cannot delete built-in template.', 'error');
       return;
     }
     try {
@@ -138,33 +137,24 @@ const templateManager = {
     } catch (_) {}
   },
 
-  async saveTemplate(name, data) {
-    return await this.saveTemplateFile(name, data);
-  },
-
-  async deleteTemplate(name) {
-    if (this._builtinTemplates.some(t => t.name === name)) {
-      ui.setStatus('Cannot delete built-in template.', 'error');
-      return;
-    }
-    try {
-      if (await this._restoreDirHandle()) {
-        const fileName = name.replace(/[^a-zA-Z0-9_\-\.]/g, '_') + '.json';
-        try { await this._dirHandle.removeEntry(fileName); } catch (_) {}
-      }
-      this._templates = this._templates.filter(t => t.name !== name);
-    } catch (_) {}
-  },
-
   async scan() {
-    const prev = this._templates.length;
     this._templates = this._templates.filter(t => this._builtinTemplates.some(b => b.name === t.name));
-    await this._loadFromFiles();
-    return this._templates.length - prev;
+    return 0;
   },
 
-  async openFolder() {
-    if (!(await this._ensureDir())) return;
+  async openFolder() {},
+
+  async _ensureDir() { return false; },
+
+  async importFromFile(file) {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data.name) { if (typeof ui !== 'undefined') ui.setStatus('Template file missing name.', 'error'); return; }
+      return await this.saveTemplate(data.name, data);
+    } catch (e) {
+      if (typeof ui !== 'undefined') ui.setStatus('Import template error: ' + e.message, 'error');
+    }
   },
 
   extractFromText(originalText, originalName) {

@@ -939,24 +939,17 @@ const ui = {
     // Import template from file(s) outside the templates folder
     if (btnImportTemplate && fileInputTemplate) {
       btnImportTemplate.addEventListener('click', async () => {
-        if (!templateManager._dirHandle) {
-          await templateManager._ensureDir();
-        }
         fileInputTemplate.click();
       });
       fileInputTemplate.addEventListener('change', async e => {
         const files = [...e.target.files];
         e.target.value = '';
         if (!files.length) return;
-        if (!templateManager._dirHandle) {
-          const ok = await templateManager._ensureDir();
-          if (!ok) { ui.setStatus('Open a templates folder first to save imported templates.', 'error'); return; }
-        }
         let count = 0;
         for (const file of files) {
           try {
-            await templateManager.importFromFile(file);
-            count++;
+            const ok = await templateManager.importFromFile(file);
+            if (ok) count++;
           } catch (_) {}
         }
         await templateManager.scan();
@@ -965,17 +958,10 @@ const ui = {
       });
     }
 
-    // Open templates folder in system explorer
+    // Open templates folder (no-op without File System Access API)
     const _btnOpenTF = document.getElementById('btnOpenTemplatesFolder');
     if (_btnOpenTF) _btnOpenTF.addEventListener('click', async () => {
-      if (templateManager._dirHandle) {
-        try {
-          const root = await templateManager._dirHandle.getDirectoryHandle('..');
-          const iter = root.values();
-          const first = await iter.next();
-        } catch (_) {}
-      }
-      await templateManager.openFolder();
+      templateManager.openFolder();
     });
 
     // Working editor ? sync state (debounced)
