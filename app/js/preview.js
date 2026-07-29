@@ -565,34 +565,8 @@ const preview = {
         const cmd = state.workingCmds[dragPtIdx];
         const wp = this._dragWorldPos;
         if (cmd && cmd.params) {
-          let wx = wp.x, wy = wp.y;
-          const cmds = state.workingCmds;
-          let prevIdx = -1, nextIdx = -1;
-          for (let i = dragPtIdx - 1; i >= 0; i--) {
-            const c = cmds[i];
-            if (!c || c.isComment || c.isBlank) continue;
-            const t = (c.type || '').toUpperCase();
-            if ((t === 'G1' || t === 'G01' || t === '' || t === null) && c.params && c.params.X !== undefined && c.params.Y !== undefined) { prevIdx = i; break; }
-          }
-          for (let i = dragPtIdx + 1; i < cmds.length; i++) {
-            const c = cmds[i];
-            if (!c || c.isComment || c.isBlank) continue;
-            const t = (c.type || '').toUpperCase();
-            if ((t === 'G1' || t === 'G01' || t === '' || t === null) && c.params && c.params.X !== undefined && c.params.Y !== undefined) { nextIdx = i; break; }
-          }
-          if (prevIdx >= 0 && nextIdx >= 0) {
-            const ax = cmds[prevIdx].params.X, ay = cmds[prevIdx].params.Y;
-            const bx = cmds[nextIdx].params.X, by = cmds[nextIdx].params.Y;
-            const abx = bx - ax, aby = by - ay;
-            const abLen2 = abx * abx + aby * aby;
-            if (abLen2 > 0.001) {
-              const t = Math.max(0, Math.min(1, ((wx - ax) * abx + (wy - ay) * aby) / abLen2));
-              wx = ax + t * abx;
-              wy = ay + t * aby;
-            }
-          }
-          if (cmd.params.X !== undefined) cmd.params.X = parseFloat(wx.toFixed(4));
-          if (cmd.params.Y !== undefined) cmd.params.Y = parseFloat(wy.toFixed(4));
+          if (cmd.params.X !== undefined) cmd.params.X = parseFloat(wp.x.toFixed(4));
+          if (cmd.params.Y !== undefined) cmd.params.Y = parseFloat(wp.y.toFixed(4));
         }
         this._dragWorldPos = null;
         this._dragScreenX = null;
@@ -669,16 +643,51 @@ const preview = {
               wy = -vert;
             }
             this._dragWorldPos = { x: wx, y: wy, plane: rp.plane };
+            let prevIdx = -1, nextIdx = -1;
+            const wcmds = state.workingCmds;
+            for (let i = dragPtIdx - 1; i >= 0; i--) {
+              const c = wcmds[i]; if (!c || c.isComment || c.isBlank) continue;
+              const t = (c.type || '').toUpperCase();
+              if ((t === 'G1' || t === 'G01' || t === '' || t === null) && c.params && c.params.X !== undefined && c.params.Y !== undefined) { prevIdx = i; break; }
+            }
+            for (let i = dragPtIdx + 1; i < wcmds.length; i++) {
+              const c = wcmds[i]; if (!c || c.isComment || c.isBlank) continue;
+              const t = (c.type || '').toUpperCase();
+              if ((t === 'G1' || t === 'G01' || t === '' || t === null) && c.params && c.params.X !== undefined && c.params.Y !== undefined) { nextIdx = i; break; }
+            }
+            let pwx = wx, pwy = wy;
+            if (prevIdx >= 0 && nextIdx >= 0) {
+              const ax = wcmds[prevIdx].params.X, ay = wcmds[prevIdx].params.Y;
+              const bx = wcmds[nextIdx].params.X, by = wcmds[nextIdx].params.Y;
+              const abx = bx - ax, aby = by - ay;
+              const abLen2 = abx * abx + aby * aby;
+              if (abLen2 > 0.001) {
+                const t = Math.max(0, Math.min(1, ((wx - ax) * abx + (wy - ay) * aby) / abLen2));
+                pwx = ax + t * abx;
+                pwy = ay + t * aby;
+              }
+            }
+            this._dragWorldPos = { x: pwx, y: pwy, plane: rp.plane };
             if (this._dragSnap) {
               const ctx = c.getContext('2d');
               ctx.putImageData(this._dragSnap, 0, 0);
-              ctx.fillStyle = 'rgba(37,99,235,0.95)';
-              ctx.beginPath();
-              ctx.arc(mx, my, 5, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.strokeStyle = '#fff';
-              ctx.lineWidth = 1.5;
-              ctx.stroke();
+              const sp = lt.prj({ x: pwx, y: pwy });
+              if (sp) {
+                if (prevIdx >= 0 && nextIdx >= 0) {
+                  const pa = lt.prj({ x: wcmds[prevIdx].params.X, y: wcmds[prevIdx].params.Y });
+                  const pb = lt.prj({ x: wcmds[nextIdx].params.X, y: wcmds[nextIdx].params.Y });
+                  if (pa && pb) {
+                    ctx.strokeStyle = 'rgba(37,99,235,0.3)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+                    ctx.setLineDash([]);
+                  }
+                }
+                ctx.fillStyle = 'rgba(37,99,235,0.95)';
+                ctx.beginPath(); ctx.arc(sp.x, sp.y, 6, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+              }
             }
           }
         }
@@ -757,7 +766,7 @@ const preview = {
         else if (a === 'setSide') el.style.display = inGcode ? '' : 'none';
         else if (a === 'deletePoint') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
         else if (a === 'addPoint') el.style.display = inGcode ? '' : 'none';
-        else if (a === 'setAsRapid') el.style.display = inGcode && hasSelection ? '' : 'none';
+        else if (a === 'setAsRapid') el.style.display = inGcode && (hasSelection || cmdIdx >= 0) ? '' : 'none';
         else if (a === 'sp1' || a === 'sp2' || a === 'sp3') el.style.display = inGcode && (isKuka || cmdIdx >= 0) ? '' : 'none';
         else if (a === '__toggleSp') el.style.display = inGcode ? '' : 'none';
         else el.style.display = '';
@@ -844,10 +853,16 @@ const preview = {
         state.selectedPoints.clear();
         state.selectedPoints.add(ctx.cmdIdx);
         document.getElementById('btnPointsDelete').click();
-      } else if (action === 'setAsRapid' && state.selectedPoints.size >= 1) {
-        const sorted = [...state.selectedPoints].sort((a, b) => a - b);
-        const from = sorted[0];
-        const to = sorted[sorted.length - 1];
+      } else if (action === 'setAsRapid' && (state.selectedPoints.size >= 1 || ctx.cmdIdx >= 0)) {
+        let from, to;
+        if (state.selectedPoints.size >= 1) {
+          const sorted = [...state.selectedPoints].sort((a, b) => a - b);
+          from = sorted[0];
+          to = sorted[sorted.length - 1];
+        } else {
+          from = ctx.cmdIdx;
+          to = ctx.cmdIdx;
+        }
         const cmds = state.workingCmds;
         const baseCmd = (s) => (s || '').trim().toUpperCase().split(/\s+/)[0];
         const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
@@ -1987,7 +2002,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
           ctx.fillText('END', samePoint ? offX : 0, -14);
           ctx.restore();
         }
-        // Overrun indicator: show original end position when overrun > 0
+        // Overrun indicator: draw extended path + marker at original end
         if (state.workingCmds) {
           const origEndCmd = state.workingCmds.find(c => c.isComment && c.comment && c.comment.startsWith('@ORIG_END'));
           if (origEndCmd) {
@@ -1995,12 +2010,21 @@ _drawHead(commands, idx, segFrac, segIdx) {
             if (m) {
               const oe = prj({ x: parseFloat(m[1]), y: parseFloat(m[2]) });
               if (oe) {
+                // Dashed line from original end to extended end
+                ctx.strokeStyle = '#22c55e';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath(); ctx.moveTo(oe.x, oe.y); ctx.lineTo(ex, ey); ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Large marker at original end
                 ctx.save(); ctx.translate(oe.x, oe.y);
-                ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2);
-                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 1.5;
-                ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
-                ctx.font = '8px sans-serif'; ctx.fillStyle = '#22c55e';
-                ctx.textAlign = 'center'; ctx.fillText('END+OVR', 0, -11);
+                ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2);
+                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.stroke();
+                ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2);
+                ctx.fillStyle = '#4ade80'; ctx.fill();
+                ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#22c55e';
+                ctx.textAlign = 'center'; ctx.fillText('OVR', 0, -13);
                 ctx.restore();
               }
             }

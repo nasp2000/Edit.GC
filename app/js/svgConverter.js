@@ -421,6 +421,16 @@ const svgConverter = {
         return { ...c, params: p, raw: '' };
       });
     }
+    if (machineX || machineY || machineZ) {
+      cmds = cmds.map(c => {
+        if (!isRealCmd(c)) return c;
+        const p = { ...c.params };
+        if (p.X !== undefined) p.X = parseFloat((p.X + machineX).toFixed(3));
+        if (p.Y !== undefined) p.Y = parseFloat((p.Y + machineY).toFixed(3));
+        if (p.Z !== undefined) p.Z = parseFloat((p.Z + machineZ).toFixed(3));
+        return { ...c, params: p, raw: '' };
+      });
+    }
     // End Overrun: extend the last cutting command along the path direction
     const overrun = parseFloat(template?.laser?.overrun) || 0;
     if (overrun > 0) {
@@ -456,16 +466,6 @@ const svgConverter = {
           });
         }
       }
-    }
-    if (machineX || machineY || machineZ) {
-      cmds = cmds.map(c => {
-        if (!isRealCmd(c)) return c;
-        const p = { ...c.params };
-        if (p.X !== undefined) p.X = parseFloat((p.X + machineX).toFixed(3));
-        if (p.Y !== undefined) p.Y = parseFloat((p.Y + machineY).toFixed(3));
-        if (p.Z !== undefined) p.Z = parseFloat((p.Z + machineZ).toFixed(3));
-        return { ...c, params: p, raw: '' };
-      });
     }
     const pointDist = parseFloat(template?.laser?.pointDistance) || 0;
     if (pointDist > 0) cmds = this._subdivideSegments(cmds, pointDist);
