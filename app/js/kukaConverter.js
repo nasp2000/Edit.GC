@@ -115,7 +115,7 @@ const orientC = parseFloat(opts.orientC) || 89;
       const pt = { x, y, z: homeZ + (z || 0), a: orientA, b: orientB, c: orientC };
       allPoints.push(pt);
       ptCounter++;
-      return ptCounter;
+      return ptCounter + 1;
     };
 
     let srcLines = [];
@@ -214,9 +214,6 @@ const orientC = parseFloat(opts.orientC) || 89;
 
       const startIdx = entryToIdx.get(firstEntry);
       block._firstWeldIdx = startIdx;
-      const endIdx = entries[entries.length - 1].type === 'line'
-        ? entryToIdx.get(lastEntry)
-        : lastEntry._endIdx;
 
       srcLines.push('    ;--- Weld block ' + (bi + 1));
       if (bi === 0) {
@@ -265,7 +262,8 @@ const orientC = parseFloat(opts.orientC) || 89;
       srcLines.push('    ;ENDFOLD');
       srcLines.push('');
       srcLines.push('    ;--- Welding Trajectory');
-      for (const e of entries) {
+      for (let ei = 1; ei < entries.length; ei++) {
+        const e = entries[ei];
         if (e.type === 'line') {
           const idx = entryToIdx.get(e);
           srcLines.push('    ;FOLD SLIN XP' + idx + ' CONT Vel=' + weldVel + ' m/s CPDAT1 Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
@@ -283,15 +281,6 @@ const orientC = parseFloat(opts.orientC) || 89;
       srcLines.push('    TRIGGER WHEN DISTANCE=1 DELAY=' + triggerOffDelay + ' DO $OUT[68]=TRUE');
       srcLines.push('    ;ENDFOLD');
       srcLines.push('');
-      srcLines.push('    ;--- Welding Final Point');
-      srcLines.push('    ;FOLD LIN P' + endIdx + ' Vel=' + weldVel + ' m/s CPDAT' + endIdx + ' Tool[' + toolNo + ']:tool Base[' + baseNo + ']:base;%{PE}');
-      srcLines.push('    $BWDSTART=FALSE');
-      srcLines.push('    LDAT_ACT=LCPDAT' + endIdx);
-      srcLines.push('    FDAT_ACT=FP' + endIdx);
-      srcLines.push('    BAS(#CP_PARAMS,' + weldVel + ')');
-      srcLines.push('    LIN XP' + endIdx);
-      srcLines.push('    ;ENDFOLD');
-      srcLines.push('');
       srcLines.push('    ;--- Confirmation Welding OFF');
       srcLines.push("    ;FOLD WAIT FOR ( IN 69 'permiso salir' ) CONT;%{PE}");
       srcLines.push('    CONTINUE');
@@ -307,7 +296,7 @@ const orientC = parseFloat(opts.orientC) || 89;
     srcLines.push('    ;FOLD PTP HOME Vel=' + homeVelPct + ' % PDAT5;%{PE}');
     srcLines.push('    $BWDSTART=FALSE');
     srcLines.push('    PDAT_ACT=PPDAT5');
-    srcLines.push('    FDAT_ACT=FP1');
+    srcLines.push('    FDAT_ACT=FHOME');
     srcLines.push('    BAS(#PTP_PARAMS,' + homeVelPct + ')');
     srcLines.push('    $H_POS=XHOME');
     srcLines.push('    PTP XHOME');

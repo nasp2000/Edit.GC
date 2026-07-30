@@ -30,8 +30,7 @@ async function handleDroppedFile(file) {
       applyHighlight(document.getElementById('highlightWorking'), gcodeParser.serialize(state.workingCmds));
       preview.resize();
       preview.fitView();
-      document.getElementById('btnLoadKukaDat').style.display = '';
-      ui.setStatus('KUKA .src loaded: ' + file.name + ' (' + parsedSrc.motions.length + ' motions). Load .dat for real coords.');
+      ui.setStatus('KUKA .src loaded: ' + file.name + ' (' + parsedSrc.motions.length + ' motions).');
       ui.syncModals();
       ui.updateFooterInfo();
       ui.updateResizePanel();
@@ -66,7 +65,6 @@ async function handleDroppedFile(file) {
     applyHighlight(document.getElementById('highlightOriginal'), isLarge ? '' : text);
     applyHighlight(document.getElementById('highlightWorking'), isLarge ? '' : text);
     document.getElementById('btnSlice').disabled = true;
-    document.getElementById('btnLoadKukaDat').style.display = 'none';
   } else if (ext === 'dat') {
     const text = await fileManager.readGcode(file);
     const points = kukaConverter.parseDat(text);

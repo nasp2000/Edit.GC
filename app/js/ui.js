@@ -39,10 +39,9 @@ const ui = {
         ui.setProgress(90, 'Rendering...');
         preview.resize();
         preview.fitView();
-        document.getElementById('btnLoadKukaDat').style.display = '';
         ui.setProgress(100, 'Done');
         setTimeout(() => ui.setProgress(-1), 1000);
-        ui.setStatus('KUKA .src loaded: ' + file.name + ' (' + parsedSrc.motions.length + ' motions). Load companion .dat for real coordinates.');
+        ui.setStatus('KUKA .src loaded: ' + file.name + ' (' + parsedSrc.motions.length + ' motions).');
         ui.syncModals();
         ui.updateFooterInfo();
         ui.updateResizePanel();
@@ -119,7 +118,6 @@ const ui = {
         ui.setStatus(`Failed to open: ${file.name} — ${reason}`, 'error');
         return;
       }
-      document.getElementById('btnLoadKukaDat').style.display = 'none';
       ui.setProgress(50, 'Preparing editor...');
       const isLarge = text.length > 5 * 1024 * 1024 || state.originalCmds.length > 50000;
       const isHuge = text.length > 50 * 1024 * 1024;
@@ -160,62 +158,6 @@ const ui = {
       document.getElementById('btnSlice').disabled = true;
     });
 
-    // Load KUKA .dat companion file
-    document.getElementById('fileInputDat').addEventListener('change', async e => {
-      const file = e.target.files[0]; if (!file) return;
-      e.target.value = '';
-      const text = await fileManager.readGcode(file);
-      const points = kukaConverter.parseDat(text);
-      state._kukaDatPoints = points;
-      const parsedSrc = state._kukaParsedSrc;
-      if (!parsedSrc) {
-        const keys = Object.keys(points).sort((a, b) => a - b);
-        if (!keys.length) { ui.setStatus('.dat has no E6POS points.', 'error'); return; }
-        const cmds = [{ type: 'M3', params: {}, raw: 'M3' }];
-        for (const k of keys) {
-          const p = points[k];
-          cmds.push({ type: 'G1', params: { X: p.x, Y: p.y, Z: p.z, F: 3000 }, raw: 'G1 X' + p.x + ' Y' + p.y + ' Z' + p.z + ' F3000' });
-        }
-        cmds.push({ type: 'M5', params: {}, raw: 'M5' });
-        state.originalCmds = cmds.map(c => ({...c}));
-        state.workingCmds = cmds.map(c => ({...c}));
-        state.originalText = gcodeParser.serialize(cmds);
-        state.originalName = file.name.replace('.dat', '.gcode');
-        state.dirty = false;
-        const gcodeText = gcodeParser.serialize(cmds);
-        document.getElementById('editorOriginal').value = gcodeText;
-        document.getElementById('editorWorking').value = gcodeText;
-        applyHighlight(document.getElementById('highlightOriginal'), gcodeText);
-        applyHighlight(document.getElementById('highlightWorking'), gcodeText);
-        preview.resize();
-        preview.fitView();
-        ui.syncModals();
-        ui.updateFooterInfo();
-        ui.updateResizePanel();
-        ui.setStatus('.dat loaded: ' + keys.length + ' E6POS points -> G-code (M3/M5 wrapped).');
-        recentFiles.add(file.name, 'KUKA .dat', text);
-        const _rsD = document.getElementById('recentFilesSelect');
-        if (_rsD) recentFiles.populateSelect(_rsD);
-        return;
-      }
-      const cmds = kukaConverter.toGcode(parsedSrc, points);
-      state.originalCmds = cmds.map(c => ({...c}));
-      state.workingCmds = cmds.map(c => ({...c}));
-      state.dirty = false;
-      const gcodeText = gcodeParser.serialize(cmds);
-      document.getElementById('editorWorking').value = gcodeText;
-      applyHighlight(document.getElementById('highlightWorking'), gcodeText);
-      preview.resize();
-      preview.fitView();
-      ui.syncModals();
-      ui.updateFooterInfo();
-      ui.updateResizePanel();
-      ui.setStatus('KUKA .dat loaded: ' + file.name + ' (' + Object.keys(points).length + ' points). G-code updated with real coordinates.');
-    });
-
-    document.getElementById('btnLoadKukaDat').addEventListener('click', () => {
-      document.getElementById('fileInputDat').click();
-    });
 
     document.getElementById('btnMaxKuka').addEventListener('click', () => {
       ui._refreshKukaPreview();
@@ -2468,42 +2410,47 @@ const ui = {
         e.preventDefault();
         preview.fitView();
       }
-      // Tab / Shift+Tab ? navigate points (replace selection, same as point editor click)
+    });
+    // Tab must use capture phase so preventDefault fires before browser focus change
+    document.addEventListener('keydown', e => {
       if (e.key === 'Tab' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
-        const list = ui._pointsList;
-        if (!list.length) return;
+        let list = ui._pointsList;
+        if (!list || !list.length) {
+          ui._pointsList = ui._buildPointsList();
+          list = ui._pointsList;
+        }
+        if (!list || !list.length) return;
+        const addMode = e.ctrlKey || e.metaKey;
         if (ui._focusedPointPos < 0) {
-          ui._focusPoint(e.shiftKey ? list.length - 1 : 0, false);
+          ui._focusPoint(e.shiftKey ? list.length - 1 : 0, addMode);
         } else {
           const next = e.shiftKey ? ui._focusedPointPos - 1 : ui._focusedPointPos + 1;
           if (next < 0 || next >= list.length) return;
-          ui._focusPoint(next, false);
+          ui._focusPoint(next, addMode);
         }
       }
-      // Arrow Up/Down ? navigate points in table (keep selection)
+    }, true);
+    // Arrow Up/Down — navigate points in table (keep selection)
+    document.addEventListener('keydown', e => {
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && ui._pointsPanelOpen && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const list = ui._pointsList;
-        if (!list.length) return;
+        if (!list || !list.length) return;
         if (e.key === 'ArrowUp') {
           ui._focusPoint(ui._focusedPointPos <= 0 ? 0 : ui._focusedPointPos - 1, true);
         } else {
           ui._focusPoint(ui._focusedPointPos >= list.length - 1 ? list.length - 1 : ui._focusedPointPos + 1, true);
         }
       }
-      // Space ? toggle multi-select of focused point (only when points panel open)
+      // Space — toggle multi-select of focused point (only when points panel open)
       if (e.key === ' ' && ui._pointsPanelOpen && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         e.preventDefault();
         const list = ui._pointsList;
-        if (!list.length || ui._focusedPointPos < 0 || ui._focusedPointPos >= list.length) return;
+        if (!list || !list.length || ui._focusedPointPos < 0 || ui._focusedPointPos >= list.length) return;
         const idx = list[ui._focusedPointPos].idx;
-        if (state.selectedPoints.has(idx) && state.selectedPoints.size > 1) {
-          state.selectedPoints.delete(idx);
-        } else {
-          state.selectedPoints.add(idx);
-        }
-        preview._updatePointsInfo();
+        if (state.selectedPoints.has(idx)) state.selectedPoints.delete(idx);
+        else state.selectedPoints.add(idx);
         preview.draw(state.workingCmds);
         ui._updatePointsPanel();
       }
@@ -2747,8 +2694,6 @@ const ui = {
     state.templateMeta = null;
     state._kukaParsedSrc = null;
     state._kukaDatPoints = null;
-    const _kBtn = document.getElementById('btnLoadKukaDat');
-    if (_kBtn) _kBtn.style.display = 'none';
     state.workingCmds = [];
     state.originalCmds = [];
     state.originalText = '';

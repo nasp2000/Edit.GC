@@ -19,7 +19,6 @@
   </header>
 
   <input type="file" id="fileInputGcode" accept=".gcode,.gc,.nc,.cnc,.tap,.mpf,.iso,.min,.eia,.ncc,.pnc,.plt,.hpgl,.spf,.din,.g,.ngc,.prg,.txt,.src,.dat" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
-  <input type="file" id="fileInputDat" accept=".dat" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputSvg" accept=".svg" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputDxf" accept=".dxf" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
   <input type="file" id="fileInputVector" accept=".svg,.dxf" style="position:fixed;left:-9999px;top:0;width:0;height:0;opacity:0" tabindex="-1" />
@@ -149,7 +148,6 @@
           <span class="ctrl-sep-v"></span>
             <span class="file-actions">
             <button class="btn-icon" onclick="document.getElementById('fileInputGcode').click()" data-tab-vis="original" title="Open G-code file">Open G-code</button>
-            <button class="btn-icon" id="btnLoadKukaDat" style="display:none" data-tab-vis="original" title="Load companion .dat for KUKA coordinates">Load .dat</button>
             <select id="recentFilesSelect" class="bselect" style="width:110px;height:18px;font-size:9px" data-tab-vis="original" title="Open recent file"><option value="">--- Recent ---</option></select>
             <button class="btn-icon" id="btnSave2" onclick="document.getElementById('btnSave').click()" data-tab-vis="working" title="Save G-code to file">Save</button>
             <button class="btn-icon" id="btnSaveAs2" onclick="document.getElementById('btnSaveAs').click()" data-tab-vis="working" title="Save G-code as new file">Save As</button>
@@ -545,23 +543,14 @@
   </div>
 
   <div id="ctxMenu" class="ctx-menu" style="display:none">
-    <div class="ctx-item" data-action="markStart">Set as Mark Start</div>
-    <div class="ctx-item" data-action="setSide">Toggle Set Side</div>
-    <div class="ctx-item" data-action="addPoint">Add Point Here</div>
-    <div class="ctx-item" data-action="deletePoint">Delete Point</div>
+    <div class="ctx-item" data-action="undo">Undo</div>
+    <div class="ctx-item" data-action="redo">Redo</div>
+    <div class="ctx-sep"></div>
     <div class="ctx-item" data-action="setAsRapid">Set as Rapid</div>
+    <div class="ctx-item" data-action="deletePoint">Delete Point</div>
     <div class="ctx-sep"></div>
-    <div class="ctx-submenu" data-action="speedPowerGroup">
-      <span class="ctx-item ctx-submenu-label" data-action="__toggleSp">Speed &amp; Power ▸</span>
-      <div class="ctx-submenu-items ctx-menu" style="left:100%;top:-4px">
-        <div class="ctx-item" data-action="sp1"><span class="ctx-swatch" style="background:#F97316"></span>Speed 1000 / Power 10%</div>
-        <div class="ctx-item" data-action="sp2"><span class="ctx-swatch" style="background:#EC4899"></span>Speed 2000 / Power 20%</div>
-        <div class="ctx-item" data-action="sp3"><span class="ctx-swatch" style="background:#84CC16"></span>Speed 3000 / Power 30%</div>
-      </div>
-    </div>
-    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="zoomToSelection">Zoom to Selection</div>
     <div class="ctx-item" data-action="fitView">Fit View</div>
-    <div class="ctx-item" data-action="resetView">Reset View</div>
   </div>
 
   <script src="js/config.js"></script>

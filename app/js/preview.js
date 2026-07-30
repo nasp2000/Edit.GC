@@ -763,38 +763,14 @@ const preview = {
       const hasSelection = state.selectedPoints.size >= 1;
       menu.querySelectorAll('[data-action]').forEach(el => {
         const a = el.dataset.action;
-        if (a === 'markStart') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
-        else if (a === 'setSide') el.style.display = inGcode ? '' : 'none';
+        if (a === 'setAsRapid') el.style.display = inGcode && (hasSelection || cmdIdx >= 0) ? '' : 'none';
         else if (a === 'deletePoint') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
-        else if (a === 'addPoint') el.style.display = inGcode ? '' : 'none';
-        else if (a === 'setAsRapid') el.style.display = inGcode && (hasSelection || cmdIdx >= 0) ? '' : 'none';
-        else if (a === 'sp1' || a === 'sp2' || a === 'sp3') el.style.display = inGcode ? '' : 'none';
-        else if (a === '__toggleSp') el.style.display = inGcode ? '' : 'none';
+        else if (a === 'undo') el.style.display = (typeof undoRedo !== 'undefined' && undoRedo.canUndo()) ? '' : 'none';
+        else if (a === 'redo') el.style.display = (typeof undoRedo !== 'undefined' && undoRedo.canRedo()) ? '' : 'none';
+        else if (a === 'zoomToSelection') el.style.display = state.selectedPoints.size >= 2 ? '' : 'none';
         else el.style.display = '';
       });
-      menu.querySelectorAll('.ctx-submenu').forEach(el => {
-        if (el.dataset.action === 'speedPowerGroup') el.style.display = inGcode ? '' : 'none';
-      });
       menu._ctxData = { cmdIdx, canvasX, canvasY };
-
-      // Update speed/power labels
-      if (window.ui && window.ui._speedPowerRows) {
-        const rows = window.ui._speedPowerRows;
-        const toggleEl = menu.querySelector('[data-action="__toggleSp"]');
-        if (toggleEl) {
-          toggleEl.textContent = isKuka ? 'Weld Speed ▸' : 'Speed & Power ▸';
-        }
-        for (let ri = 0; ri < 3; ri++) {
-          const el = menu.querySelector(`[data-action="sp${ri + 1}"]`);
-          if (el && rows[ri]) {
-            if (isKuka) {
-              el.innerHTML = `<span class="ctx-swatch" style="background:${rows[ri].color}"></span>${rows[ri].speed} m/s`;
-            } else {
-              el.innerHTML = `<span class="ctx-swatch" style="background:${rows[ri].color}"></span>F:${rows[ri].speed} S:${rows[ri].power}%`;
-            }
-          }
-        }
-      }
 
       menu.style.left = Math.min(e.clientX + 4, window.innerWidth - 222) + 'px';
       menu.style.top = Math.min(e.clientY + 4, window.innerHeight - menu.offsetHeight - 8) + 'px';
@@ -803,57 +779,26 @@ const preview = {
 
     menu.addEventListener('click', e => {
       const item = e.target.closest('[data-action]');
-      if (!item) {
-        // Close submenus when clicking outside
-        menu.querySelectorAll('.ctx-submenu-items').forEach(s => s.style.display = 'none');
-        return;
-      }
+      if (!item) return;
       const action = item.dataset.action;
-      if (action === '__toggleSp') {
-        const sub = menu.querySelector('.ctx-submenu-items');
-        if (sub) sub.style.display = sub.style.display === 'block' ? 'none' : 'block';
-        return;
-      }
       const ctx = menu._ctxData || {};
       hideMenu();
 
       if (!window.ui) return;
-      if (action === 'markStart' && ctx.cmdIdx >= 0) {
-        state.selectedPoints.clear();
-        state.selectedPoints.add(ctx.cmdIdx);
-        ui._markStartIdx = ctx.cmdIdx;
-        ui._reorderFromMark();
-        ui.setStatus(`Mark Start: point ${ctx.cmdIdx + 1}`);
-      } else if (action === 'setSide') {
-        document.getElementById('btnSetSide').click();
-      } else if (action === 'addPoint' && ctx.cmdIdx >= 0) {
-        state.selectedPoints.clear();
-        state.selectedPoints.add(ctx.cmdIdx);
-        // Detect mode: if point is near tool on/off, use Start/Stop; otherwise Continuous
-        const tpl = (typeof templateManager !== 'undefined' && templateManager.getActive()) || null;
-        const td = tpl?.data || tpl;
-        const baseCmd = (s) => (s || '').trim().toUpperCase().split(/\s+/)[0];
-        const onTypes = (td?.laserOnCmd || 'M3,M4').split(',').map(baseCmd);
-        const offTypes = (td?.laserOffCmd || 'M5').split(',').map(baseCmd);
-        let useStartStop = false;
-        for (let i = Math.max(0, ctx.cmdIdx - 3); i <= Math.min(state.workingCmds.length - 1, ctx.cmdIdx + 3); i++) {
-          const t = baseCmd(state.workingCmds[i].type || '');
-          if (onTypes.includes(t) || offTypes.includes(t)) { useStartStop = true; break; }
+      if (action === 'undo') {
+        if (typeof undoRedo !== 'undefined' && undoRedo.canUndo()) {
+          undoRedo.undo();
+          ui.refreshWorking();
+          this.draw(state.workingCmds);
+          ui.setStatus('Undo');
         }
-        if (useStartStop) {
-          document.getElementById('pointsAlongPath').value = '0';
-          document.getElementById('chkStartStop').checked = true;
-          document.getElementById('pointsOffsetX').value = '0';
-          document.getElementById('pointsOffsetY').value = '0';
-        } else {
-          document.getElementById('pointsAlongPath').value = '1';
-          document.getElementById('chkStartStop').checked = false;
+      } else if (action === 'redo') {
+        if (typeof undoRedo !== 'undefined' && undoRedo.canRedo()) {
+          undoRedo.redo();
+          ui.refreshWorking();
+          this.draw(state.workingCmds);
+          ui.setStatus('Redo');
         }
-        document.getElementById('btnPointsGenerate').click();
-      } else if (action === 'deletePoint' && ctx.cmdIdx >= 0) {
-        state.selectedPoints.clear();
-        state.selectedPoints.add(ctx.cmdIdx);
-        document.getElementById('btnPointsDelete').click();
       } else if (action === 'setAsRapid' && (state.selectedPoints.size >= 1 || ctx.cmdIdx >= 0)) {
         let from, to;
         if (state.selectedPoints.size >= 1) {
@@ -931,20 +876,6 @@ const preview = {
       } else if (action === 'resetView') {
         state.previewScale = 1; state.previewOffX = 0; state.previewOffY = 0;
         this.draw(state.workingCmds);
-      } else if (action.startsWith('sp') && ui._speedPowerRows) {
-        const ri = parseInt(action.charAt(2)) - 1;
-        if (ctx.cmdIdx >= 0) {
-          const rows = ui._speedPowerRows;
-          rows.forEach(r => { r.assignedPoints = r.assignedPoints.filter(p => p !== ctx.cmdIdx); });
-          rows[ri].assignedPoints.push(ctx.cmdIdx);
-          state.selectedPoints.clear();
-          state.selectedPoints.add(ctx.cmdIdx);
-          document.getElementById('btnSpeedPowerApply').click();
-          ui.setStatus(`Point ${ctx.cmdIdx + 1} assigned to row ${ri + 1}`);
-        } else {
-          const rows = ui._speedPowerRows;
-          ui.setStatus(`Row ${ri + 1}: F=${rows[ri].speed} S=${rows[ri].power}% (right-click near a point to assign)`);
-        }
       }
     });
   },
@@ -2120,8 +2051,8 @@ _drawHead(commands, idx, segFrac, segIdx) {
       const boxW = padX * 2 + maxLabelW + 4 * dpr2 + swatchW;
       const lineH = fs * 1.5;
       const boxH = items.length * lineH + padY * 2;
-      const bx = cssW - boxW - 4 * dpr2;
-      const by = 4 * dpr2;
+      const bx = cssW - boxW - 2 * dpr2;
+      const by = 2 * dpr2;
       ctx.save();
       // Dark background
       ctx.fillStyle = 'rgba(15,23,42,0.82)';
