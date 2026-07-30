@@ -431,39 +431,54 @@ const svgConverter = {
         return { ...c, params: p, raw: '' };
       });
     }
-    // End Overrun: extend the last cutting command along the path direction
+    // End Overrun: extend the last cutting command of EACH shape group
     const overrun = parseFloat(template?.laser?.overrun) || 0;
     if (overrun > 0) {
-      let lastCutIdx = -1, prevCutIdx = -1;
-      for (let i = cmds.length - 1; i >= 0; i--) {
-        const c = cmds[i];
-        if (!c || c.isComment || c.isBlank) continue;
+      const isCut = (c) => {
+        if (!c || c.isComment || c.isBlank) return false;
         const t = (c.type || '').toUpperCase();
-        const isCut = (t === 'G1' || t === 'G01' || t === '' || t === null || t === undefined) &&
-                      c.params && c.params.X !== undefined && c.params.Y !== undefined;
-        if (isCut) {
-          if (lastCutIdx === -1) { lastCutIdx = i; }
-          else if (prevCutIdx === -1) { prevCutIdx = i; break; }
-        }
+        return (t === 'G1' || t === 'G01' || t === '' || t === null || t === undefined) &&
+               c.params && c.params.X !== undefined && c.params.Y !== undefined;
+      };
+      const isTravel = (c) => {
+        if (!c || c.isComment || c.isBlank) return false;
+        const t = (c.type || '').toUpperCase();
+        return t === 'G0' || t === 'G00' || ((t === '' || t === undefined) && c.params && (c.params.F || 0) >= 4000);
+      };
+      const groups = [];
+      let cur = [];
+      for (let i = 0; i < cmds.length; i++) {
+        if (isTravel(cmds[i]) && cur.length && cur.some(isCut)) { groups.push(cur); cur = []; }
+        cur.push(i);
       }
-      if (lastCutIdx >= 0 && prevCutIdx >= 0) {
-        const lastP = cmds[lastCutIdx].params;
-        const prevP = cmds[prevCutIdx].params;
-        const dx = lastP.X - prevP.X;
-        const dy = lastP.Y - prevP.Y;
-        const len = Math.hypot(dx, dy);
-        if (len > 0.001) {
-          const origEndX = lastP.X;
-          const origEndY = lastP.Y;
-          lastP.X = parseFloat((lastP.X + overrun * dx / len).toFixed(3));
-          lastP.Y = parseFloat((lastP.Y + overrun * dy / len).toFixed(3));
-          cmds[lastCutIdx] = { ...cmds[lastCutIdx], params: { ...lastP }, raw: '' };
-          cmds.push({
-            lineIndex: -1,
-            raw: ';@ORIG_END X' + this._r(origEndX) + ' Y' + this._r(origEndY),
-            type: '', params: {}, comment: '@ORIG_END X' + this._r(origEndX) + ' Y' + this._r(origEndY),
-            isBlank: false, isComment: true, blockDelete: false
-          });
+      if (cur.length && cur.some(isCut)) groups.push(cur);
+      for (const idxs of groups) {
+        let lastCutI = -1, prevCutI = -1;
+        for (let j = idxs.length - 1; j >= 0; j--) {
+          if (isCut(cmds[idxs[j]])) {
+            if (lastCutI === -1) lastCutI = idxs[j];
+            else if (prevCutI === -1) { prevCutI = idxs[j]; break; }
+          }
+        }
+        if (lastCutI >= 0 && prevCutI >= 0) {
+          const lastP = cmds[lastCutI].params;
+          const prevP = cmds[prevCutI].params;
+          const dx = lastP.X - prevP.X;
+          const dy = lastP.Y - prevP.Y;
+          const len = Math.hypot(dx, dy);
+          if (len > 0.001) {
+            const origEndX = lastP.X;
+            const origEndY = lastP.Y;
+            lastP.X = parseFloat((lastP.X + overrun * dx / len).toFixed(3));
+            lastP.Y = parseFloat((lastP.Y + overrun * dy / len).toFixed(3));
+            cmds[lastCutI] = { ...cmds[lastCutI], params: { ...lastP }, raw: '' };
+            cmds.push({
+              lineIndex: -1,
+              raw: ';@ORIG_END X' + this._r(origEndX) + ' Y' + this._r(origEndY),
+              type: '', params: {}, comment: '@ORIG_END X' + this._r(origEndX) + ' Y' + this._r(origEndY),
+              isBlank: false, isComment: true, blockDelete: false
+            });
+          }
         }
       }
     }

@@ -2009,14 +2009,14 @@ _drawHead(commands, idx, segFrac, segIdx) {
           ctx.fillText('END', samePoint ? offX : 0, -14);
           ctx.restore();
         }
-        // Overrun indicator: draw extended path + marker at original end
+        // Overrun indicator: draw extended path + marker at original end (all shapes)
         if (state.workingCmds) {
-          const origEndCmd = state.workingCmds.find(c => c.isComment && c.comment && c.comment.startsWith('@ORIG_END'));
-          if (origEndCmd) {
+          const origEndCmds = state.workingCmds.filter(c => c.isComment && c.comment && c.comment.startsWith('@ORIG_END'));
+          for (const origEndCmd of origEndCmds) {
             const m = origEndCmd.comment.match(/X([-\d.]+)\s+Y([-\d.]+)/);
             if (m) {
               const oe = prj({ x: parseFloat(m[1]), y: parseFloat(m[2]) });
-              if (oe) {
+              if (oe && ex) {
                 // Dashed line from original end to extended end
                 ctx.strokeStyle = '#22c55e';
                 ctx.lineWidth = 4;
