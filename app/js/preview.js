@@ -764,7 +764,6 @@ const preview = {
       menu.querySelectorAll('[data-action]').forEach(el => {
         const a = el.dataset.action;
         if (a === 'setAsRapid') el.style.display = inGcode && (hasSelection || cmdIdx >= 0) ? '' : 'none';
-        else if (a === 'deletePoint') el.style.display = inGcode && cmdIdx >= 0 ? '' : 'none';
         else if (a === 'undo') el.style.display = state.undoStack.length ? '' : 'none';
         else if (a === 'redo') el.style.display = state.redoStack.length ? '' : 'none';
         else if (a === 'zoomToSelection') el.style.display = state.selectedPoints.size >= 2 ? '' : 'none';
