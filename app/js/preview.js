@@ -686,8 +686,8 @@ const preview = {
                   }
                 }
                 ctx.fillStyle = 'rgba(37,99,235,0.95)';
-                ctx.beginPath(); ctx.arc(sp.x, sp.y, 6, 0, Math.PI * 2); ctx.fill();
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.beginPath(); ctx.arc(sp.x, sp.y, 12, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
               }
             }
           }
@@ -1027,7 +1027,7 @@ const preview = {
       const px = c.params.X ?? 0;
       const py = c.params.Y ?? 0;
       ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 7, 0, Math.PI * 2);
-      ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 6; ctx.stroke();
       ctx.beginPath(); ctx.arc(toCanvasX(px), toCanvasY(py), 5, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(0,255,136,0.4)'; ctx.fill();
     });
@@ -1801,7 +1801,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    const glowWidth = isRaster ? 5 : 3.5;
+    const glowWidth = isRaster ? 10 : 7;
     // Feed rate coloring (tool-on segments)
     if (previewOpts.colorByFeed && Object.keys(feedBatches).length) {
       const feedColors = { slow: '#3B82F6', med: '#F59E0B', fast: '#EF4444' };
@@ -1815,7 +1815,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
         ctx.stroke();
         ctx.globalAlpha = eraseAlpha;
         ctx.strokeStyle = feedColors[bucket];
-        ctx.lineWidth = isRaster ? 3 : 1.8;
+        ctx.lineWidth = isRaster ? 6 : 3.6;
         ctx.beginPath();
         for (let j = 0; j < batch.ax.length; j++) { ctx.moveTo(batch.ax[j], batch.ay[j]); ctx.lineTo(batch.bx[j], batch.by[j]); }
         ctx.stroke();
@@ -1831,7 +1831,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
         ctx.stroke();
         ctx.globalAlpha = eraseAlpha;
         ctx.strokeStyle = isRaster ? '#7e22ce' : '#a855f7';
-        ctx.lineWidth = isRaster ? 3 : 1.8;
+        ctx.lineWidth = isRaster ? 6 : 3.6;
         ctx.beginPath();
         for (let j = 0; j < toolOnBatch.ax.length; j++) { ctx.moveTo(toolOnBatch.ax[j], toolOnBatch.ay[j]); ctx.lineTo(toolOnBatch.bx[j], toolOnBatch.by[j]); }
         ctx.stroke();
@@ -1862,7 +1862,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
         ctx.stroke();
         ctx.globalAlpha = eraseAlpha;
         ctx.strokeStyle = batch.color;
-        ctx.lineWidth = isRaster ? 3 : 2.5;
+        ctx.lineWidth = isRaster ? 6 : 5;
         ctx.beginPath();
         for (let j = 0; j < batch.ax.length; j++) { ctx.moveTo(batch.ax[j], batch.ay[j]); ctx.lineTo(batch.bx[j], batch.by[j]); }
         ctx.stroke();
@@ -1873,7 +1873,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
     if (pbActive && pbCmdIdx > 0 && lastCmdIdx >= 0) {
       ctx.save();
       ctx.strokeStyle = '#22d3ee';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 6;
       ctx.shadowColor = 'rgba(34,211,238,0.6)';
       ctx.shadowBlur = 10;
       ctx.beginPath();
@@ -1937,7 +1937,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
     // Draw dots at each vertex
     if (!isRaster) {
       const dotDotStep = isPoints ? 1 : Math.max(1, Math.floor(segsToDraw / 50000));
-      const dotRadius = isPoints ? 4 : 3;
+      const dotRadius = isPoints ? 8 : 6;
       ctx.fillStyle = isPoints ? 'rgba(37,99,235,0.95)' : 'rgba(37,99,235,0.85)';
       for (let i = 0; i < segsToDraw; i += dotDotStep) {
         const s = segments[i];
@@ -1989,22 +1989,22 @@ _drawHead(commands, idx, segFrac, segIdx) {
         const offX = samePoint ? 22 : 0;
         if (startSeg) {
           ctx.save(); ctx.translate(sx, sy);
-          ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2);
-          ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2; ctx.stroke();
-          ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2);
+          ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2);
+          ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 4; ctx.stroke();
+          ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2);
           ctx.fillStyle = '#fbbf24'; ctx.fill();
-          ctx.font = 'bold 9px sans-serif'; ctx.fillStyle = '#f59e0b';
+          ctx.font = 'bold 18px sans-serif'; ctx.fillStyle = '#f59e0b';
           ctx.textAlign = 'center';
           ctx.fillText('START', samePoint ? -offX : 0, -14);
           ctx.restore();
         }
         if (endSeg) {
           ctx.save(); ctx.translate(ex, ey);
-          ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2);
-          ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.stroke();
-          ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2);
+          ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2);
+          ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 4; ctx.stroke();
+          ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2);
           ctx.fillStyle = '#4ade80'; ctx.fill();
-          ctx.font = 'bold 9px sans-serif'; ctx.fillStyle = '#22c55e';
+          ctx.font = 'bold 18px sans-serif'; ctx.fillStyle = '#22c55e';
           ctx.textAlign = 'center';
           ctx.fillText('END', samePoint ? offX : 0, -14);
           ctx.restore();
@@ -2019,18 +2019,18 @@ _drawHead(commands, idx, segFrac, segIdx) {
               if (oe) {
                 // Dashed line from original end to extended end
                 ctx.strokeStyle = '#22c55e';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([6, 4]);
+                ctx.lineWidth = 4;
+                ctx.setLineDash([8, 6]);
                 ctx.beginPath(); ctx.moveTo(oe.x, oe.y); ctx.lineTo(ex, ey); ctx.stroke();
                 ctx.setLineDash([]);
 
                 // Large marker at original end
                 ctx.save(); ctx.translate(oe.x, oe.y);
+                ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2);
+                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 5; ctx.stroke();
                 ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2);
-                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.stroke();
-                ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2);
                 ctx.fillStyle = '#4ade80'; ctx.fill();
-                ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#22c55e';
+                ctx.font = 'bold 16px sans-serif'; ctx.fillStyle = '#22c55e';
                 ctx.textAlign = 'center'; ctx.fillText('OVR', 0, -13);
                 ctx.restore();
               }
@@ -2047,7 +2047,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
           const dpr = window.devicePixelRatio || 1;
           ctx.save(); ctx.translate(mx, my);
           ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2);
-          ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2.5; ctx.stroke();
+          ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 5; ctx.stroke();
           ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2);
           ctx.fillStyle = '#ef4444'; ctx.fill();
           ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#ef4444';
@@ -2084,7 +2084,7 @@ _drawHead(commands, idx, segFrac, segIdx) {
       if (!c) return;
       const ps = prj({x: c.params.X ?? 0, y: c.params.Y ?? 0, z: c.params.Z ?? 0});
       ctx.beginPath(); ctx.arc(ps.x, ps.y, 7, 0, Math.PI * 2);
-      ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 6; ctx.stroke();
       ctx.beginPath(); ctx.arc(ps.x, ps.y, 5, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(0,255,136,0.4)'; ctx.fill();
     });
@@ -2120,8 +2120,8 @@ _drawHead(commands, idx, segFrac, segIdx) {
       const boxW = padX * 2 + maxLabelW + 4 * dpr2 + swatchW;
       const lineH = fs * 1.5;
       const boxH = items.length * lineH + padY * 2;
-      const bx = cssW - boxW - 1 * dpr2;
-      const by = 1 * dpr2;
+      const bx = cssW - boxW - 4 * dpr2;
+      const by = 4 * dpr2;
       ctx.save();
       // Dark background
       ctx.fillStyle = 'rgba(15,23,42,0.82)';
